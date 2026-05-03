@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     drive_service_account_json: str | None = None
     course_catalog_cache_seconds: int = 60
     unknown_course_suggest_count: int = 3
+    image_batch_seal_seconds: int = 90
+    image_intake_ocr_per_day: int = 100
+    image_intake_max_open_batches_per_phone_per_day: int = 3
+    media_gcs_prefix: str = "media/"
 
 def load_settings_with_secret_manager() -> Settings:
     if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":

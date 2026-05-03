@@ -4,12 +4,19 @@ from pydantic import BaseModel, Field, field_validator
 class WAText(BaseModel):
     body: str
 
+class WAImage(BaseModel):
+    id: str
+    mime_type: str
+    sha256: str | None = None
+    caption: str | None = None
+
 class WAMessage(BaseModel):
     id: str
     from_: str = Field(validation_alias="from")
     timestamp: str
     type: Literal["text", "image", "document", "audio", "video", "interactive", "button", "reaction", "sticker", "location", "contacts", "unknown"]
     text: WAText | None = None
+    image: WAImage | None = None
 
 class WAValue(BaseModel):
     messaging_product: Literal["whatsapp"]

@@ -63,7 +63,12 @@ async def webhook_inbound(
         for change in entry.changes:
             for msg in (change.value.messages or []):
                 try:
-                    reply = pipeline.handle_message(session, msg)
+                    reply = pipeline.handle_message(
+                        session, 
+                        msg, 
+                        request.app.state.http, 
+                        request.app.state.gcs
+                    )
                     if not (isinstance(reply, TextReply) and reply.body == ""):
                         whatsapp.send_reply(
                             http_client=request.app.state.http,
@@ -78,5 +83,33 @@ async def webhook_inbound(
                 except Exception:
                     log.exception("handle_message_failed", extra={"wa_message_id": msg.id})
                     session.rollback()
+
+    # Flush notifications
+    try:
+        from app.db import IntakeNotification
+        from sqlalchemy import select
+        
+        with session.begin_nested() if session.in_transaction() else session.begin():
+            pass # just close any open things, but depend on a new transaction
+            
+        notifications = session.execute(
+            select(IntakeNotification)
+            .where(IntakeNotification.sent_at == None)
+            .order_by(IntakeNotification.created_at.asc())
+            .limit(5)
+            .with_for_update(skip_locked=True)
+        ).scalars().all()
+        
+        for n in notifications:
+            try:
+                whatsapp.send_text(request.app.state.http, n.phone_number, n.body)
+                from datetime import datetime, timezone
+                n.sent_at = datetime.now(timezone.utc)
+            except Exception as e:
+                log.error("failed_to_send_notification", extra={"id": n.id, "err": str(e)})
+        session.commit()
+    except Exception:
+        log.exception("flush_notifications_failed")
+        session.rollback()
 
     return Response(status_code=200)

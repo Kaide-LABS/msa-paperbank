@@ -129,3 +129,44 @@ class RequestLog(Base):
     flash_input_tokens: Mapped[Optional[int]]
     flash_output_tokens: Mapped[Optional[int]]
     error: Mapped[Optional[str]]
+
+class Uploader(Base):
+    __tablename__ = "uploaders"
+    phone_number: Mapped[str] = mapped_column(primary_key=True)
+    display_name: Mapped[Optional[str]]
+    added_by: Mapped[str]
+    added_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    revoked_at: Mapped[Optional[datetime]]
+    revoke_reason: Mapped[Optional[str]]
+
+class ImageBatch(Base):
+    __tablename__ = "image_batches"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    phone_number: Mapped[str] = mapped_column(index=True)
+    pending_paper_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pending_papers.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(default='open')
+    opened_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    last_item_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+    sealed_at: Mapped[Optional[datetime]]
+    failure_reason: Mapped[Optional[str]]
+
+class ImageBatchItem(Base):
+    __tablename__ = "image_batch_items"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey("image_batches.id", ondelete="CASCADE"))
+    wa_media_id: Mapped[str]
+    wa_message_id: Mapped[str] = mapped_column(unique=True)
+    gcs_object: Mapped[str]
+    mime_type: Mapped[str]
+    sha256: Mapped[str]
+    ord: Mapped[int]
+    added_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    __table_args__ = (UniqueConstraint("batch_id", "ord"),)
+
+class IntakeNotification(Base):
+    __tablename__ = "intake_notifications"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    phone_number: Mapped[str]
+    body: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    sent_at: Mapped[Optional[datetime]]

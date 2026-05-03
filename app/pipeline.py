@@ -8,11 +8,18 @@ from app.schemas import WAMessage, Reply, TextReply, DocumentReply
 from app import llm
 from app import retrieval
 from app.errors import RouterError, DuplicateMessage, EmbeddingError
+from app import intake
 import logging
 
 log = logging.getLogger(__name__)
 
-def handle_message(session: Session, msg: WAMessage) -> Reply:
+def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) -> Reply:
+    # Phase 5: opportunistic sealer.
+    try:
+        intake.sweep_and_seal(session, gcs_client)
+    except Exception:
+        log.exception("intake_sweep_failed")
+
     # 1. Idempotency
     user_text = msg.text.body if msg.text else ""
     log_entry = RequestLog(
@@ -30,9 +37,24 @@ def handle_message(session: Session, msg: WAMessage) -> Reply:
         raise DuplicateMessage()
 
     try:
-        # We need to update this log entry, so let's re-fetch it or just use it since it's committed
-        # Actually it's detached after commit unless we set expire_on_commit=False (which we did).
-        
+        # Phase 5: Image branch
+        if msg.type == "image":
+            if msg.image is None:
+                log_entry.outcome = "error"
+                log_entry.error = "image_payload_missing"
+                session.commit()
+                return TextReply(body="Send a clear photo of the paper.")
+            
+            reply = intake.handle_image(session, http_client, gcs_client, msg)
+            if isinstance(reply, TextReply) and "isn't approved" in reply.body:
+                log_entry.outcome = "not_whitelisted"
+            elif isinstance(reply, TextReply) and "submitted enough" in reply.body:
+                log_entry.outcome = "rate_limited"
+            else:
+                log_entry.outcome = "received_image" # internal success
+            session.commit()
+            return reply
+
         # 2. Type guard
         if msg.type != "text":
             log_entry.outcome = "error"

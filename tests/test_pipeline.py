@@ -109,8 +109,24 @@ def test_pipeline_semantic_fallback_when_ilike_misses(mock_semantic, mock_find, 
     assert isinstance(reply, DocumentReply)
     assert reply.paper_id == p.id
 
-@patch("app.pipeline.llm.route")
-def test_pipeline_daily_token_budget_blocks(mock_route, db_session, base_msg):
+@patch("app.pipeline.intake.handle_image")
+def test_pipeline_image_from_non_whitelisted(mock_handle, db_session):
+    from app.schemas import WAImage
+    msg = WAMessage(id="msgimg", from_="2348999999999", timestamp="123", type="image", image=WAImage(id="m1", mime_type="image/jpeg"))
+    
+    mock_handle.return_value = TextReply(body="This number isn't approved to submit photos.")
+    
+    import httpx
+    mock_http = httpx.Client()
+    mock_gcs = "gcs"
+    
+    reply = handle_message(db_session, msg, mock_http, mock_gcs)
+    
+    assert isinstance(reply, TextReply)
+    assert "isn't approved" in reply.body
+    
+    log_check = db_session.execute(select(RequestLog).where(RequestLog.wa_message_id == "msgimg")).scalar_one()
+    assert log_check.outcome == "not_whitelisted"
     # Insert rows exceeding budget
     from app.config import settings
     
