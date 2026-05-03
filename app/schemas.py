@@ -34,6 +34,7 @@ class RouterOutput(BaseModel):
     course_code: str | None = None
     year: int | None = None
     semester: Literal["harmattan", "rain"] | None = None
+    exam_session: Literal["CA1", "CA2", "exam"] | None = None
     confidence: float
 
     @field_validator("year")

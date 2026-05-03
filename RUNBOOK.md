@@ -23,7 +23,8 @@ If a lecturer points out a paper shouldn't be shared (e.g., active use risk):
 3. Check Cloud Run logs: `make logs`.
 4. Check Cloud SQL is reachable.
 5. Check Vertex AI quotas.
-6. If still silent, escalate.
+6. Check `python -m admin.courses list` — if the course the user asked about is missing or `is_active=FALSE`, that's the cause.
+7. If still silent, escalate.
 
 ## 5. Restore from backup
 - Cloud SQL automated backups are enabled by default.
@@ -32,3 +33,9 @@ If a lecturer points out a paper shouldn't be shared (e.g., active use risk):
 - Re-run missing migrations if needed via Cloud SQL Auth Proxy.
 
 If `admin stats --days 7` shows tokens > 1.4M, something is wrong — open an issue.
+
+## 6. Curation queue
+After every Drive import, run `python -m admin.curate` to walk the queue. The bot does not retrieve a paper until you approve it.
+
+## 7. Mass-retire a course
+`python -m admin.retire --course CSC305 --reason "syllabus rotated" --yes`

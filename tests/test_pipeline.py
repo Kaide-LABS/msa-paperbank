@@ -56,14 +56,39 @@ def test_pipeline_found(mock_route, db_session, base_msg):
     assert reply.paper_id == p.id
 
 @patch("app.pipeline.llm.route")
-def test_pipeline_not_found(mock_route, db_session, base_msg):
-    base_msg.id = "msg_notfound"
+def test_pipeline_unknown_course_returns_suggestions(mock_route, db_session, base_msg):
+    from app.db import Course
+    db_session.add_all([
+        Course(code="MTH102", title="A", level=100, department="D"),
+        Course(code="MTH101", title="A", level=100, department="D"),
+        Course(code="MTH202", title="A", level=200, department="D")
+    ])
+    db_session.commit()
+    
+    base_msg.id = "msg_unknown_course"
     from app.schemas import RouterOutput
-    mock_route.return_value = (RouterOutput(intent="paper_request", course_code="MTH102", year=1990, confidence=0.9), 10, 10)
+    mock_route.return_value = (RouterOutput(intent="paper_request", course_code="MTH999", year=2020, confidence=0.9), 10, 10)
     
     reply = handle_message(db_session, base_msg)
     assert isinstance(reply, TextReply)
-    assert "We don't have this MTH102 paper yet" in reply.body
+    assert "Did you mean:" in reply.body
+    assert "MTH102" in reply.body
+    
+@patch("app.pipeline.llm.route")
+def test_pipeline_known_course_passes_to_retrieval(mock_route, db_session, base_msg):
+    from app.db import Course
+    db_session.add(Course(code="CSC305", title="A", level=300, department="D"))
+    p = Paper(course_code="CSC305", semester="harmattan", year=2020, gcs_object="obj", sha256="hash", uploaded_by="u")
+    db_session.add(p)
+    db_session.commit()
+    
+    base_msg.id = "msg_known_course"
+    from app.schemas import RouterOutput
+    mock_route.return_value = (RouterOutput(intent="paper_request", course_code="CSC305", year=2020, semester="harmattan", confidence=0.9), 10, 10)
+    
+    reply = handle_message(db_session, base_msg)
+    assert isinstance(reply, DocumentReply)
+    assert reply.paper_id == p.id
 
 @patch("app.pipeline.llm.route")
 @patch("app.pipeline.retrieval.find_paper")

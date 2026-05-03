@@ -88,23 +88,32 @@ def handle_message(session: Session, msg: WAMessage) -> Reply:
         elif routed.intent == "other":
             log_entry.outcome = "not_found"
             session.commit()
-            return TextReply(body="I only handle MTH102 past-paper requests for now. Try 'MTH102 rain 2023'.")
+            return TextReply(body="I only handle past-paper requests. Try something like 'MTH102 harmattan 2022'.")
 
         # paper_request intent
-        # 6. Course guard
-        if not routed.course_code or routed.course_code.upper() != settings.hardcoded_course_code.upper():
+        # 6. Course guard (Phase 4: DB-backed)
+        known = retrieval.known_courses(session)
+        proposed = (routed.course_code or "").upper().replace(" ", "")
+        if not proposed or proposed not in known:
+            suggestions = retrieval.nearest_courses(session, proposed, settings.unknown_course_suggest_count)
             log_entry.outcome = "not_found"
             session.commit()
-            return TextReply(body=f"Phase 1 only serves {settings.hardcoded_course_code}. Other courses are coming soon.")
+            if suggestions:
+                body = "I don't have that course yet. Did you mean: " + ", ".join(suggestions) + "?"
+            else:
+                body = "I don't have that course in the catalog. Send something like 'MTH102 harmattan 2022'."
+            return TextReply(body=body)
+
+        course_code = proposed
 
         # 7. Lookup
-        paper = retrieval.find_paper(session, settings.hardcoded_course_code, routed.year, routed.semester)
+        paper = retrieval.find_paper(session, course_code, routed.year, routed.semester)
 
         # 7b. Phase 2 semantic fallback
         if paper is None and routed.confidence >= settings.semantic_fallback_min_router_confidence:
             try:
                 paper = retrieval.find_paper_by_semantic_query(
-                    session, settings.hardcoded_course_code, msg.text.body
+                    session, course_code, msg.text.body
                 )
             except EmbeddingError:
                 # Soft fallback: stay with paper=None and let step 8 reply "not found".
@@ -122,7 +131,7 @@ def handle_message(session: Session, msg: WAMessage) -> Reply:
         else:
             log_entry.outcome = "not_found"
             session.commit()
-            return TextReply(body=f"We don't have this {settings.hardcoded_course_code} paper yet — Ibrahim is uploading.")
+            return TextReply(body=f"We don't have this {course_code} paper yet — Ibrahim is uploading.")
             
     except Exception:
         session.rollback()

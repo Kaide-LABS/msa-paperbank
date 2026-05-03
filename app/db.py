@@ -47,6 +47,7 @@ class Course(Base):
     title: Mapped[str]
     level: Mapped[int]
     department: Mapped[str]
+    is_active: Mapped[bool] = mapped_column(default=True)
 
 class Paper(Base):
     __tablename__ = "papers"
@@ -79,6 +80,39 @@ class PaperChunk(Base):
     embedding: Mapped[list[float]] = mapped_column(Vector(768))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     __table_args__ = (UniqueConstraint("paper_id", "chunk_no"),)
+
+class PendingPaper(Base):
+    __tablename__ = "pending_papers"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    course_code: Mapped[str] = mapped_column(ForeignKey("courses.code"))
+    course_title: Mapped[Optional[str]]
+    semester: Mapped[str]
+    exam_session: Mapped[Optional[str]]
+    year: Mapped[int]
+    gcs_object: Mapped[str]
+    sha256: Mapped[str] = mapped_column(unique=True)
+    uploaded_by: Mapped[str]
+    uploaded_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    is_active_risk: Mapped[bool] = mapped_column(default=False)
+    held_until: Mapped[Optional[datetime]]
+    pdf_was_generated: Mapped[bool] = mapped_column(default=False)
+    source: Mapped[str] = mapped_column(default='drive_import')
+    review_status: Mapped[str] = mapped_column(default='awaiting_review', index=True)
+    reviewer: Mapped[Optional[str]]
+    reviewed_at: Mapped[Optional[datetime]]
+    review_notes: Mapped[Optional[str]]
+    __table_args__ = (UniqueConstraint("course_code", "semester", "year", "exam_session"),)
+
+class PendingPaperChunk(Base):
+    __tablename__ = "pending_paper_chunks"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    pending_paper_id: Mapped[int] = mapped_column(ForeignKey("pending_papers.id", ondelete="CASCADE"))
+    chunk_no: Mapped[int]
+    chunk_kind: Mapped[str] = mapped_column(default='question')
+    text: Mapped[str]
+    embedding: Mapped[list[float]] = mapped_column(Vector(768))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    __table_args__ = (UniqueConstraint("pending_paper_id", "chunk_no"),)
 
 class RequestLog(Base):
     __tablename__ = "request_log"

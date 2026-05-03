@@ -3,7 +3,7 @@ REGION  ?= africa-south1
 SERVICE ?= msa-paperbank
 SQL_INSTANCE ?= $(PROJECT):$(REGION):paperbank
 
-.PHONY: deploy migrate logs rollback smoke test
+.PHONY: deploy migrate logs rollback smoke test drive-import
 
 deploy:
 	gcloud run deploy $(SERVICE) \
@@ -15,9 +15,9 @@ deploy:
 	  --memory 512Mi --cpu 1 --concurrency 40 --max-instances 2 --min-instances 0
 
 migrate:
-	@echo "Apply 001 -> 002 -> 003 in order via Cloud SQL Auth Proxy."
+	@echo "Apply 001 -> 002 -> 003 -> 004 in order via Cloud SQL Auth Proxy."
 	@echo "Run: gcloud sql connect paperbank --user=$$DB_USER --database=paperbank"
-	@echo "Then \i migrations/001_init.sql; \i migrations/002_phase2.sql; \i migrations/003_phase3.sql"
+	@echo "Then \i migrations/001_init.sql; \i migrations/002_phase2.sql; \i migrations/003_phase3.sql; \i migrations/004_phase4.sql"
 
 logs:
 	gcloud run services logs read $(SERVICE) --region $(REGION) --limit 200
@@ -30,3 +30,6 @@ smoke:
 
 test:
 	pytest -q
+
+drive-import:
+	python scripts/drive_import.py --folder $${DRIVE_FOLDER_ID:?set DRIVE_FOLDER_ID}

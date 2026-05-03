@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     semantic_fallback_min_router_confidence: float = 0.5
     daily_token_budget: int = 200_000
     admin_bearer_token: SecretStr | None = None
+    drive_default_folder_id: str | None = None
+    drive_service_account_json: str | None = None
+    course_catalog_cache_seconds: int = 60
+    unknown_course_suggest_count: int = 3
 
 def load_settings_with_secret_manager() -> Settings:
     if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":
