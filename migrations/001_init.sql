@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS papers (
     sha256 TEXT NOT NULL UNIQUE,
     uploaded_by TEXT NOT NULL,
     uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    is_quarantined BOOLEAN NOT NULL DEFAULT FALSE,
     UNIQUE (course_code, semester, year)
 );
 

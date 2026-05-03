@@ -57,7 +57,6 @@ class Paper(Base):
     sha256: Mapped[str] = mapped_column(unique=True)
     uploaded_by: Mapped[str]
     uploaded_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    is_quarantined: Mapped[bool] = mapped_column(default=False) # Anti-Replication mechanism
     __table_args__ = (UniqueConstraint("course_code", "semester", "year"),)
 
 class RequestLog(Base):

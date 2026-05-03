@@ -2,7 +2,6 @@ import argparse
 import hashlib
 import os
 import sys
-from datetime import datetime
 from google.cloud import storage
 from sqlalchemy import select
 from app.db import SessionLocal, Paper
@@ -20,11 +19,7 @@ def main():
         pdf_bytes = f.read()
         
     sha256 = hashlib.sha256(pdf_bytes).hexdigest()
-    
-    # Anti-Replication mechanism enforcement at upload
-    current_year = datetime.now().year
-    is_quarantined = args.year >= current_year - 1
-    
+
     with SessionLocal() as session:
         existing = session.execute(select(Paper).where(Paper.sha256 == sha256)).scalar_one_or_none()
         if existing:
@@ -48,14 +43,11 @@ def main():
             gcs_object=gcs_object,
             sha256=sha256,
             uploaded_by=os.environ.get("USER", "ibrahim"),
-            is_quarantined=is_quarantined
         )
         session.add(new_paper)
         session.commit()
-        
+
         print(f"Uploaded successfully! Paper ID: {new_paper.id}")
-        if is_quarantined:
-            print("WARNING: This paper was quarantined due to the Anti-Replication policy (active-use risk).")
 
 if __name__ == "__main__":
     main()

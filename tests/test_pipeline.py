@@ -15,7 +15,10 @@ def base_msg():
         text=WAText(body="Hello")
     )
 
-def test_pipeline_duplicate(db_session, base_msg):
+@patch("app.pipeline.llm.route")
+def test_pipeline_duplicate(mock_route, db_session, base_msg):
+    from app.schemas import RouterOutput
+    mock_route.return_value = (RouterOutput(intent="greeting", confidence=0.9), 10, 10)
     handle_message(db_session, base_msg)
     with pytest.raises(DuplicateMessage):
         handle_message(db_session, base_msg)

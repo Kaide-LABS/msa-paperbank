@@ -1,33 +1,20 @@
 import hmac
 import hashlib
-from fastapi import HTTPException
 from typing import Callable
 import httpx
 from app.config import settings
 from app.schemas import Reply, TextReply, DocumentReply
 from app.errors import WhatsAppError
 
+
 def verify_signature(raw_body: bytes, header_value: str, app_secret: str) -> bool:
     expected = "sha256=" + hmac.new(app_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, header_value or "")
 
-def verify_token_match(mode: str, token: str, expected: str) -> str | None:
-    if mode == "subscribe" and token == expected:
-        return mode # Return mode which gets ignored? Wait, spec says returns hub.challenge if matches. 
-        # Actually caller passes mode, token, expected and returns challenge.
-        # Let's fix signature to just return bool or the challenge if we pass it.
-        # Spec says: "def verify_token_match(mode: str, token: str, expected: str) -> str | None ... Returns the value of hub.challenge (passed in by caller) iff mode == 'subscribe' and token == expected."
-        # This implies it should be: verify_token_match(mode, token, expected) -> returns bool? I will adjust main.py to handle the challenge directly.
-    pass
 
-# I will redefine verify_token_match slightly differently for clarity, or just follow spec strictly
 def verify_token_match(mode: str, token: str, expected: str) -> bool:
     return mode == "subscribe" and token == expected
 
-# Need to update main.py to pass challenge separately.
-
-# Outbound HTTP client is injected via app.state.http in lifespan.
-# We will pass the client to the functions.
 
 def upload_media(http_client: httpx.Client, pdf_bytes: bytes, filename: str) -> str:
     url = f"https://graph.facebook.com/{settings.wa_graph_version}/{settings.wa_phone_number_id}/media"
