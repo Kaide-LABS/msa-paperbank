@@ -10,7 +10,10 @@ def find_paper(session: Session, course_code: str, year: int | None, semester: s
         return None
         
     query = select(Paper).where(Paper.course_code.ilike(course_code))
-    
+
+    # Phase 3: exclude retired papers
+    query = query.where(Paper.is_retired == False)
+
     # Soft active-risk filter
     query = query.where(
         or_(
@@ -19,7 +22,7 @@ def find_paper(session: Session, course_code: str, year: int | None, semester: s
             Paper.held_until <= func.current_date()
         )
     )
-    
+
     if year is not None:
         query = query.where(Paper.year == year)
     if semester is not None:

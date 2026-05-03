@@ -1,7 +1,7 @@
-CREATE INDEX IF NOT EXISTS papers_active ON papers (course_code, year DESC, semester) WHERE is_retired = FALSE;
-
 ALTER TABLE papers
     ADD COLUMN IF NOT EXISTS is_retired BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS retired_by TEXT NULL,
     ADD COLUMN IF NOT EXISTS retired_at TIMESTAMPTZ NULL,
     ADD COLUMN IF NOT EXISTS retired_reason TEXT NULL;
+
+CREATE INDEX IF NOT EXISTS papers_active ON papers (course_code, year DESC, semester) WHERE is_retired = FALSE;
