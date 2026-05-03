@@ -5,3 +5,7 @@ env.yaml
 *.pyc
 .pytest_cache/
 msa-paperbank/
+apply_migrations.py
+infra_bootstrap.sh
+offsite/
+*.tar.gz
