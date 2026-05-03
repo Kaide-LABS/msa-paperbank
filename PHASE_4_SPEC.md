@@ -314,7 +314,7 @@ python scripts/drive_import.py --folder <DRIVE_FOLDER_ID> [--max N] [--dry-run] 
 Steps for each file in the folder (recursively, depth-first):
 
 1. **Fetch metadata** (`drive.files.get`). Skip if `mimeType` is `application/vnd.google-apps.folder` (recurse into it).
-2. **Filename grouping**: parse against the regex `^(?P<course>[A-Z]{2,4}[0-9]{2,3})-(?P<session>CA1|CA2|EXAM)-(?P<year>[0-9]{4})(?:-q(?P<page>[0-9]+))?\.(?P<ext>pdf|jpg|jpeg|png|heic)$`. If no match: log `unparsed_filename` and skip the file (do not abort the whole run).
+2. **Filename grouping**: parse against the regex `^(?P<course>[A-Z]{2,4}[0-9]{2,3})-(?P<sem>HAR|RAIN)-(?P<session>CA1|CA2|EXAM)-(?P<year>[0-9]{4})(?:-q(?P<page>[0-9]+))?\.(?P<ext>pdf|jpg|jpeg|png|heic)$` (case-insensitive). `HAR` maps to `harmattan`, `RAIN` to `rain`. If no match: log `unparsed_filename` and skip the file (do not abort the whole run).
 3. **Course resolution**: if `--course` was passed, override the parsed course. Verify the course exists in `courses` and is active; if not, log `unknown_course` and skip.
 4. **Group images**: collect all sibling files with the same `(course, session, year)` tuple and ext in {jpg, jpeg, png, heic}. Sort by `page`. Treat the group as one logical paper. For PDFs, the file is its own group of 1.
 5. **SHA-256 dedupe**: compute the combined SHA-256 (concat in sorted order). Check `papers.sha256` AND `pending_papers.sha256`. If found in either: skip with `dedupe_hit`.

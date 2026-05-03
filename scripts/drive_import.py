@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import io
 import os
 import sys
 import re
@@ -42,7 +43,12 @@ def main():
 
     drive_service = get_drive_service()
     
-    file_regex = re.compile(r"^(?P<course>[A-Z]{2,4}[0-9]{2,3})-(?P<session>CA1|CA2|EXAM)-(?P<year>[0-9]{4})(?:-q(?P<page>[0-9]+))?\.(?P<ext>pdf|jpg|jpeg|png|heic)$", re.IGNORECASE)
+    # Filename convention: <COURSE>-<HAR|RAIN>-<SESSION>-<YEAR>[-q<N>].<ext>
+    file_regex = re.compile(
+        r"^(?P<course>[A-Z]{2,4}[0-9]{2,3})-(?P<sem>HAR|RAIN)-(?P<session>CA1|CA2|EXAM)-(?P<year>[0-9]{4})(?:-q(?P<page>[0-9]+))?\.(?P<ext>pdf|jpg|jpeg|png|heic)$",
+        re.IGNORECASE,
+    )
+    SEM_MAP = {"HAR": "harmattan", "RAIN": "rain"}
 
     # Simplified recursive walk for the spec (assumes flat structure or single recursion)
     results = drive_service.files().list(
@@ -80,7 +86,8 @@ def main():
                 n_skip += 1
                 continue
                 
-        key = (course_code, d['session'].upper(), int(d['year']), d['ext'].lower() == 'pdf')
+        sem = SEM_MAP[d['sem'].upper()]
+        key = (course_code, sem, d['session'].upper(), int(d['year']), d['ext'].lower() == 'pdf')
         if key not in groups:
             groups[key] = []
         groups[key].append({
@@ -94,7 +101,7 @@ def main():
         if args.max and n_ok >= args.max:
             break
             
-        course_code, session_type, year, is_pdf = key
+        course_code, semester, session_type, year, is_pdf = key
         files.sort(key=lambda x: x['page'])
         
         try:
@@ -139,9 +146,15 @@ def main():
                         if pt:
                             chunk_texts.append(pt)
                 else:
-                    # fallback to OCR
+                    # fallback to OCR — render each PDF page to a PNG byte-buffer
+                    # (cv2.imdecode needs encoded PNG bytes, not raw RGB pixels).
                     images = convert_from_bytes(pdf_bytes_out, dpi=200)
-                    preprocessed = [preprocess_paper_image(img.tobytes()) for img in images]
+                    page_pngs = []
+                    for img in images:
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        page_pngs.append(buf.getvalue())
+                    preprocessed = [preprocess_paper_image(b) for b in page_pngs]
                     ocr_res = ocr_paper(preprocessed)
                     course_title = ocr_res.course_title
                     chunk_texts = [q.text for q in ocr_res.questions]
@@ -156,12 +169,9 @@ def main():
             vectors = embed_many(chunk_texts)
             
             is_active_risk = (year >= datetime.now(timezone.utc).year - 1)
-            semester = "harmattan" if "-har-" in files[0]['name'].lower() else "rain" # best effort fallback, spec says regex covers it but it doesn't have semester. Let's just default to rain if not specified as semester is required by DB. We will hardcode 'rain' for simplicity in drive import unless we adjust regex. 
-            
-            # Actually, spec regex `^(?P<course>[A-Z]{2,4}[0-9]{2,3})-(?P<session>CA1|CA2|EXAM)-(?P<year>[0-9]{4})...` doesn't have semester. Let's assume 'rain' as default for imported docs if semester is missing, or we can look for it in the filename if needed. Let's use 'rain' to satisfy DB constraint.
-            semester = "rain" 
+            # `semester` already came from the filename regex via the group key.
 
-            gcs_object = f"papers/{course_code}/{year}-{session_type}-pending-{sha256_combined[:8]}.pdf"
+            gcs_object = f"papers/{course_code}/{year}-{semester}-{session_type}-pending-{sha256_combined[:8]}.pdf"
             
             gcs_client = storage.Client(project=settings.gcp_project)
             upload_pdf(gcs_client, settings.gcs_bucket, gcs_object, pdf_bytes_out)
