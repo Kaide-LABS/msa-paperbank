@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     image_intake_ocr_per_day: int = 100
     image_intake_max_open_batches_per_phone_per_day: int = 3
     media_gcs_prefix: str = "media/"
+    personalization_min_interactions: int = 5
+    personalization_tie_band: float = 0.05
+    personalization_top_k_for_bias: int = 2
 
 def load_settings_with_secret_manager() -> Settings:
     if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":

@@ -37,5 +37,5 @@ If `admin stats --days 7` shows tokens > 1.4M, something is wrong — open an is
 ## 6. Curation queue
 After every Drive import, run `python -m admin.curate` to walk the queue. The bot does not retrieve a paper until you approve it.
 
-## 7. Mass-retire a course
-`python -m admin.retire --course CSC305 --reason "syllabus rotated" --yes`
+## 10. Privacy / opt-out
+Any user can wipe their record by sending STOP TRACKING. To reset a single user's profile without opting them out: `python -m admin.users reset <PHONE> --yes`. To export a user's data on request: `python -m admin.users export <PHONE> --out user.json`.

@@ -93,3 +93,5 @@ def send_reply(http_client: httpx.Client, to: str, reply: Reply, paper_loader: C
         pdf_bytes, filename = paper_loader(reply.paper_id)
         media_id = upload_media(http_client, pdf_bytes, filename)
         send_document(http_client, to, media_id, reply.caption, filename)
+        if reply.followup_text:
+            send_text(http_client, to, reply.followup_text)

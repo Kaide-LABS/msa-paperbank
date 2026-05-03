@@ -38,8 +38,26 @@ def dispose() -> None:
         connector.close()
         connector = None
 
+from sqlalchemy.dialects.postgresql import JSONB
+
 class Base(DeclarativeBase):
     pass
+
+class User(Base):
+    __tablename__ = "users"
+    phone_number: Mapped[str] = mapped_column(primary_key=True)
+    inferred_courses: Mapped[dict] = mapped_column(JSONB, default={}, server_default='{}')
+    interaction_count: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+    privacy_notice_sent_at: Mapped[Optional[datetime]]
+    opted_out_at: Mapped[Optional[datetime]]
+
+class UserTombstone(Base):
+    __tablename__ = "user_tombstones"
+    phone_number: Mapped[str] = mapped_column(primary_key=True)
+    opted_out_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    last_keyword: Mapped[Optional[str]]
 
 class Course(Base):
     __tablename__ = "courses"

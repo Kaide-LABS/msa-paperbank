@@ -20,6 +20,28 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
     except Exception:
         log.exception("intake_sweep_failed")
 
+    # 0. Opt-out keyword detection (Phase 6) — runs before LLM, before billable work.
+    if msg.type == "text" and msg.text and profile.is_opt_out_message(msg.text.body):
+        profile.opt_out(session, msg.from_, msg.text.body.upper().strip())
+        session.commit()
+        # Idempotency log still happens, but use a synthetic outcome.
+        log_entry = RequestLog(
+            wa_message_id=msg.id,
+            wa_from=msg.from_,
+            user_text=msg.text.body,
+            outcome="opted_out",
+        )
+        session.add(log_entry)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            raise DuplicateMessage()
+        return TextReply(body=(
+            "Got it — I've forgotten you. Your data is wiped. "
+            "Send any message later to start fresh (this clears the opt-out)."
+        ))
+
     # 1. Idempotency
     user_text = msg.text.body if msg.text else ""
     log_entry = RequestLog(
@@ -36,6 +58,16 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
         log.info("Duplicate message received", extra={"wa_message_id": msg.id})
         raise DuplicateMessage()
 
+    def _apply_privacy_notice(reply: Reply) -> Reply:
+        if profile.needs_privacy_notice(session, msg.from_):
+            notice = "\n\n(Tip: I learn which courses you ask about to rank results. Send 'STOP TRACKING' anytime to wipe my notes.)"
+            if isinstance(reply, TextReply):
+                reply = TextReply(body=reply.body + notice)
+            elif isinstance(reply, DocumentReply):
+                reply.followup_text = notice
+            profile.mark_privacy_notice_sent(session, msg.from_)
+        return reply
+
     try:
         # Phase 5: Image branch
         if msg.type == "image":
@@ -43,7 +75,7 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
                 log_entry.outcome = "error"
                 log_entry.error = "image_payload_missing"
                 session.commit()
-                return TextReply(body="Send a clear photo of the paper.")
+                return _apply_privacy_notice(TextReply(body="Send a clear photo of the paper."))
             
             reply = intake.handle_image(session, http_client, gcs_client, msg)
             if isinstance(reply, TextReply) and "isn't approved" in reply.body:
@@ -53,14 +85,14 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
             else:
                 log_entry.outcome = "received_image" # internal success
             session.commit()
-            return reply
+            return _apply_privacy_notice(reply)
 
         # 2. Type guard
         if msg.type != "text":
             log_entry.outcome = "error"
             log_entry.error = "non_text_message"
             session.commit()
-            return TextReply(body="Send the course code, year, and semester as a text message, e.g. 'MTH102 harmattan 2022'.")
+            return _apply_privacy_notice(TextReply(body="Send the course code, year, and semester as a text message, e.g. 'MTH102 harmattan 2022'."))
 
         # 3. Rate limit
         one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
@@ -73,7 +105,7 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
         if recent_count >= settings.request_rate_limit_per_hour:
             log_entry.outcome = "rate_limited"
             session.commit()
-            return TextReply(body="The bot is busy right now. Try again in a minute, in shaa Allah.")
+            return _apply_privacy_notice(TextReply(body="The bot is busy right now. Try again in a minute, in shaa Allah."))
 
         # 3b. Daily token budget guard (Phase 3)
         twenty_four_h_ago = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -86,7 +118,7 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
             log_entry.outcome = "rate_limited"
             log_entry.error = "daily_token_budget_exceeded"
             session.commit()
-            return TextReply(body="The bot has hit its daily limit. Try tomorrow morning, in shaa Allah.")
+            return _apply_privacy_notice(TextReply(body="The bot has hit its daily limit. Try tomorrow morning, in shaa Allah."))
 
         # 4. Route
         try:
@@ -100,19 +132,25 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
             log_entry.outcome = "error"
             log_entry.error = str(e)
             session.commit()
-            return TextReply(body="Sorry, I couldn't understand that request. Please try again.")
+            return _apply_privacy_notice(TextReply(body="Sorry, I couldn't understand that request. Please try again."))
 
         # 5. Branch on intent
         if routed.intent == "greeting":
             log_entry.outcome = "sent"
             session.commit()
-            return TextReply(body="Wa alaykum salaam. Send a request like 'MTH102 harmattan 2022' to get the past paper.")
+            return _apply_privacy_notice(TextReply(body="Wa alaykum salaam. Send a request like 'MTH102 harmattan 2022' to get the past paper."))
         elif routed.intent == "other":
             log_entry.outcome = "not_found"
             session.commit()
-            return TextReply(body="I only handle past-paper requests. Try something like 'MTH102 harmattan 2022'.")
+            return _apply_privacy_notice(TextReply(body="I only handle past-paper requests. Try something like 'MTH102 harmattan 2022'."))
 
         # paper_request intent
+        
+        # Clear tombstone on re-engagement
+        if profile.is_tombstoned(session, msg.from_):
+            profile.clear_tombstone(session, msg.from_)
+            session.commit()
+            
         # 6. Course guard (Phase 4: DB-backed)
         known = retrieval.known_courses(session)
         proposed = (routed.course_code or "").upper().replace(" ", "")
@@ -124,18 +162,21 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
                 body = "I don't have that course yet. Did you mean: " + ", ".join(suggestions) + "?"
             else:
                 body = "I don't have that course in the catalog. Send something like 'MTH102 harmattan 2022'."
-            return TextReply(body=body)
+            return _apply_privacy_notice(TextReply(body=body))
 
         course_code = proposed
 
         # 7. Lookup
         paper = retrieval.find_paper(session, course_code, routed.year, routed.semester)
 
-        # 7b. Phase 2 semantic fallback
+        # 7b. Phase 2/6 semantic fallback
         if paper is None and routed.confidence >= settings.semantic_fallback_min_router_confidence:
             try:
+                prefer = []
+                if not profile.is_tombstoned(session, msg.from_):
+                    prefer = profile.get_top_courses(session, msg.from_, settings.personalization_top_k_for_bias)
                 paper = retrieval.find_paper_by_semantic_query(
-                    session, course_code, msg.text.body
+                    session, course_code, msg.text.body, prefer_courses=prefer
                 )
             except EmbeddingError:
                 # Soft fallback: stay with paper=None and let step 8 reply "not found".
@@ -145,15 +186,35 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
         if paper:
             log_entry.matched_paper_id = paper.id
             log_entry.outcome = "sent"
+            
+            # Write-side inference + soft personalization prefix
+            if not profile.is_tombstoned(session, msg.from_):
+                profile.record_interaction(session, msg.from_, paper.course_code)
+                top_courses = profile.get_top_courses(session, msg.from_, 1)
+                
+                from app.db import User
+                user = session.execute(select(User).where(User.phone_number == msg.from_)).scalar_one_or_none()
+                eligible = (
+                    user is not None
+                    and user.interaction_count >= settings.personalization_min_interactions
+                    and top_courses
+                    and top_courses[0] == paper.course_code
+                )
+                caption_prefix = "Prioritising your courses — " if eligible else ""
+            else:
+                caption_prefix = ""
+                
+            caption = f"{caption_prefix}{paper.course_code} {paper.semester.title()} {paper.year}"
+            
             session.commit()
-            return DocumentReply(
+            return _apply_privacy_notice(DocumentReply(
                 paper_id=paper.id, 
-                caption=f"{paper.course_code} {paper.semester.title()} {paper.year}"
-            )
+                caption=caption
+            ))
         else:
             log_entry.outcome = "not_found"
             session.commit()
-            return TextReply(body=f"We don't have this {course_code} paper yet — Ibrahim is uploading.")
+            return _apply_privacy_notice(TextReply(body=f"We don't have this {course_code} paper yet — Ibrahim is uploading."))
             
     except Exception:
         session.rollback()

@@ -78,5 +78,6 @@ class DocumentReply(BaseModel):
     kind: Literal["document"] = "document"
     paper_id: int
     caption: str
+    followup_text: str | None = None
 
 Reply = Annotated[TextReply | DocumentReply, Field(discriminator="kind")]

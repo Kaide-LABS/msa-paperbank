@@ -58,11 +58,15 @@ def find_paper_by_semantic_query(
     course_code: str,
     query_text: str,
     top_k: int | None = None,
+    prefer_courses: list[str] | None = None,
 ) -> Paper | None:
     qvec = embeddings.embed_query(query_text)
+    
+    limit_k = top_k or settings.semantic_fallback_top_k
+    fetch_k = limit_k * 2 if prefer_courses else limit_k
 
     stmt = (
-        select(Paper)
+        select(Paper, PaperChunk.embedding.cosine_distance(qvec).label("distance"))
         .join(PaperChunk, PaperChunk.paper_id == Paper.id)
         .where(Paper.course_code.ilike(course_code))
         .where(Paper.is_retired == False)
@@ -73,10 +77,23 @@ def find_paper_by_semantic_query(
                 Paper.held_until <= func.current_date()
             )
         )
-        .order_by(PaperChunk.embedding.cosine_distance(qvec))
-        .limit(top_k or settings.semantic_fallback_top_k)
+        .order_by(text("distance"))
+        .limit(fetch_k)
     )
-    return session.execute(stmt).scalars().first()
+    results = session.execute(stmt).all()
+    if not results:
+        return None
+        
+    if not prefer_courses:
+        return results[0][0]
+        
+    best_dist = results[0][1]
+    
+    for paper, dist in results:
+        if paper.course_code in prefer_courses and (dist - best_dist) <= settings.personalization_tie_band:
+            return paper
+            
+    return results[0][0]
 
 def load_pdf_bytes(paper: Paper, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
     bucket = gcs_client.bucket(bucket_name)
