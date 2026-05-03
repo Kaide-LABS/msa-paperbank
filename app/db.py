@@ -63,6 +63,10 @@ class Paper(Base):
     is_active_risk: Mapped[bool] = mapped_column(default=False)
     held_until: Mapped[Optional[datetime]]
     pdf_was_generated: Mapped[bool] = mapped_column(default=False)
+    is_retired: Mapped[bool] = mapped_column(default=False)
+    retired_by: Mapped[Optional[str]]
+    retired_at: Mapped[Optional[datetime]]
+    retired_reason: Mapped[Optional[str]]
     __table_args__ = (UniqueConstraint("course_code", "semester", "year"),)
 
 class PaperChunk(Base):

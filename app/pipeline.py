@@ -53,6 +53,19 @@ def handle_message(session: Session, msg: WAMessage) -> Reply:
             session.commit()
             return TextReply(body="The bot is busy right now. Try again in a minute, in shaa Allah.")
 
+        # 3b. Daily token budget guard (Phase 3)
+        twenty_four_h_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+        budget_query = select(
+            func.coalesce(func.sum(RequestLog.flash_input_tokens), 0)
+            + func.coalesce(func.sum(RequestLog.flash_output_tokens), 0)
+        ).where(RequestLog.received_at >= twenty_four_h_ago)
+        spent = session.execute(budget_query).scalar_one()
+        if spent >= settings.daily_token_budget:
+            log_entry.outcome = "rate_limited"
+            log_entry.error = "daily_token_budget_exceeded"
+            session.commit()
+            return TextReply(body="The bot has hit its daily limit. Try tomorrow morning, in shaa Allah.")
+
         # 4. Route
         try:
             routed, in_tok, out_tok = llm.route(msg.text.body)

@@ -83,3 +83,34 @@ def test_pipeline_semantic_fallback_when_ilike_misses(mock_semantic, mock_find, 
     reply = handle_message(db_session, base_msg)
     assert isinstance(reply, DocumentReply)
     assert reply.paper_id == p.id
+
+@patch("app.pipeline.llm.route")
+def test_pipeline_daily_token_budget_blocks(mock_route, db_session, base_msg):
+    # Insert rows exceeding budget
+    from app.config import settings
+    
+    for i in range(50):
+        log_entry = RequestLog(
+            wa_message_id=f"budget_msg_{i}",
+            wa_from="2348000000000",
+            user_text="test",
+            outcome="sent",
+            flash_input_tokens=(settings.daily_token_budget // 50) + 10,
+            flash_output_tokens=10
+        )
+        db_session.add(log_entry)
+    db_session.commit()
+
+    base_msg.id = "msg_budget_exceeded"
+    from app.schemas import RouterOutput
+    mock_route.return_value = (RouterOutput(intent="paper_request", course_code="MTH102", year=2020, confidence=0.9), 10, 10)
+    
+    reply = handle_message(db_session, base_msg)
+    assert isinstance(reply, TextReply)
+    assert "daily limit" in reply.body
+    
+    # Check the log entry outcome
+    from sqlalchemy import select
+    log_check = db_session.execute(select(RequestLog).where(RequestLog.wa_message_id == "msg_budget_exceeded")).scalar_one()
+    assert log_check.outcome == "rate_limited"
+    assert log_check.error == "daily_token_budget_exceeded"

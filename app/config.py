@@ -1,5 +1,7 @@
+import os
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from google.cloud import secretmanager
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
@@ -28,5 +30,21 @@ class Settings(BaseSettings):
     embedding_concurrency: int = 8
     semantic_fallback_top_k: int = 3
     semantic_fallback_min_router_confidence: float = 0.5
+    daily_token_budget: int = 200_000
+    admin_bearer_token: SecretStr | None = None
 
-settings = Settings()
+def load_settings_with_secret_manager() -> Settings:
+    if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":
+        return Settings()
+    
+    client = secretmanager.SecretManagerServiceClient()
+    for key, value in os.environ.items():
+        if key.endswith("_FROM_SECRET"):
+            actual_key = key.replace("_FROM_SECRET", "")
+            response = client.access_secret_version(name=value)
+            payload = response.payload.data.decode("UTF-8")
+            os.environ[actual_key] = payload
+            
+    return Settings()
+
+settings = load_settings_with_secret_manager()

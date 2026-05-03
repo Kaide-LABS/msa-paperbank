@@ -43,6 +43,7 @@ def find_paper_by_semantic_query(
         select(Paper)
         .join(PaperChunk, PaperChunk.paper_id == Paper.id)
         .where(Paper.course_code.ilike(course_code))
+        .where(Paper.is_retired == False)
         .where(
             or_(
                 Paper.is_active_risk == False,
