@@ -3,6 +3,5 @@ __pycache__/
 .env
 env.yaml
 *.pyc
-.pytest_cache/msa-paperbank/
-Context.md.md
-MASTER_PRD.md
+.pytest_cache/
+msa-paperbank/
