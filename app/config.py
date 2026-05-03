@@ -1,5 +1,5 @@
 import os
-from pydantic import Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from google.cloud import secretmanager
 
@@ -31,7 +31,10 @@ class Settings(BaseSettings):
     semantic_fallback_top_k: int = 3
     semantic_fallback_min_router_confidence: float = 0.5
     daily_cost_usd_cap: float = 0.50
-    daily_token_floor: int = Field(200_000, validation_alias=os.environ.get("DAILY_TOKEN_BUDGET", "DAILY_TOKEN_FLOOR"))
+    daily_token_floor: int = Field(
+        200_000,
+        validation_alias=AliasChoices("daily_token_floor", "daily_token_budget"),
+    )
     price_flash_input_per_1m_usd: float = 0.50
     price_flash_output_per_1m_usd: float = 3.00
     price_pro_input_per_1m_usd: float = 2.00
