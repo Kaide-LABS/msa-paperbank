@@ -30,7 +30,7 @@ def handle_image(
     phone = msg.from_
     
     if not is_whitelisted(session, phone):
-        log.warning("image_from_non_whitelisted", extra={"wa_from": phone})
+        log.warning("image_from_non_whitelisted", extra={"wa_from": phone, "phase": "intake"})
         # Outcome will be set in pipeline.py
         return TextReply(body="This number isn't approved to submit photos. Ask Hafeedh to add you.")
         
@@ -105,7 +105,7 @@ def handle_image(
         return TextReply(body=f"{reply_prefix}got page {ord_val}")
         
     except Exception as e:
-        log.error("handle_image_error", extra={"err": str(e)})
+        log.error("handle_image_error", extra={"wa_message_id": msg.id, "wa_from": phone, "phase": "intake", "err": str(e)})
         session.rollback()
         # Ensure we don't crash the pipeline, let the IntegrityError or other bubble up if it's dedupe
         raise
@@ -137,7 +137,7 @@ def sweep_and_seal(session: Session, gcs_client: storage.Client) -> int:
         try:
             _process_batch(session, gcs_client, batch)
         except Exception as e:
-            log.exception("sweep_and_seal_batch_failed", extra={"batch_id": batch.id})
+            log.exception("sweep_and_seal_batch_failed", extra={"batch_id": batch.id, "phase": "sealer"})
             session.rollback()
             
     return len(candidates)
@@ -244,7 +244,7 @@ def _process_batch(session: Session, gcs_client: storage.Client, batch: ImageBat
         session.commit()
         
     except Exception as e:
-        log.exception("batch_processing_error", extra={"batch_id": batch.id})
+        log.exception("batch_processing_error", extra={"batch_id": batch.id, "phase": "sealer"})
         batch.status = 'failed'
         batch.failure_reason = 'processing_failed'
         session.commit()

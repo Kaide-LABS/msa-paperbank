@@ -10,9 +10,11 @@ A single-course (MTH102) WhatsApp bot that sends past exam papers to students. I
 5. Deploy: `make deploy`
 
 ## Daily Ops
-- Check bot health: `make smoke`
+- Check bot health: `make health`
+- Triage recent errors: `make tail`
 - Check logs: `make logs`
 - List live papers: `python -m admin.list`
+- See weekly summary: `make digest`
 - See usage stats: `python -m admin.stats`
 
 ## Adding a Paper

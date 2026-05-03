@@ -30,7 +30,13 @@ class Settings(BaseSettings):
     embedding_concurrency: int = 8
     semantic_fallback_top_k: int = 3
     semantic_fallback_min_router_confidence: float = 0.5
-    daily_token_budget: int = 200_000
+    daily_cost_usd_cap: float = 0.50
+    daily_token_floor: int = Field(200_000, validation_alias=os.environ.get("DAILY_TOKEN_BUDGET", "DAILY_TOKEN_FLOOR"))
+    price_flash_input_per_1m_usd: float = 0.50
+    price_flash_output_per_1m_usd: float = 3.00
+    price_pro_input_per_1m_usd: float = 2.00
+    price_pro_output_per_1m_usd: float = 12.00
+    price_embedding_per_1m_usd: float = 0.05
     admin_bearer_token: SecretStr | None = None
     drive_default_folder_id: str | None = None
     drive_service_account_json: str | None = None

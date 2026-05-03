@@ -56,7 +56,7 @@ async def webhook_inbound(
     try:
         payload = WAWebhookPayload.model_validate_json(raw)
     except ValidationError as e:
-        log.warning("invalid_payload", extra={"err": str(e)})
+        log.warning("invalid_payload", extra={"phase": "webhook", "err": str(e)})
         return Response(status_code=200)   # always 200 to Meta on parseable-but-unexpected
 
     for entry in payload.entry:
@@ -81,7 +81,7 @@ async def webhook_inbound(
                 except DuplicateMessage:
                     continue
                 except Exception:
-                    log.exception("handle_message_failed", extra={"wa_message_id": msg.id})
+                    log.exception("handle_message_failed", extra={"wa_message_id": msg.id, "wa_from": msg.from_, "phase": "webhook"})
                     session.rollback()
 
     # Flush notifications (one fresh transaction; SQLAlchemy autobegins on the SELECT).
@@ -103,10 +103,10 @@ async def webhook_inbound(
                 from datetime import datetime, timezone
                 n.sent_at = datetime.now(timezone.utc)
             except Exception as e:
-                log.error("failed_to_send_notification", extra={"id": n.id, "err": str(e)})
+                log.error("failed_to_send_notification", extra={"id": n.id, "wa_from": n.phone_number, "phase": "webhook", "err": str(e)})
         session.commit()
     except Exception:
-        log.exception("flush_notifications_failed")
+        log.exception("flush_notifications_failed", extra={"phase": "webhook"})
         session.rollback()
 
     return Response(status_code=200)

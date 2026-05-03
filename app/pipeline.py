@@ -10,6 +10,7 @@ from app import retrieval
 from app.errors import RouterError, DuplicateMessage, EmbeddingError
 from app import intake
 from app import profile
+from app import pricing
 import logging
 
 log = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
     try:
         intake.sweep_and_seal(session, gcs_client)
     except Exception:
-        log.exception("intake_sweep_failed")
+        log.exception("intake_sweep_failed", extra={"phase": "sealer"})
 
     # 0. Opt-out keyword detection (Phase 6) — runs before LLM, before billable work.
     if msg.type == "text" and msg.text and profile.is_opt_out_message(msg.text.body):
@@ -56,7 +57,7 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
         session.commit()
     except IntegrityError:
         session.rollback()
-        log.info("Duplicate message received", extra={"wa_message_id": msg.id})
+        log.info("Duplicate message received", extra={"wa_message_id": msg.id, "wa_from": msg.from_, "phase": "request"})
         raise DuplicateMessage()
 
     def _apply_privacy_notice(reply: Reply) -> Reply:
@@ -107,20 +108,37 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
         if recent_count >= settings.request_rate_limit_per_hour:
             log_entry.outcome = "rate_limited"
             session.commit()
+            log.warning("request_rate_limit_exceeded", extra={"wa_from": msg.from_, "phase": "request", "count": recent_count})
             return _apply_privacy_notice(TextReply(body="The bot is busy right now. Try again in a minute, in shaa Allah."))
 
-        # 3b. Daily token budget guard (Phase 3)
+        # 3b. Daily cost circuit breaker (Phase 7).
+        spent_usd = pricing.estimate_daily_spend_usd(session)
+        if spent_usd >= settings.daily_cost_usd_cap:
+            log_entry.outcome = "rate_limited"
+            log_entry.error = "daily_cost_cap_exceeded"
+            session.commit()
+            log.warning("daily_cost_cap_exceeded", extra={
+                "wa_from": msg.from_, "phase": "request", "spent_usd": round(spent_usd, 4),
+            })
+            return _apply_privacy_notice(TextReply(
+                body="The bot has hit its daily limit. Try tomorrow morning, in shaa Allah."
+            ))
+
+        # 3c. Token floor (preserved from Phase 3 as a defense-in-depth lower-cost check)
         twenty_four_h_ago = datetime.now(timezone.utc) - timedelta(hours=24)
         budget_query = select(
             func.coalesce(func.sum(RequestLog.flash_input_tokens), 0)
             + func.coalesce(func.sum(RequestLog.flash_output_tokens), 0)
         ).where(RequestLog.received_at >= twenty_four_h_ago)
-        spent = session.execute(budget_query).scalar_one()
-        if spent >= settings.daily_token_budget:
+        spent_tok = session.execute(budget_query).scalar_one()
+        if spent_tok >= settings.daily_token_floor:
             log_entry.outcome = "rate_limited"
-            log_entry.error = "daily_token_budget_exceeded"
+            log_entry.error = "daily_token_floor_exceeded"
             session.commit()
-            return _apply_privacy_notice(TextReply(body="The bot has hit its daily limit. Try tomorrow morning, in shaa Allah."))
+            log.warning("daily_token_floor_exceeded", extra={"wa_from": msg.from_, "phase": "request", "spent_tok": spent_tok})
+            return _apply_privacy_notice(TextReply(
+                body="The bot has hit its daily limit. Try tomorrow morning, in shaa Allah."
+            ))
 
         # 4. Route
         try:
@@ -134,6 +152,7 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
             log_entry.outcome = "error"
             log_entry.error = str(e)
             session.commit()
+            log.error("router_failed", extra={"wa_message_id": msg.id, "wa_from": msg.from_, "phase": "request", "err": str(e)})
             return _apply_privacy_notice(TextReply(body="Sorry, I couldn't understand that request. Please try again."))
 
         # 5. Branch on intent
@@ -182,7 +201,7 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
                 )
             except EmbeddingError:
                 # Soft fallback: stay with paper=None and let step 8 reply "not found".
-                log.warning("semantic_fallback_embedding_failed", extra={"wa_message_id": msg.id})
+                log.warning("semantic_fallback_embedding_failed", extra={"wa_message_id": msg.id, "wa_from": msg.from_, "phase": "request"})
 
         # 8. Result
         if paper:
@@ -209,6 +228,7 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
             caption = f"{caption_prefix}{paper.course_code} {paper.semester.title()} {paper.year}"
             
             session.commit()
+            log.info("paper_sent", extra={"wa_message_id": msg.id, "wa_from": msg.from_, "phase": "request", "course": paper.course_code, "outcome": "sent"})
             return _apply_privacy_notice(DocumentReply(
                 paper_id=paper.id, 
                 caption=caption
@@ -216,6 +236,7 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
         else:
             log_entry.outcome = "not_found"
             session.commit()
+            log.info("paper_not_found", extra={"wa_message_id": msg.id, "wa_from": msg.from_, "phase": "request", "course": course_code, "outcome": "not_found"})
             return _apply_privacy_notice(TextReply(body=f"We don't have this {course_code} paper yet — Ibrahim is uploading."))
             
     except Exception:
