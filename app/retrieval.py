@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import select, or_, func
-from pgvector.sqlalchemy import Vector
 from app.db import Paper, PaperChunk
 from app.config import settings
 from app import embeddings

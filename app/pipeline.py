@@ -113,17 +113,4 @@ def handle_message(session: Session, msg: WAMessage) -> Reply:
             
     except Exception:
         session.rollback()
-        raise     log_entry.outcome = "sent"
-            session.commit()
-            return DocumentReply(
-                paper_id=paper.id, 
-                caption=f"{paper.course_code} {paper.semester.title()} {paper.year}"
-            )
-        else:
-            log_entry.outcome = "not_found"
-            session.commit()
-            return TextReply(body=f"We don't have this {settings.hardcoded_course_code} paper yet — Ibrahim is uploading.")
-            
-    except Exception:
-        session.rollback()
         raise
