@@ -9,6 +9,7 @@ from app import llm
 from app import retrieval
 from app.errors import RouterError, DuplicateMessage, EmbeddingError
 from app import intake
+from app import profile
 import logging
 
 log = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
             elif isinstance(reply, DocumentReply):
                 reply.followup_text = notice
             profile.mark_privacy_notice_sent(session, msg.from_)
+            session.commit()
         return reply
 
     try:
