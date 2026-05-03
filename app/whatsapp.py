@@ -16,6 +16,31 @@ def verify_token_match(mode: str, token: str, expected: str) -> bool:
     return mode == "subscribe" and token == expected
 
 
+def get_media_metadata(http_client: httpx.Client, media_id: str) -> tuple[str, str, int]:
+    """Two-hop Graph API media fetch step 1: resolve media_id -> (download_url, mime, size).
+    The download_url expires in ~5 minutes; caller must use it immediately."""
+    url = f"https://graph.facebook.com/{settings.wa_graph_version}/{media_id}"
+    headers = {"Authorization": f"Bearer {settings.wa_access_token.get_secret_value()}"}
+    resp = http_client.get(url, headers=headers)
+    if resp.status_code >= 400:
+        raise WhatsAppError(f"Failed to fetch media metadata: {resp.status_code} {resp.text}")
+    j = resp.json()
+    return j["url"], j.get("mime_type", "application/octet-stream"), int(j.get("file_size", 0))
+
+
+def download_media(http_client: httpx.Client, download_url: str) -> bytes:
+    """Two-hop Graph API media fetch step 2: GET the lookaside URL with the same Bearer token.
+    Returns the raw binary body."""
+    headers = {
+        "Authorization": f"Bearer {settings.wa_access_token.get_secret_value()}",
+        "Accept": "*/*",
+    }
+    resp = http_client.get(download_url, headers=headers)
+    if resp.status_code >= 400:
+        raise WhatsAppError(f"Failed to download media: {resp.status_code}")
+    return resp.content
+
+
 def upload_media(http_client: httpx.Client, pdf_bytes: bytes, filename: str) -> str:
     url = f"https://graph.facebook.com/{settings.wa_graph_version}/{settings.wa_phone_number_id}/media"
     headers = {"Authorization": f"Bearer {settings.wa_access_token.get_secret_value()}"}

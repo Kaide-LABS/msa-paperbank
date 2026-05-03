@@ -84,14 +84,11 @@ async def webhook_inbound(
                     log.exception("handle_message_failed", extra={"wa_message_id": msg.id})
                     session.rollback()
 
-    # Flush notifications
+    # Flush notifications (one fresh transaction; SQLAlchemy autobegins on the SELECT).
     try:
         from app.db import IntakeNotification
         from sqlalchemy import select
-        
-        with session.begin_nested() if session.in_transaction() else session.begin():
-            pass # just close any open things, but depend on a new transaction
-            
+
         notifications = session.execute(
             select(IntakeNotification)
             .where(IntakeNotification.sent_at == None)
