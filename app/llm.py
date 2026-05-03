@@ -46,3 +46,18 @@ def route(user_text: str) -> tuple[RouterOutput, int, int]:
         return parsed, in_tok, out_tok
     except Exception as e:
         raise RouterError("Failed to route message via LLM") from e
+
+def call_pro_vision(parts: list[types.Part], system_instruction: str, response_schema: type) -> str:
+    """Returns the raw resp.text. Caller does Pydantic validation."""
+    resp = client.models.generate_content(
+        model=settings.model_pro,
+        contents=parts,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            response_mime_type="application/json",
+            response_schema=response_schema,
+            temperature=0.0,
+            max_output_tokens=4096,
+        ),
+    )
+    return resp.text

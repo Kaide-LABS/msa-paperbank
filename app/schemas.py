@@ -43,6 +43,25 @@ class RouterOutput(BaseModel):
         if not (2000 <= v <= 2100): raise ValueError("year out of range")
         return v
 
+class OcrQuestion(BaseModel):
+    number: int
+    text: str
+
+class OcrPaperExtraction(BaseModel):
+    course_code: str | None = None
+    course_title: str | None = None
+    exam_year: int | None = None
+    exam_session: Literal["CA1", "CA2", "exam", "first", "second"] | None = None
+    questions: list[OcrQuestion]
+    error: str | None = None
+
+    @field_validator("exam_year")
+    @classmethod
+    def _year_range(cls, v):
+        if v is None: return v
+        if not (2000 <= v <= 2100): raise ValueError("year out of range")
+        return v
+
 class TextReply(BaseModel):
     kind: Literal["text"] = "text"
     body: str

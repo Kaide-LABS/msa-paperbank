@@ -64,3 +64,22 @@ def test_pipeline_not_found(mock_route, db_session, base_msg):
     reply = handle_message(db_session, base_msg)
     assert isinstance(reply, TextReply)
     assert "We don't have this MTH102 paper yet" in reply.body
+
+@patch("app.pipeline.llm.route")
+@patch("app.pipeline.retrieval.find_paper")
+@patch("app.pipeline.retrieval.find_paper_by_semantic_query")
+def test_pipeline_semantic_fallback_when_ilike_misses(mock_semantic, mock_find, mock_route, db_session, base_msg):
+    # Setup paper
+    p = Paper(course_code="MTH102", semester="harmattan", year=2020, gcs_object="obj1", sha256="hash1", uploaded_by="test")
+    db_session.add(p)
+    db_session.commit()
+    
+    base_msg.id = "msg_semantic"
+    from app.schemas import RouterOutput
+    mock_route.return_value = (RouterOutput(intent="paper_request", course_code="MTH102", year=None, confidence=0.8), 10, 10)
+    mock_find.return_value = None
+    mock_semantic.return_value = p
+    
+    reply = handle_message(db_session, base_msg)
+    assert isinstance(reply, DocumentReply)
+    assert reply.paper_id == p.id

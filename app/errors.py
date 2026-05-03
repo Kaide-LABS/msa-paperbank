@@ -9,3 +9,12 @@ class RouterError(AppError):
 
 class DuplicateMessage(AppError):
     pass
+
+class PreprocessError(AppError):
+    pass
+
+class OcrError(AppError):
+    pass
+
+class EmbeddingError(AppError):
+    pass

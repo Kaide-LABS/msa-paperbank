@@ -7,7 +7,7 @@ from app.db import RequestLog
 from app.schemas import WAMessage, Reply, TextReply, DocumentReply
 from app import llm
 from app import retrieval
-from app.errors import RouterError, DuplicateMessage
+from app.errors import RouterError, DuplicateMessage, EmbeddingError
 import logging
 
 log = logging.getLogger(__name__)
@@ -87,10 +87,33 @@ def handle_message(session: Session, msg: WAMessage) -> Reply:
         # 7. Lookup
         paper = retrieval.find_paper(session, settings.hardcoded_course_code, routed.year, routed.semester)
 
+        # 7b. Phase 2 semantic fallback
+        if paper is None and routed.confidence >= settings.semantic_fallback_min_router_confidence:
+            try:
+                paper = retrieval.find_paper_by_semantic_query(
+                    session, settings.hardcoded_course_code, msg.text.body
+                )
+            except EmbeddingError:
+                # Soft fallback: stay with paper=None and let step 8 reply "not found".
+                log.warning("semantic_fallback_embedding_failed", extra={"wa_message_id": msg.id})
+
         # 8. Result
         if paper:
             log_entry.matched_paper_id = paper.id
             log_entry.outcome = "sent"
+            session.commit()
+            return DocumentReply(
+                paper_id=paper.id, 
+                caption=f"{paper.course_code} {paper.semester.title()} {paper.year}"
+            )
+        else:
+            log_entry.outcome = "not_found"
+            session.commit()
+            return TextReply(body=f"We don't have this {settings.hardcoded_course_code} paper yet — Ibrahim is uploading.")
+            
+    except Exception:
+        session.rollback()
+        raise     log_entry.outcome = "sent"
             session.commit()
             return DocumentReply(
                 paper_id=paper.id, 

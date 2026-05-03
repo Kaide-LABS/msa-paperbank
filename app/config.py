@@ -21,5 +21,12 @@ class Settings(BaseSettings):
     hardcoded_course_code: str = "MTH102"
     request_rate_limit_per_hour: int = 300
     log_level: str = "INFO"
+    model_embedding: str = "gemini-embedding-001"
+    embedding_dim: int = 768
+    ocr_max_image_bytes: int = 7_000_000
+    ocr_max_images_per_paper: int = 12
+    embedding_concurrency: int = 8
+    semantic_fallback_top_k: int = 3
+    semantic_fallback_min_router_confidence: float = 0.5
 
 settings = Settings()

@@ -2,52 +2,167 @@ import argparse
 import hashlib
 import os
 import sys
+from datetime import datetime, timezone
 from google.cloud import storage
 from sqlalchemy import select
-from app.db import SessionLocal, Paper
+from app.db import SessionLocal, Paper, PaperChunk
 from app.config import settings
+from app.preprocess import preprocess_paper_image
+from app.ocr import ocr_paper
+from app.embeddings import embed_many
+from app.pdfgen import stitch_images_to_pdf, upload_pdf
+from app.errors import PreprocessError, EmbeddingError
 
-def main():
-    parser = argparse.ArgumentParser(description="Upload a past paper (Phase 1: MTH102 only).")
-    parser.add_argument("pdf_path", help="Path to the PDF file")
-    parser.add_argument("--year", type=int, required=True, help="Year of the exam (e.g., 2022)")
-    parser.add_argument("--semester", choices=["harmattan", "rain"], required=True, help="Semester")
-    
-    args = parser.parse_args()
-    
+def upload_pdf_cmd(args):
     with open(args.pdf_path, "rb") as f:
         pdf_bytes = f.read()
         
     sha256 = hashlib.sha256(pdf_bytes).hexdigest()
-
+    is_active_risk = (args.year >= datetime.now(timezone.utc).year - 1)
+    
     with SessionLocal() as session:
         existing = session.execute(select(Paper).where(Paper.sha256 == sha256)).scalar_one_or_none()
         if existing:
             print(f"Paper already exists: ID={existing.id}")
             sys.exit(0)
             
-        gcs_object = f"papers/MTH102/{args.year}-{args.semester}.pdf"
+        gcs_object = f"papers/MTH102/{args.year}-{args.semester}-{args.session or 'exam'}.pdf"
         
-        # Upload to GCS
         print(f"Uploading to gs://{settings.gcs_bucket}/{gcs_object} ...")
         client = storage.Client(project=settings.gcp_project)
-        bucket = client.bucket(settings.gcs_bucket)
-        blob = bucket.blob(gcs_object)
-        blob.upload_from_string(pdf_bytes, content_type="application/pdf")
+        upload_pdf(client, settings.gcs_bucket, gcs_object, pdf_bytes)
         
-        # Insert DB row
         new_paper = Paper(
             course_code="MTH102",
             semester=args.semester,
             year=args.year,
+            exam_session=args.session,
             gcs_object=gcs_object,
             sha256=sha256,
             uploaded_by=os.environ.get("USER", "ibrahim"),
+            is_active_risk=is_active_risk,
+            held_until=None,
+            pdf_was_generated=False
         )
         session.add(new_paper)
         session.commit()
-
+        
         print(f"Uploaded successfully! Paper ID: {new_paper.id}")
+        if is_active_risk:
+            print("Note: marked is_active_risk=TRUE (year within current academic window).")
+
+def upload_images_cmd(args):
+    if not (1 <= len(args.images) <= settings.ocr_max_images_per_paper):
+        print(f"Must provide 1 to {settings.ocr_max_images_per_paper} images.")
+        sys.exit(1)
+        
+    raw_bytes_list = []
+    for p in args.images:
+        size = os.path.getsize(p)
+        if size > settings.ocr_max_image_bytes:
+            print(f"Image {p} too large: {size} bytes.")
+            sys.exit(1)
+        with open(p, "rb") as f:
+            raw_bytes_list.append(f.read())
+            
+    sha256_combined = hashlib.sha256(b"".join(raw_bytes_list)).hexdigest()
+    
+    with SessionLocal() as session:
+        existing = session.execute(select(Paper).where(Paper.sha256 == sha256_combined)).scalar_one_or_none()
+        if existing:
+            print(f"Paper already exists: ID={existing.id}")
+            sys.exit(0)
+
+    try:
+        preprocessed = [preprocess_paper_image(b) for b in raw_bytes_list]
+    except PreprocessError as e:
+        print(f"Preprocess error: {e}")
+        sys.exit(2)
+        
+    if not args.no_ocr:
+        ocr_result = ocr_paper(preprocessed)
+        if ocr_result.error is not None or not ocr_result.questions:
+            print(f"OCR empty or error: {ocr_result.error}")
+            sys.exit(3)
+            
+    is_active_risk = (args.year >= datetime.now(timezone.utc).year - 1)
+    
+    pdf_bytes = stitch_images_to_pdf(preprocessed)
+    
+    gcs_object = f"papers/MTH102/{args.year}-{args.semester}-{args.session or 'exam'}.pdf"
+    
+    client = storage.Client(project=settings.gcp_project)
+    bucket = client.bucket(settings.gcs_bucket)
+    if bucket.blob(gcs_object).exists():
+        gcs_object = f"papers/MTH102/{args.year}-{args.semester}-{args.session or 'exam'}-{sha256_combined[:8]}.pdf"
+        
+    upload_pdf(client, settings.gcs_bucket, gcs_object, pdf_bytes)
+    
+    try:
+        vectors = []
+        if not args.no_ocr:
+            vectors = embed_many([q.text for q in ocr_result.questions])
+            
+        with SessionLocal.begin() as session:
+            paper = Paper(
+                course_code="MTH102",
+                course_title=ocr_result.course_title if not args.no_ocr else None,
+                semester=args.semester,
+                exam_session=args.session,
+                year=args.year,
+                gcs_object=gcs_object,
+                sha256=sha256_combined,
+                uploaded_by=os.environ.get("USER", "ibrahim"),
+                is_active_risk=is_active_risk,
+                held_until=None,
+                pdf_was_generated=True,
+            )
+            session.add(paper)
+            session.flush()
+            if not args.no_ocr:
+                session.add_all([
+                    PaperChunk(paper_id=paper.id, chunk_no=i+1, text=q.text, embedding=vec)
+                    for i, (q, vec) in enumerate(zip(ocr_result.questions, vectors))
+                ])
+                
+        print(f"Uploaded paper id={paper.id}, chunks={len(ocr_result.questions) if not args.no_ocr else 0}")
+        if is_active_risk:
+            print("Note: marked is_active_risk=TRUE (year within current academic window).")
+            
+    except EmbeddingError as e:
+        print(f"Embedding failed: {e}")
+        bucket.blob(gcs_object).delete()
+        sys.exit(4)
+    except Exception as e:
+        print(f"Insert failed: {e}")
+        bucket.blob(gcs_object).delete()
+        raise e
+
+def main():
+    parser = argparse.ArgumentParser(description="Upload a past paper to MSA Paperbank.")
+    subparsers = parser.add_subparsers(dest="subcommand", required=True)
+    
+    # PDF subparser
+    parser_pdf = subparsers.add_parser("pdf", help="Upload a single PDF file (no OCR/embeddings)")
+    parser_pdf.add_argument("pdf_path", help="Path to the PDF file")
+    parser_pdf.add_argument("--year", type=int, required=True, help="Year of the exam (e.g., 2022)")
+    parser_pdf.add_argument("--semester", choices=["harmattan", "rain"], required=True, help="Semester")
+    parser_pdf.add_argument("--session", choices=["CA1", "CA2", "exam"], help="Exam session")
+    
+    # Images subparser
+    parser_img = subparsers.add_parser("images", help="Upload images, OCR, embed, stitch to PDF")
+    parser_img.add_argument("images", nargs="+", help="Paths to image files")
+    parser_img.add_argument("--year", type=int, required=True, help="Year of the exam")
+    parser_img.add_argument("--semester", choices=["harmattan", "rain"], required=True, help="Semester")
+    parser_img.add_argument("--session", choices=["CA1", "CA2", "exam"], help="Exam session")
+    parser_img.add_argument("--no-ocr", action="store_true", help="Skip OCR and embeddings")
+    
+    args = parser.parse_args()
+    
+    if args.subcommand == "pdf":
+        upload_pdf_cmd(args)
+    elif args.subcommand == "images":
+        upload_images_cmd(args)
 
 if __name__ == "__main__":
     main()
