@@ -10,7 +10,7 @@ deploy:
 	  --source . --region $(REGION) \
 	  --service-account $(SERVICE)-sa@$(PROJECT).iam.gserviceaccount.com \
 	  --add-cloudsql-instances $(SQL_INSTANCE) \
-	  --set-env-vars GCP_PROJECT=$(PROJECT),GCP_LOCATION=global,CLOUD_SQL_INSTANCE=$(SQL_INSTANCE),GCP_LOAD_FROM_SECRETS=1 \
+	  --set-env-vars GCP_PROJECT=$(PROJECT),GCP_LOCATION=global,CLOUD_SQL_INSTANCE=$(SQL_INSTANCE),GCP_LOAD_FROM_SECRETS=1,DB_USER=msa-app,GCS_BUCKET=msa-paperbank-pdfs-$(PROJECT),WA_PHONE_NUMBER_ID=1144702965385011 \
 	  --set-secrets DB_PASSWORD=DB_PASSWORD:latest,WA_ACCESS_TOKEN=WA_ACCESS_TOKEN:latest,WA_APP_SECRET=WA_APP_SECRET:latest,WA_VERIFY_TOKEN=WA_VERIFY_TOKEN:latest,ADMIN_BEARER_TOKEN=ADMIN_BEARER_TOKEN:latest \
 	  --memory 512Mi --cpu 1 --concurrency 40 --max-instances 2 --min-instances 0
 

@@ -9,3 +9,5 @@ apply_migrations.py
 infra_bootstrap.sh
 offsite/
 *.tar.gz
+deploy.ps1
+.session_chunk_*.txt
