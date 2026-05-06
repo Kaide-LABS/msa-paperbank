@@ -18,7 +18,7 @@ def getconn():
         connector = Connector()
     return connector.connect(
         settings.cloud_sql_instance,
-        "psycopg",
+        "pg8000",
         user=settings.db_user,
         password=settings.db_password.get_secret_value(),
         db=settings.db_name,
@@ -27,7 +27,7 @@ def getconn():
 if TEST_DB_URL:
     engine = create_engine(TEST_DB_URL, pool_size=2, max_overflow=2, pool_pre_ping=True)
 else:
-    engine = create_engine("postgresql+psycopg://", creator=getconn, pool_size=2, max_overflow=2, pool_pre_ping=True, pool_recycle=1800)
+    engine = create_engine("postgresql+pg8000://", creator=getconn, pool_size=2, max_overflow=2, pool_pre_ping=True, pool_recycle=1800)
 
 SessionLocal = sessionmaker(engine, expire_on_commit=False, autoflush=False)
 

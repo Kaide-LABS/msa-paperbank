@@ -5,8 +5,8 @@ pydantic==2.9.2
 pydantic-settings==2.6.1
 google-genai==1.2.0
 SQLAlchemy==2.0.36
-psycopg[binary]==3.2.3
-cloud-sql-python-connector[psycopg3]==1.15.0
+pg8000==1.31.5
+cloud-sql-python-connector==1.15.0
 google-cloud-storage==2.19.0
 httpx==0.28.1
 python-multipart==0.0.20
