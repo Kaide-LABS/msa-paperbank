@@ -40,6 +40,7 @@ from app.schemas import OcrPaperExtraction
 from app.preprocess import prepare_images_for_ocr
 from app.paper_splitter import split_pdf_pages, rasterize_pdf_to_pngs
 from app.validator import compare_reads, Outcome, CurationTier
+from app.course_filing import derive_filing
 
 IMG_EXT = ("jpg", "jpeg", "heic", "png")
 BACKOFF = [5, 10, 20, 40, 60]
@@ -69,13 +70,27 @@ CREATE TABLE IF NOT EXISTS pending_papers (
     flags         TEXT,
     reason        TEXT,
     questions_json TEXT,
+    course_title  TEXT,
+    filing_confidence TEXT,
+    filing_source TEXT,
     created_at    TIMESTAMPTZ DEFAULT now()
 );
 """
+# Non-destructive migration so an existing throwaway table (from a prior run) gains the new
+# filing columns without DROP.
+MIGRATE = [
+    "ALTER TABLE pending_papers ADD COLUMN IF NOT EXISTS course_title TEXT",
+    "ALTER TABLE pending_papers ADD COLUMN IF NOT EXISTS filing_confidence TEXT",
+    "ALTER TABLE pending_papers ADD COLUMN IF NOT EXISTS filing_source TEXT",
+]
 def init_db():
     c = _db()
     try:
-        cur = c.cursor(); cur.execute(DDL); c.commit()
+        cur = c.cursor()
+        cur.execute(DDL)
+        for stmt in MIGRATE:
+            cur.execute(stmt)
+        c.commit()
     finally:
         c.close()
 
@@ -93,38 +108,40 @@ def write_paper(row):
         cur = c.cursor()
         cur.execute("""INSERT INTO pending_papers
             (source,sha,gcs_object,course_code,school,dept,level,semester,year,exam_session,
-             outcome,curation_tier,primary_reader,num_questions,flags,reason,questions_json)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             outcome,curation_tier,primary_reader,num_questions,flags,reason,questions_json,
+             course_title,filing_confidence,filing_source)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (sha) DO NOTHING""",
             (row["source"], row["sha"], row["gcs_object"], row["course_code"], row["school"],
              row["dept"], row["level"], row["semester"], row["year"], row["exam_session"],
              row["outcome"], row["curation_tier"], row["primary_reader"], row["num_questions"],
-             row["flags"], row["reason"], row["questions_json"]))
+             row["flags"], row["reason"], row["questions_json"],
+             row["course_title"], row["filing_confidence"], row["filing_source"]))
         c.commit()
     finally:
         c.close()
 
 # ------------------------------------------------------------------- metadata
 def folder_meta(object_key):
-    """Derive school/dept/level/semester/year + course code from the GCS path (mirrors the trial).
-    Object key preserves the corpus folder structure under GCS_PREFIX."""
+    """Folder-derived filing metadata. course_code/title/dept come from the CONTEXT-AWARE deriver
+    (app.course_filing.derive_filing: direct-code -> catalog -> dept+title slug -> dept fallback);
+    school/level/semester/year are read positionally/by regex from the path under GCS_PREFIX."""
     rel = object_key[len(GCS_PREFIX):] if object_key.startswith(GCS_PREFIX) else object_key
-    parts = [p for p in rel.split("/") if p]
-    ds = parts[:-1]
+    ds = [p for p in rel.split("/") if p][:-1]   # drop filename
     import re
     school = ds[0] if len(ds) > 0 else ""
-    dept = ds[1] if len(ds) > 1 else ""
-    level = ds[2] if len(ds) > 2 else ""
-    sem = ds[3] if len(ds) > 3 else ""
+    level = next((s for s in ds if re.search(r"\d00\s*level|year\s*\d|\blevel\b", s, re.I)), "")
+    sem = next((s for s in ds if re.search(r"semester|harmattan|rain", s, re.I)), "")
     ym = next((re.search(r"20\d{2}\s*[-/]\s*20\d{2}|20\d{2}", s).group(0) for s in ds
                if re.search(r"20\d{2}", s)), None)
     sl = sem.lower()
     semester = "harmattan" if re.search(r"1st|first|semester\s*1|harmattan", sl) else \
                ("rain" if re.search(r"2nd|second|semester\s*2|rain", sl) else None)
-    code = next((re.search(r"[A-Z]{2,4}\s?-?\d{2,3}", s).group(0).replace(" ", "").replace("-", "")
-                 for s in ds if re.search(r"[A-Z]{2,4}\s?-?\d{2,3}", s)), None)
-    return {"course_code": code, "school": school, "dept": dept, "level": level,
-            "semester": semester, "year": ym}
+    filing = derive_filing(object_key)           # context-aware course filing
+    return {"course_code": filing["course_code"], "course_title": filing["course_title"],
+            "dept": filing["dept"] or (ds[1] if len(ds) > 1 else ""),
+            "school": school, "level": level, "semester": semester, "year": ym,
+            "filing_confidence": filing["confidence"], "filing_source": filing["source"]}
 
 # ------------------------------------------------------------------- OCR
 def _ext(name): return name.rsplit(".", 1)[-1].lower() if "." in name else ""
@@ -203,7 +220,7 @@ def process_file(blob):
                 tin += rd.get("in_tok", 0); tout += rd.get("out_tok", 0)
         f_read = flash["data"] if flash.get("ok") else None
         p_read = pro["data"] if pro.get("ok") else None
-        res = compare_reads(f_read, p_read, meta, paper_sha=sha)
+        res = compare_reads(f_read, p_read, meta, paper_sha=sha, curation_mode="index")
         primary = res.primary
         row = dict(
             source=SOURCE_TAG, sha=sha, gcs_object=name,
@@ -216,6 +233,8 @@ def process_file(blob):
             flags="; ".join(f"{f.type.value}/{f.severity.value}" for f in res.flags),
             reason=res.reason[:500],
             questions_json=(primary.model_dump_json() if primary else None),
+            course_title=meta["course_title"], filing_confidence=meta["filing_confidence"],
+            filing_source=meta["filing_source"],
         )
         write_paper(row)
         written.append(row)
@@ -262,6 +281,10 @@ def main():
     print("routing distribution:", flush=True)
     for (oc, tier), c in sorted(dist.items()):
         print(f"   {oc}/{tier}: {c}", flush=True)
+    fsrc = Counter(r.get("filing_source") for r in all_rows)
+    print("filing source:", flush=True)
+    for s, c in sorted(fsrc.items(), key=lambda kv: -kv[1]):
+        print(f"   {s}: {c}", flush=True)
     print("[cloud_ingest] DONE", flush=True)
 
 if __name__ == "__main__":
