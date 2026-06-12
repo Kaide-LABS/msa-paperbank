@@ -47,6 +47,17 @@ def test_pipeline_greeting(mock_route, db_session, base_msg):
     assert "Wa alaykum salaam" in reply.body
 
 @patch("app.pipeline.llm.route")
+def test_pipeline_other_intent_is_varied_but_static(mock_route, db_session, base_msg):
+    base_msg.id = "msg_other_intent"
+    base_msg.text = WAText(body="what's your name")
+    from app.schemas import RouterOutput
+    mock_route.return_value = (RouterOutput(intent="other", confidence=0.9), 10, 10)
+    reply = handle_message(db_session, base_msg, None, None)
+    assert isinstance(reply, TextReply)
+    # "paper" is the stable substring shared by all three static variants.
+    assert "paper" in reply.body.lower()
+
+@patch("app.pipeline.llm.route")
 def test_pipeline_found(mock_route, db_session, base_msg):
     # Setup paper
     p = Paper(course_code="MTH102", semester="harmattan", year=2020, gcs_object="obj1", sha256="hash1", uploaded_by="test")
