@@ -95,9 +95,55 @@ def find_paper_by_semantic_query(
             
     return results[0][0]
 
+def render_served_pdf(raw_pdf_bytes: bytes) -> bytes:
+    """Transform the stored RAW paper PDF into the human-display version: rasterize each page,
+    auto_rotate -> enhance_for_display (greyscale, diagram-safe), re-stitch to a PDF.
+
+    Change A: students receive the IMAGE on retrieval (diagrams), so the SERVED artifact is the
+    enhanced one — but the OCR path is untouched (OCR still reads raw upstream) and the GCS raw is
+    never modified (this works on the downloaded copy in memory).
+
+    Clean function boundary: this is the one place enhancement happens. Default wiring is
+    ON-THE-FLY at serve time (below). To move to ingest-time precompute instead, call this once at
+    ingest, store the result alongside raw, and serve the stored copy — a one-line switch.
+
+    Safety: PDFs that already carry a real text layer (digital, ~10% of the corpus) are served
+    UNCHANGED — rasterising clean vector text would only degrade it. Any per-page failure falls
+    back to that raw page, never dropping content.
+    """
+    import io
+    import pdfplumber
+    from app.paper_splitter import rasterize_pdf_to_pngs
+    from app.display_enhance import auto_rotate, enhance_for_display
+    from app.pdfgen import stitch_images_to_pdf
+
+    # skip clean digital PDFs (don't rasterise vector text)
+    try:
+        with pdfplumber.open(io.BytesIO(raw_pdf_bytes)) as pl:
+            txt = (pl.pages[0].extract_text() or "")
+            if len(pl.pages) > 1:
+                txt += (pl.pages[1].extract_text() or "")
+            if len(txt.strip()) >= 200:
+                return raw_pdf_bytes
+    except Exception:
+        pass
+
+    pages = rasterize_pdf_to_pngs(raw_pdf_bytes)
+    if not pages:
+        return raw_pdf_bytes
+    out = []
+    for p in pages:
+        try:
+            out.append(enhance_for_display(auto_rotate(p), color=False))
+        except Exception:
+            out.append(p)        # any failure -> keep the raw page (never drop content)
+    return stitch_images_to_pdf(out)
+
+
 def load_pdf_bytes(paper: Paper, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
     bucket = gcs_client.bucket(bucket_name)
     blob = bucket.blob(paper.gcs_object)
-    pdf_bytes = blob.download_as_bytes()
+    raw_pdf_bytes = blob.download_as_bytes()        # RAW ground truth in GCS — never overwritten
     filename = f"{paper.course_code}_{paper.semester}_{paper.year}.pdf"
-    return pdf_bytes, filename
+    served = render_served_pdf(raw_pdf_bytes) if settings.serve_enhance_enabled else raw_pdf_bytes
+    return served, filename
