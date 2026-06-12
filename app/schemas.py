@@ -70,6 +70,23 @@ class OcrPaperExtraction(BaseModel):
         if not (2000 <= v <= 2100): raise ValueError("year out of range")
         return v
 
+class PageBoundaryProbe(BaseModel):
+    """Tiny per-page signal used by app.paper_splitter to split multi-paper PDF bundles
+    BEFORE OCR. Returned by a cheap Flash call (thinking_budget=0, small token cap) — this is
+    deliberately NOT a full OCR. A bundle scans several distinct papers back-to-back; these
+    flags mark where one paper ends and the next begins."""
+    is_new_paper_header: bool = False   # page carries a fresh PAU exam masthead -> THE split signal
+    course_code: str | None = None      # course code printed in that header, if any
+    session_hint: Literal["CA", "exam"] | None = None  # header says CA vs Examination
+    # CAPTURED-BUT-UNUSED diagnostic hint — NOT a split signal. The real-data diagnostic showed a
+    # single-page probe returns this True for ANY page beginning at "Question 1" (every paper's
+    # first page included), not for a genuine "restart after higher question numbers", so the
+    # splitter ignores it (see app.paper_splitter). Kept on the schema so the probe still records
+    # it: a FUTURE deterministic check — restart-after-higher-numbers computed ACROSS pages from
+    # real extracted question numbers (not asked of a single-page probe) — could use it as a
+    # corroborated backstop if a corpus trial ever surfaces a genuine masthead miss.
+    has_question_one_reset: bool = False
+
 class TextReply(BaseModel):
     kind: Literal["text"] = "text"
     body: str
