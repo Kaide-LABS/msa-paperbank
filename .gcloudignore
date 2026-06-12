@@ -1,0 +1,14 @@
+# Keep the Cloud Build context small — NEVER upload the ~2GB corpus zip or local junk.
+*.zip
+.git/
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+msa-paperbank/
+.session_chunk_*.txt
+offsite/
+*.tar.gz
+test.db
