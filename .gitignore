@@ -11,3 +11,10 @@ offsite/
 *.tar.gz
 deploy.ps1
 .session_chunk_*.txt
+# PAU past-questions corpus bootstrap (~2GB) — never commit the blob or any extraction
+*.zip
+PAU Muslim Committee Initiative*/
+pau-corpus-scratch/
+# local scratch — regenerable, never commit
+test.db
+cloud_ingest/verify_db.py
