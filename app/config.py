@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     embedding_dim: int = 768
     ocr_max_image_bytes: int = 7_000_000
     ocr_max_images_per_paper: int = 12
+    # Decision 2 (2026-06 OCR probe): cv2 preprocessing improved 0/12 sampled files and was
+    # net-negative on degraded inputs (one hard MAX_TOKENS failure, one mis-numbering). Raw
+    # bytes now go straight to OCR. Left as an off-by-default flag (not deleted) so preprocess
+    # can earn its way back via an explicit A/B. See app.preprocess.prepare_images_for_ocr.
+    ocr_preprocess_enabled: bool = False
     embedding_concurrency: int = 8
     semantic_fallback_top_k: int = 3
     semantic_fallback_min_router_confidence: float = 0.5
@@ -52,6 +57,21 @@ class Settings(BaseSettings):
     personalization_min_interactions: int = 5
     personalization_tie_band: float = 0.05
     personalization_top_k_for_bias: int = 2
+    # Dual-read consensus (app.validator): fraction of FULL-AGREEMENT papers pulled for a human
+    # spot-check instead of blind auto-accept. Selection is DETERMINISTIC by paper sha (reproducible,
+    # not random per run). Insurance against SHARED omissions both reads miss (trial: GST111 skipped
+    # the same question in both reads). 0.15 = 15%.
+    spotcheck_rate: float = 0.15
+    # Change A: serve the gentle, diagram-safe DISPLAY enhancement (auto_rotate + enhance_for_display)
+    # on retrieval. ON-THE-FLY from the stored RAW by default (raw stays the single source of truth,
+    # no migration). Flip to False to serve raw unchanged, or move enhancement to ingest-time (see
+    # app.retrieval.render_served_pdf). OCR path is unaffected — it reads raw upstream.
+    serve_enhance_enabled: bool = True
+    # Dual-read routing mode (app.validator.compare_reads). "index" = OCR is an internal SEARCH
+    # INDEX (students receive the enhanced IMAGE, not OCR text), so only retrievability + filing
+    # metadata gate; numeric/question-count disagreements are diagnostics, not human work.
+    # "publish" = the old text-trust gating (numeric/structure -> curation). Kept for comparison.
+    curation_mode: str = "index"
 
 def load_settings_with_secret_manager() -> Settings:
     if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":
