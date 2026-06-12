@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Cloud Run JOB entrypoint — corpus ingest TEST batch.
+"""Cloud Run JOB entrypoint — corpus ingest.
 
-Reads a small explicit file list from GCS, runs the REAL pipeline
+Reads all objects under GCS_PREFIX, runs the REAL pipeline
 (rasterize[pypdfium2] -> prepare_images_for_ocr[off] -> split_pdf_pages[masthead] ->
 dual-read OCR[Flash+Pro, thinking_budget=0] -> compare_reads), and writes one row per paper to
-a self-contained `pending_papers` table on a THROWAWAY Cloud SQL instance, tagged
-source='cloud_test'. Auth = ADC + Vertex (no API keys). Idempotent by per-paper sha.
+a self-contained `pending_papers` table on the target Cloud SQL instance, tagged with SOURCE_TAG.
+Auth = ADC + Vertex (no API keys). Idempotent by per-paper sha.
 
-SCOPE GUARD: processes ONLY objects under GCS_PREFIX (the ~40-file test batch). It cannot touch
-prod and cannot run the full corpus — there is no full-list path here.
+SCOPE: processes objects under GCS_PREFIX only. MAX_FILES>0 caps to an even-strided sample
+(canary); MAX_FILES=0 processes the full prefix. STUDENT_VISIBLE sets the ship-everything flag.
+Invoked MANUALLY only (no trigger/schedule) — the full run fires solely on an explicit execute.
 """
 import os, io, sys, json, time, hashlib, traceback, concurrent.futures as cf
 
@@ -23,6 +24,8 @@ INSTANCE_CONN = os.environ["INSTANCE_CONNECTION_NAME"]    # project:region:insta
 DB_USER = os.environ.get("DB_USER", "ingest")
 DB_PASS = os.environ["DB_PASS"]
 DB_NAME = os.environ.get("DB_NAME", "paperbank_test")
+MAX_FILES = int(os.environ.get("MAX_FILES", "0"))        # 0 = all under prefix; >0 = canary cap (even sample)
+STUDENT_VISIBLE = os.environ.get("STUDENT_VISIBLE", "true").lower() == "true"  # ship-everything default
 for k, v in {"CLOUD_SQL_INSTANCE": INSTANCE_CONN, "GCS_BUCKET": GCS_BUCKET, "DB_PASSWORD": DB_PASS,
              "WA_PHONE_NUMBER_ID": "x", "WA_ACCESS_TOKEN": "x", "WA_APP_SECRET": "x",
              "WA_VERIFY_TOKEN": "x"}.items():
@@ -73,6 +76,7 @@ CREATE TABLE IF NOT EXISTS pending_papers (
     course_title  TEXT,
     filing_confidence TEXT,
     filing_source TEXT,
+    student_visible BOOLEAN NOT NULL DEFAULT TRUE,
     created_at    TIMESTAMPTZ DEFAULT now()
 );
 """
@@ -82,6 +86,7 @@ MIGRATE = [
     "ALTER TABLE pending_papers ADD COLUMN IF NOT EXISTS course_title TEXT",
     "ALTER TABLE pending_papers ADD COLUMN IF NOT EXISTS filing_confidence TEXT",
     "ALTER TABLE pending_papers ADD COLUMN IF NOT EXISTS filing_source TEXT",
+    "ALTER TABLE pending_papers ADD COLUMN IF NOT EXISTS student_visible BOOLEAN NOT NULL DEFAULT TRUE",
 ]
 def init_db():
     c = _db()
@@ -109,14 +114,14 @@ def write_paper(row):
         cur.execute("""INSERT INTO pending_papers
             (source,sha,gcs_object,course_code,school,dept,level,semester,year,exam_session,
              outcome,curation_tier,primary_reader,num_questions,flags,reason,questions_json,
-             course_title,filing_confidence,filing_source)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             course_title,filing_confidence,filing_source,student_visible)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (sha) DO NOTHING""",
             (row["source"], row["sha"], row["gcs_object"], row["course_code"], row["school"],
              row["dept"], row["level"], row["semester"], row["year"], row["exam_session"],
              row["outcome"], row["curation_tier"], row["primary_reader"], row["num_questions"],
              row["flags"], row["reason"], row["questions_json"],
-             row["course_title"], row["filing_confidence"], row["filing_source"]))
+             row["course_title"], row["filing_confidence"], row["filing_source"], row["student_visible"]))
         c.commit()
     finally:
         c.close()
@@ -234,7 +239,7 @@ def process_file(blob):
             reason=res.reason[:500],
             questions_json=(primary.model_dump_json() if primary else None),
             course_title=meta["course_title"], filing_confidence=meta["filing_confidence"],
-            filing_source=meta["filing_source"],
+            filing_source=meta["filing_source"], student_visible=STUDENT_VISIBLE,
         )
         write_paper(row)
         written.append(row)
@@ -248,7 +253,13 @@ def main():
     init_db()
     sc = storage.Client(project=PROJECT)
     blobs = [b for b in sc.list_blobs(GCS_BUCKET, prefix=GCS_PREFIX) if not b.name.endswith("/")]
+    blobs.sort(key=lambda b: b.name)
     print(f"[cloud_ingest] {len(blobs)} objects under prefix", flush=True)
+    if MAX_FILES and len(blobs) > MAX_FILES:
+        step = max(1, len(blobs) // MAX_FILES)
+        blobs = blobs[::step][:MAX_FILES]
+        print(f"[cloud_ingest] CANARY cap: every {step}th file -> {len(blobs)} files "
+              f"(spans schools/types)", flush=True)
 
     t0 = time.time()
     all_rows, metrics = [], []
