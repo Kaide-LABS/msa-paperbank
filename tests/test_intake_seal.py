@@ -9,8 +9,8 @@ from app.config import settings
 @patch("app.intake.ocr_paper")
 @patch("app.intake.embed_many")
 @patch("app.intake.stitch_images_to_pdf")
-@patch("app.intake.preprocess_paper_image")
-def test_intake_seal_success(mock_preprocess, mock_stitch, mock_embed, mock_ocr, db_session):
+@patch("app.intake.prepare_images_for_ocr")
+def test_intake_seal_success(mock_prepare, mock_stitch, mock_embed, mock_ocr, db_session):
     # Short seal window for test
     settings.image_batch_seal_seconds = 0
     
@@ -26,7 +26,8 @@ def test_intake_seal_success(mock_preprocess, mock_stitch, mock_embed, mock_ocr,
     mock_ocr.return_value = OcrPaperExtraction(course_code="MTH102", questions=[OcrQuestion(number=1, text="test")])
     mock_embed.return_value = [[0.0]*768]
     mock_stitch.return_value = b"pdf"
-    mock_preprocess.return_value = b"img"
+    # Decision 2: intake now sends raw bytes through prepare_images_for_ocr (preprocess off by default).
+    mock_prepare.side_effect = lambda raw_list: list(raw_list)
     
     mock_gcs = MagicMock()
     

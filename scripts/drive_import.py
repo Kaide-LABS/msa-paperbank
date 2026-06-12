@@ -10,15 +10,26 @@ from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from google.cloud import storage
 from pypdf import PdfReader
-from pdf2image import convert_from_bytes
 from sqlalchemy import select
 from app.db import SessionLocal, PendingPaper, PendingPaperChunk, Course
 from app.config import settings
-from app.preprocess import preprocess_paper_image
+from app.preprocess import prepare_images_for_ocr
 from app.ocr import ocr_paper
+from app.paper_splitter import split_pdf_pages, rasterize_pdf_to_pngs
 from app.embeddings import embed_many
 from app.pdfgen import stitch_images_to_pdf, upload_pdf
 from app.errors import PreprocessError, EmbeddingError
+
+
+def _map_session_hint(hint):
+    """Map a PageBoundaryProbe.session_hint ("CA"|"exam"|None) onto the importer's session
+    vocabulary. "CA" stays generic (a curator refines CA1 vs CA2); these are pending papers."""
+    if hint == "exam":
+        return "EXAM"
+    if hint == "CA":
+        return "CA"
+    return None
+
 
 def get_drive_service():
     if settings.drive_service_account_json and os.path.exists(settings.drive_service_account_json):
@@ -127,82 +138,98 @@ def main():
                 n_ok += 1
                 continue
                 
-            chunk_texts = []
-            pdf_bytes_out = b""
-            course_title = None
-            
+            # A bundle may split into several constituent papers; each becomes a "unit".
+            # unit = dict(chunk_texts, course_title, pdf_bytes, sha, exam_session, pdf_was_generated)
+            paper_units = []
+
             if is_pdf:
-                # PDF processing
-                import io
                 pdf_bytes_out = raw_bytes_list[0]
                 reader = PdfReader(io.BytesIO(pdf_bytes_out))
                 text = ""
                 for p in reader.pages:
                     text += (p.extract_text() or "") + "\n"
-                    
+
                 if len(text) >= 200:
-                    for i, p in enumerate(reader.pages[:25]):
+                    # Digital text layer: treat as a single paper; store the original PDF.
+                    chunk_texts = []
+                    for p in reader.pages[:25]:
                         pt = p.extract_text()
                         if pt:
                             chunk_texts.append(pt)
+                    paper_units.append(dict(
+                        chunk_texts=chunk_texts, course_title=None,
+                        pdf_bytes=pdf_bytes_out, sha=sha256_combined,
+                        exam_session=session_type, pdf_was_generated=False))
                 else:
-                    # fallback to OCR — render each PDF page to a PNG byte-buffer
-                    # (cv2.imdecode needs encoded PNG bytes, not raw RGB pixels).
-                    images = convert_from_bytes(pdf_bytes_out, dpi=200)
-                    page_pngs = []
-                    for img in images:
-                        buf = io.BytesIO()
-                        img.save(buf, format="PNG")
-                        page_pngs.append(buf.getvalue())
-                    preprocessed = [preprocess_paper_image(b) for b in page_pngs]
-                    ocr_res = ocr_paper(preprocessed)
-                    course_title = ocr_res.course_title
-                    chunk_texts = [q.text for q in ocr_res.questions]
+                    # Scanned PDF: rasterize (pypdfium2 — no poppler) -> (preprocess off) ->
+                    # SPLIT into constituent papers (Decision B), then OCR each paper on its own.
+                    page_pngs = rasterize_pdf_to_pngs(pdf_bytes_out)
+                    page_imgs = prepare_images_for_ocr(page_pngs)
+                    groups = split_pdf_pages(page_imgs)
+                    multi = len(groups) > 1
+                    for gi, group in enumerate(groups):
+                        ocr_res = ocr_paper(group.images)
+                        # The paper's own header overrides the filename's single session_type —
+                        # the whole point of splitting CA-vs-Examination bundles.
+                        grp_session = _map_session_hint(group.session_hint) or session_type
+                        grp_pdf = stitch_images_to_pdf(group.images)
+                        # Per-paper hash so each sub-paper dedupes independently; a single-paper
+                        # PDF keeps the original combined hash (dedupe behavior unchanged).
+                        grp_sha = sha256_combined if not multi else hashlib.sha256(
+                            b"".join(group.images) + str(gi).encode()).hexdigest()
+                        paper_units.append(dict(
+                            chunk_texts=[q.text for q in ocr_res.questions],
+                            course_title=ocr_res.course_title,
+                            pdf_bytes=grp_pdf, sha=grp_sha,
+                            exam_session=grp_session, pdf_was_generated=True))
             else:
-                # Image processing
-                preprocessed = [preprocess_paper_image(b) for b in raw_bytes_list]
-                ocr_res = ocr_paper(preprocessed)
-                course_title = ocr_res.course_title
-                chunk_texts = [q.text for q in ocr_res.questions]
-                pdf_bytes_out = stitch_images_to_pdf(preprocessed)
-                
-            vectors = embed_many(chunk_texts)
-            
+                # Image group: single paper.
+                # Decision 2: preprocessing off by default; raw images straight to OCR.
+                page_imgs = prepare_images_for_ocr(raw_bytes_list)
+                ocr_res = ocr_paper(page_imgs)
+                paper_units.append(dict(
+                    chunk_texts=[q.text for q in ocr_res.questions],
+                    course_title=ocr_res.course_title,
+                    pdf_bytes=stitch_images_to_pdf(page_imgs), sha=sha256_combined,
+                    exam_session=session_type, pdf_was_generated=True))
+
             is_active_risk = (year >= datetime.now(timezone.utc).year - 1)
             # `semester` already came from the filename regex via the group key.
 
-            gcs_object = f"papers/{course_code}/{year}-{semester}-{session_type}-pending-{sha256_combined[:8]}.pdf"
-            
-            gcs_client = storage.Client(project=settings.gcp_project)
-            upload_pdf(gcs_client, settings.gcs_bucket, gcs_object, pdf_bytes_out)
-            
-            with SessionLocal.begin() as session:
-                pending = PendingPaper(
-                    course_code=course_code,
-                    course_title=course_title,
-                    semester=semester,
-                    exam_session=session_type,
-                    year=year,
-                    gcs_object=gcs_object,
-                    sha256=sha256_combined,
-                    uploaded_by="drive_importer",
-                    is_active_risk=is_active_risk,
-                    source="drive_import",
-                    pdf_was_generated=not is_pdf
-                )
-                session.add(pending)
-                session.flush()
-                
-                for i, (txt, vec) in enumerate(zip(chunk_texts, vectors)):
-                    session.add(PendingPaperChunk(
-                        pending_paper_id=pending.id,
-                        chunk_no=i+1,
-                        text=txt,
-                        embedding=vec
-                    ))
-                    
-            print(f"pending_id={pending.id}, chunks={len(chunk_texts)}")
-            n_ok += 1
+            for unit in paper_units:
+                vectors = embed_many(unit["chunk_texts"])
+                gcs_object = f"papers/{course_code}/{year}-{semester}-{unit['exam_session']}-pending-{unit['sha'][:8]}.pdf"
+
+                gcs_client = storage.Client(project=settings.gcp_project)
+                upload_pdf(gcs_client, settings.gcs_bucket, gcs_object, unit["pdf_bytes"])
+
+                with SessionLocal.begin() as session:
+                    pending = PendingPaper(
+                        course_code=course_code,
+                        course_title=unit["course_title"],
+                        semester=semester,
+                        exam_session=unit["exam_session"],
+                        year=year,
+                        gcs_object=gcs_object,
+                        sha256=unit["sha"],
+                        uploaded_by="drive_importer",
+                        is_active_risk=is_active_risk,
+                        source="drive_import",
+                        pdf_was_generated=unit["pdf_was_generated"]
+                    )
+                    session.add(pending)
+                    session.flush()
+
+                    for i, (txt, vec) in enumerate(zip(unit["chunk_texts"], vectors)):
+                        session.add(PendingPaperChunk(
+                            pending_paper_id=pending.id,
+                            chunk_no=i+1,
+                            text=txt,
+                            embedding=vec
+                        ))
+
+                print(f"pending_id={pending.id}, chunks={len(unit['chunk_texts'])}, session={unit['exam_session']}")
+                n_ok += 1
             
         except Exception as e:
             print(f"Error on {files[0]['name']}: {e}")

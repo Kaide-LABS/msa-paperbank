@@ -26,3 +26,25 @@ def test_preprocess_rejects_tiny_image():
 def test_preprocess_rejects_garbage():
     with pytest.raises(PreprocessError, match="undecodable image"):
         preprocess_paper_image(b"\x00\x01\x02")
+
+
+# --- Decision 2: prepare_images_for_ocr chokepoint (preprocess off by default) ---
+
+def test_prepare_images_for_ocr_off_by_default_returns_raw():
+    from app.preprocess import prepare_images_for_ocr
+    from app.config import settings
+    assert settings.ocr_preprocess_enabled is False  # Decision 2 default
+    raw = [b"img-a", b"img-b"]
+    out = prepare_images_for_ocr(raw)
+    assert out == raw                # bytes unchanged — straight to OCR
+    assert out is not raw            # returns a fresh list, not the same object
+
+def test_prepare_images_for_ocr_enabled_runs_preprocess(monkeypatch):
+    import app.preprocess as pp
+    from app.config import settings
+    seen = []
+    monkeypatch.setattr(pp, "preprocess_paper_image", lambda b: seen.append(b) or (b + b"!"))
+    monkeypatch.setattr(settings, "ocr_preprocess_enabled", True)
+    out = pp.prepare_images_for_ocr([b"x", b"y"])
+    assert out == [b"x!", b"y!"]     # each image passed through preprocess_paper_image
+    assert seen == [b"x", b"y"]

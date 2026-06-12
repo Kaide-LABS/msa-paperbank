@@ -7,7 +7,7 @@ from google.cloud import storage
 from sqlalchemy import select
 from app.db import SessionLocal, Paper, PaperChunk, PendingPaper, PendingPaperChunk, Course
 from app.config import settings
-from app.preprocess import preprocess_paper_image
+from app.preprocess import prepare_images_for_ocr
 from app.ocr import ocr_paper
 from app.embeddings import embed_many
 from app.pdfgen import stitch_images_to_pdf, upload_pdf
@@ -87,14 +87,15 @@ def upload_images_cmd(args):
             print(f"Pending paper already exists: ID={existing.id}")
             sys.exit(0)
 
+    # Decision 2: preprocessing off by default; raw images go straight to OCR.
     try:
-        preprocessed = [preprocess_paper_image(b) for b in raw_bytes_list]
+        images = prepare_images_for_ocr(raw_bytes_list)
     except PreprocessError as e:
         print(f"Preprocess error: {e}")
         sys.exit(2)
-        
+
     if not args.no_ocr:
-        ocr_result = ocr_paper(preprocessed)
+        ocr_result = ocr_paper(images)
         if ocr_result.error is not None or not ocr_result.questions:
             print(f"OCR empty or error: {ocr_result.error}")
             sys.exit(3)
@@ -104,7 +105,7 @@ def upload_images_cmd(args):
     if args.held_until:
         held_until = datetime.strptime(args.held_until, "%Y-%m-%d").date()
     
-    pdf_bytes = stitch_images_to_pdf(preprocessed)
+    pdf_bytes = stitch_images_to_pdf(images)
     
     gcs_object = f"papers/{code}/{args.year}-{args.semester}-{args.session or 'exam'}.pdf"
     
