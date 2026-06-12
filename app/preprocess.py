@@ -2,6 +2,28 @@ import cv2
 import numpy as np
 from app.errors import PreprocessError
 
+
+def prepare_images_for_ocr(image_bytes_list: list[bytes]) -> list[bytes]:
+    """Single chokepoint for getting images ready to hand to OCR.
+
+    Decision 2 (2026-06 OCR probe, c:\\tmp\\pau-probe): preprocessing is OFF by default.
+    The probe found cv2 deskew/denoise/threshold improved 0/12 sampled files, was neutral
+    on clean inputs, and net-negative on degraded ones — it turned a Flash success into a
+    hard MAX_TOKENS failure (file 11) and caused a question mis-numbering (file 3). So by
+    default raw image bytes (and rasterized PDF pages) flow straight to OCR with no
+    preprocessing.
+
+    preprocess_paper_image() is intentionally NOT deleted — flip settings.ocr_preprocess_enabled
+    to True to re-enable it for an explicit A/B. settings is imported lazily to avoid a
+    config import at module load (preprocess.py is imported by lightweight call sites).
+    """
+    from app.config import settings
+
+    if not settings.ocr_preprocess_enabled:
+        return list(image_bytes_list)
+    return [preprocess_paper_image(b) for b in image_bytes_list]
+
+
 def preprocess_paper_image(image_bytes: bytes) -> bytes:
     img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
     if img is None:

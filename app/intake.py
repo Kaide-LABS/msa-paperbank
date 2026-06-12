@@ -8,7 +8,7 @@ from app.db import Uploader, ImageBatch, ImageBatchItem, IntakeNotification, Pen
 from app.schemas import WAMessage, Reply, TextReply
 from app.config import settings
 from app import whatsapp
-from app.preprocess import preprocess_paper_image
+from app.preprocess import prepare_images_for_ocr
 from app.ocr import ocr_paper
 from app.embeddings import embed_many
 from app.pdfgen import stitch_images_to_pdf
@@ -165,14 +165,17 @@ def _process_batch(session: Session, gcs_client: storage.Client, batch: ImageBat
         return
         
     bucket = gcs_client.bucket(settings.gcs_bucket)
-    preprocessed = []
-    
+    raw_bytes_list = []
+
     try:
         for item in items:
             b = bucket.blob(item.gcs_object).download_as_bytes()
-            preprocessed.append(preprocess_paper_image(b))
-            
-        ocr_result = ocr_paper(preprocessed)
+            raw_bytes_list.append(b)
+
+        # Decision 2: preprocessing off by default; raw images go straight to OCR.
+        images = prepare_images_for_ocr(raw_bytes_list)
+
+        ocr_result = ocr_paper(images)
         if ocr_result.error or not ocr_result.questions:
             batch.status = 'failed'
             batch.failure_reason = 'ocr_empty'
@@ -185,7 +188,7 @@ def _process_batch(session: Session, gcs_client: storage.Client, batch: ImageBat
             
         vectors = embed_many([q.text for q in ocr_result.questions])
         
-        pdf_bytes = stitch_images_to_pdf(preprocessed)
+        pdf_bytes = stitch_images_to_pdf(images)
         # Use first item sha for the object name suffix
         sha_part = items[0].sha256[:8]
         gcs_object = f"papers/_intake/{batch.id}-{sha_part}.pdf"
