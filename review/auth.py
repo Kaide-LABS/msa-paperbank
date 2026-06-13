@@ -4,6 +4,7 @@
 A phone number is a username, not a secret — the OTP (delivered to the number via the same
 WhatsApp send path the bot uses) is what authenticates. Codes are stored HASHED with a short TTL
 and an attempt cap; the session cookie is HttpOnly+Secure and HMAC-signed."""
+import re
 import hmac
 import hashlib
 import base64
@@ -13,6 +14,20 @@ from sqlalchemy import text
 from app.config import settings
 
 COOKIE = "pbreview"
+
+
+def normalize_phone(p: str) -> str:
+    """Canonical E.164-without-plus for Nigerian numbers. Used at BOTH seed-time and login-time so
+    stored and entered numbers always match regardless of how the reviewer types it.
+      0XXXXXXXXXX (11, local)  -> 234XXXXXXXXXX
+      XXXXXXXXXX  (10, bare)   -> 234XXXXXXXXXX
+      234XXXXXXXXXX / +234...  -> unchanged (digits only)"""
+    d = re.sub(r"\D", "", p or "")
+    if len(d) == 11 and d.startswith("0"):
+        return "234" + d[1:]
+    if len(d) == 10:
+        return "234" + d
+    return d
 
 
 def _secret() -> bytes:
