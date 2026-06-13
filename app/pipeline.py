@@ -165,7 +165,7 @@ def handle_message(session: Session, msg: WAMessage, http_client, gcs_client) ->
             log_entry.outcome = "not_found"
             session.commit()
             other_replies = [
-                "I'm the PAU MSA past-paper bot. I find past papers — send a course, year and semester like 'MTH102 harmattan 2022'.",
+                "I'm the PAU Muslim Ummah past-paper bot. I find past papers — send a course, year and semester like 'MTH102 harmattan 2022'.",
                 "I only fetch past papers for now. Try something like 'CSC201 rain 2023'.",
                 "I keep it simple: tell me a course code, year and semester and I'll send the paper, e.g. 'GST122 harmattan 2022'.",
             ]

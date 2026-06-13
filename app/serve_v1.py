@@ -40,7 +40,7 @@ SCHOOLS = [
 
 _GREETING = ("Wa alaykum salaam. Send a course code or title — e.g. 'GST111' or "
              "'introduction to finance' — and I'll find the past paper, in shaa Allah.")
-_OTHER = ("I'm the PAU MSA past-paper bot — I find past papers. Send a course code or title, "
+_OTHER = ("I'm the PAU Muslim Ummah past-paper bot — I find past papers. Send a course code or title, "
           "e.g. 'CSC201' or 'organic chemistry'.")
 _MISS = ("I couldn't find that paper. Try the course code or a fuller title "
          "(e.g. 'GST111' or 'introduction to finance'). Soon you'll be able to send a photo to "
@@ -228,7 +228,7 @@ def handle_message_v1(session: Session, msg: WAMessage, http_client, gcs_client)
         stash = None if pm else body                     # don't stash a bare number as a query
         _store_session(session, phone, {"kind": "onboarding", "items": _onboarding_items(), "pending_query": stash})
         _log_update(session, msg, "onboarding", intent="onboarding"); session.commit()
-        return TextReply(body=_school_prompt("Welcome to the PAU MSA past-paper bot!"))
+        return TextReply(body=_school_prompt("Welcome to the PAU Muslim Ummah past-paper bot!"))
 
     # 3d. known student -> school-scoped serve.
     return _route_and_serve(session, msg, body, school=profile["school"])
