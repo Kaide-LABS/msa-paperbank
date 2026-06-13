@@ -14,6 +14,7 @@ from app.deps import get_session
 from app.schemas import WAWebhookPayload, TextReply
 from app import whatsapp
 from app import pipeline
+from app import serve_v1
 from app import retrieval
 from app.errors import DuplicateMessage
 
@@ -63,20 +64,26 @@ async def webhook_inbound(
         for change in entry.changes:
             for msg in (change.value.messages or []):
                 try:
-                    reply = pipeline.handle_message(
-                        session, 
-                        msg, 
-                        request.app.state.http, 
-                        request.app.state.gcs
-                    )
+                    if settings.serve_v1_enabled:
+                        reply = serve_v1.handle_message_v1(
+                            session, msg, request.app.state.http, request.app.state.gcs
+                        )
+                        paper_loader = lambda pid: retrieval.load_served_bytes_v1(
+                            session, pid, request.app.state.gcs, settings.gcs_bucket
+                        )
+                    else:
+                        reply = pipeline.handle_message(
+                            session, msg, request.app.state.http, request.app.state.gcs
+                        )
+                        paper_loader = lambda pid: retrieval.load_pdf_bytes(
+                            session.get(db.Paper, pid), request.app.state.gcs, settings.gcs_bucket
+                        )
                     if not (isinstance(reply, TextReply) and reply.body == ""):
                         whatsapp.send_reply(
                             http_client=request.app.state.http,
                             to=msg.from_,
                             reply=reply,
-                            paper_loader=lambda pid: retrieval.load_pdf_bytes(
-                                session.get(db.Paper, pid), request.app.state.gcs, settings.gcs_bucket
-                            ),
+                            paper_loader=paper_loader,
                         )
                 except DuplicateMessage:
                     continue
