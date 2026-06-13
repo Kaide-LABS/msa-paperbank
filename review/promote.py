@@ -93,11 +93,12 @@ def deny(session, http, cid: int, comment: str | None, reviewer: str) -> None:
         "updated_at=now() WHERE id=:c"
     ), {"cm": (comment or None), "r": reviewer, "c": cid})
     session.commit()
-    if comment:
-        body = f"Your contribution wasn't added.\nReason: {comment}"
-    else:
-        body = ("Your contribution wasn't added this time. JazakAllah khair (may God reward you with good) "
-                "for contributing — please feel free to send clearer photos or another paper.")
+    # The deny message goes to the student AS the Muslim Ummah — wrap the reviewer's reason in warm
+    # framing here so a terse comment never lands as the institution's cold voice.
+    reason = f" — {comment} —" if comment else ""
+    body = ("JazakAllah khair (may God reward you with good) for your contribution! It wasn't added "
+            f"this time{reason} but please do send another — we'd love to grow the bank with your help, "
+            "in shaa Allah (God willing).")
     try:
         whatsapp.send_text(http, contrib["contributor_phone"], body)
     except Exception:
