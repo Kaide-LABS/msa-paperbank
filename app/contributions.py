@@ -171,7 +171,7 @@ def _on_image(session, msg, http, gcs, state) -> Reply:
         log.error("contrib_validate_failed", extra={"err": str(e)})
         return TextReply(body="I had trouble reading that one — please resend it.")
     if not v.is_paper_like:
-        return TextReply(body="This doesn't look like a past paper — send a clear photo of the question paper, in shaa Allah.")
+        return TextReply(body="This doesn't look like a past paper — send a clear photo of the question paper, in shaa Allah (God willing).")
     if not v.clarity_ok:
         return TextReply(body="Could you resend in better lighting? That photo's hard to read.")
 
@@ -183,7 +183,7 @@ def _on_image(session, msg, http, gcs, state) -> Reply:
     _set_state(session, phone, cid, "collecting")
     session.commit()
     if not state:
-        return TextReply(body="Got page 1 ✅ JazakAllah! Send all the pages of this exam — I'll wait. "
+        return TextReply(body="Got page 1 ✅ JazakAllah khair (may God reward you with good)! Send all the pages of this paper — I'll wait. "
                               "Tap 'done' when you've sent them all (or I'll check in shortly).")
     if reopened:
         return TextReply(body=f"Added page {n}. Send more, or 'done' when finished.")
@@ -206,8 +206,8 @@ def _on_text(session, msg, state, http, gcs) -> Reply:
         if low in _DONE:
             n = _page_count(session, cid)
             _set_state(session, phone, cid, "confirm"); session.commit()
-            return TextReply(body=f"Got {n} page(s) — is that the whole exam? (yes / send more)")
-        return TextReply(body="Send the pages of the exam, then tap 'done'. (Or 'cancel' to stop.)")
+            return TextReply(body=f"Got {n} page(s) — is that the whole paper? (yes / send more)")
+        return TextReply(body="Send the pages of the paper, then tap 'done'. (Or 'cancel' to stop.)")
 
     if st == "confirm":
         if low in _YES or low in _DONE:
@@ -215,7 +215,7 @@ def _on_text(session, msg, state, http, gcs) -> Reply:
         if low in _MORE:
             _set_state(session, phone, cid, "collecting"); session.commit()
             return TextReply(body="Sure — send the rest, then 'done'.")
-        return TextReply(body="Is that the whole exam? Reply 'yes', or 'send more' to add pages.")
+        return TextReply(body="Is that the whole paper? Reply 'yes', or 'send more' to add pages.")
 
     if st == "filing":
         if low in _YES:
@@ -262,7 +262,7 @@ def _to_filing(session, phone, cid, http, gcs) -> Reply:
     if _over_cap(session, phone):
         session.execute(text("UPDATE contributions SET status='denied', review_comment='auto: weekly cap', updated_at=now() WHERE id=:c"), {"c": cid})
         _clear_state(session, phone); session.commit()
-        return TextReply(body="You've hit this week's upload limit (20). JazakAllah for contributing! It resets in a few days.")
+        return TextReply(body="You've hit this week's upload limit (20). JazakAllah khair (may God reward you with good) for contributing! It resets in a few days.")
     # masthead read off page 1 (best-effort) — ALWAYS confirmed next
     guess = None
     try:
@@ -306,9 +306,9 @@ def _commit(session, phone, cid) -> Reply:
     _clear_state(session, phone); session.commit()
     if dup:
         return TextReply(body="We already have a copy of this one — but no worries, yours will still go to review "
-                              "(a clearer scan always helps). JazakAllah khair! It's pending review.")
-    return TextReply(body="JazakAllah khair! Your contribution's been received and is pending review. "
-                          "You'll hear back once it's checked, in shaa Allah.")
+                              "(a clearer scan always helps). JazakAllah khair (may God reward you with good)! It's pending review.")
+    return TextReply(body="JazakAllah khair (may God reward you with good)! Your contribution's been received and is pending review. "
+                          "You'll hear back once it's checked, in shaa Allah (God willing).")
 
 
 # ---------------------------------------------------------------- opportunistic idle sweep
@@ -338,7 +338,7 @@ def sweep(session: Session, http_client, gcs_client) -> int:
                 _set_state(session, phone, cid, "confirm")
                 session.execute(text("UPDATE contributions SET updated_at=now() WHERE id=:c"), {"c": cid})
                 session.commit()
-                whatsapp.send_text(http_client, phone, f"Got {n} page(s) so far — is that the whole exam? (yes / send more)")
+                whatsapp.send_text(http_client, phone, f"Got {n} page(s) so far — is that the whole paper? (yes / send more)")
             else:
                 # continued silence (confirm/filing/fix) -> finalize for the reviewer with whatever we have
                 session.execute(text(
@@ -349,7 +349,7 @@ def sweep(session: Session, http_client, gcs_client) -> int:
                 if st and st.get("cid") == cid:
                     _clear_state(session, phone)
                 session.commit()
-                whatsapp.send_text(http_client, phone, "Thanks — I've received your pages and they're pending review, in shaa Allah.")
+                whatsapp.send_text(http_client, phone, "Thanks — I've received your pages and they're pending review, in shaa Allah (God willing).")
             acted += 1
         except Exception:
             log.exception("contrib_sweep_item_failed", extra={"cid": cid})

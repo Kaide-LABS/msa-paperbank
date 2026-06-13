@@ -39,13 +39,13 @@ SCHOOLS = [
 ]
 
 _GREETING = ("Wa alaykum salaam. Send a course code or title — e.g. 'GST111' or "
-             "'introduction to finance' — and I'll find the past paper, in shaa Allah.")
+             "'introduction to finance' — and I'll find the past paper, in shaa Allah (God willing).")
 _OTHER = ("I'm the PAU Muslim Ummah past-paper bot — I find past papers. Send a course code or title, "
           "e.g. 'CSC201' or 'organic chemistry'.")
 _MISS = ("I couldn't find that paper. Try the course code or a fuller title "
          "(e.g. 'GST111' or 'introduction to finance'). Soon you'll be able to send a photo to "
-         "add a paper yourself, in shaa Allah.")
-_BUSY = "The bot is busy right now. Please try again in a minute, in shaa Allah."
+         "add a paper yourself, in shaa Allah (God willing).")
+_BUSY = "The bot is busy right now. Please try again in a minute, in shaa Allah (God willing)."
 
 
 def _school_prompt(lead: str) -> str:
@@ -227,7 +227,7 @@ def handle_message_v1(session: Session, msg: WAMessage, http_client, gcs_client)
                 if payload.get("kind") == "onboarding":
                     school = chosen["onboard"]
                     _set_school(session, phone, school)
-                    confirm = f"Got it — I'll find papers from {school} for you, in shaa Allah. "
+                    confirm = f"Got it — I'll find papers from {school} for you, in shaa Allah (God willing). "
                     pq = payload.get("pending_query")
                     if pq:                               # replay the original request, now scoped
                         return _route_and_serve(session, msg, pq, school=school, prefix=confirm)
