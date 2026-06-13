@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     contribution_idle_seconds: int = 90               # idle before the sweep checks in / finalizes a collecting session
     contribution_max_pages: int = 20                  # safety cap on pages per contribution
     contribution_max_image_bytes: int = 10_000_000
+    # Build 3: review web app (separate paperbank-review service; same DB + bucket).
+    review_session_secret: SecretStr | None = None    # HMAC key for the signed session cookie
+    review_session_hours: int = 10
+    review_otp_ttl_seconds: int = 300                 # 5 min
+    review_otp_max_attempts: int = 5                  # lock after N wrong tries
+    review_otp_resend_seconds: int = 30               # min gap between code requests
+    review_promoted_prefix: str = "contributed/"      # approved contributed images live here (served)
 
 def load_settings_with_secret_manager() -> Settings:
     if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":
