@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     serve_session_ttl_seconds: int = 900          # how long a tap-to-choose list stays resolvable
     serve_school_scoping_enabled: bool = True      # V1.1: per-student school profile + school-scoped match
     serve_onboarding_ttl_seconds: int = 1800       # how long a pending school-onboarding prompt stays resolvable
+    serve_multipage_enabled: bool = True           # V1.2: assemble grouped page-rows into one multi-page exam PDF
 
 def load_settings_with_secret_manager() -> Settings:
     if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":

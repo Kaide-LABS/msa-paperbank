@@ -150,17 +150,53 @@ def load_pdf_bytes(paper: Paper, gcs_client: storage.Client, bucket_name: str) -
     return served, filename
 
 
-def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
-    """V1 serve loader over the corpus-index `pending_papers`. Resolves the row's gcs_object,
-    downloads the RAW artifact, returns (served_pdf_bytes, filename).
-
-    PDFs -> render_served_pdf (born-digital pass through; scans rasterised+enhanced).
-    Image-sourced papers (56% of the corpus) -> decode -> auto_rotate -> enhance_for_display ->
-    wrapped into a single-page PDF, so every served artifact is one uniform captioned document.
-    Raw GCS objects are never modified (all work is on the in-memory copy)."""
+def _image_to_enhanced_png(raw: bytes, ext: str) -> bytes:
+    """One image artifact -> enhanced PNG bytes (HEIC decoded first; auto_rotate + enhance_for_display).
+    Any failure falls back to the original bytes — never drop content."""
     import io
-    from sqlalchemy import text
+    img = raw
+    if ext in ("heic", "heif"):                      # cv2 can't read HEIC; decode to PNG first
+        from pillow_heif import register_heif_opener
+        from PIL import Image
+        register_heif_opener()
+        im = Image.open(io.BytesIO(raw)).convert("RGB")
+        buf = io.BytesIO(); im.save(buf, format="PNG"); img = buf.getvalue()
+    if settings.serve_enhance_enabled:
+        from app.display_enhance import auto_rotate, enhance_for_display
+        try:
+            img = enhance_for_display(auto_rotate(img), color=False)
+        except Exception:
+            pass
+    return img
 
+
+def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
+    """V1 serve loader over the corpus-index `pending_papers`. Returns (served_pdf_bytes, filename).
+
+    V1.2: if `pending_id` is a logical_exam_id in exam_group, assemble ALL its page rows in
+    page_order into ONE multi-page PDF (each image enhanced, then stitched). Otherwise serve the
+    single row: PDFs -> render_served_pdf (born-digital pass through); images -> enhanced 1-page PDF.
+    Raw GCS objects are never modified (all work is on the in-memory copy)."""
+    from sqlalchemy import text
+    from app.pdfgen import stitch_images_to_pdf
+
+    # --- grouped multi-page exam? ---
+    if settings.serve_multipage_enabled:
+        grp = session.execute(text(
+            "SELECT pp.gcs_object, pp.course_code FROM exam_group eg "
+            "JOIN pending_papers pp ON pp.id = eg.page_row_id "
+            "WHERE eg.logical_exam_id = :lex ORDER BY eg.page_order"
+        ), {"lex": pending_id}).mappings().all()
+        if grp:
+            code = grp[0]["course_code"]
+            pages = []
+            for r in grp:
+                praw = gcs_client.bucket(bucket_name).blob(r["gcs_object"]).download_as_bytes()
+                pext = r["gcs_object"].rsplit(".", 1)[-1].lower() if "." in r["gcs_object"] else ""
+                pages.append(_image_to_enhanced_png(praw, pext))
+            return stitch_images_to_pdf(pages), f"{(code or 'paper').replace('/', '_')}.pdf"
+
+    # --- single row ---
     row = session.execute(
         text("SELECT course_code, gcs_object FROM pending_papers WHERE id = :id"),
         {"id": pending_id},
@@ -175,20 +211,4 @@ def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, b
     if ext == "pdf":
         served = render_served_pdf(raw) if settings.serve_enhance_enabled else raw
         return served, filename
-
-    # image-sourced paper -> enhanced single-page PDF
-    from app.display_enhance import auto_rotate, enhance_for_display
-    from app.pdfgen import stitch_images_to_pdf
-    img_bytes = raw
-    if ext in ("heic", "heif"):                      # cv2 can't read HEIC; decode to PNG first
-        from pillow_heif import register_heif_opener
-        from PIL import Image
-        register_heif_opener()
-        im = Image.open(io.BytesIO(raw)).convert("RGB")
-        buf = io.BytesIO(); im.save(buf, format="PNG"); img_bytes = buf.getvalue()
-    if settings.serve_enhance_enabled:
-        try:
-            img_bytes = enhance_for_display(auto_rotate(img_bytes), color=False)
-        except Exception:
-            pass                                     # any failure -> original image, never drop content
-    return stitch_images_to_pdf([img_bytes]), filename
+    return stitch_images_to_pdf([_image_to_enhanced_png(raw, ext)]), filename

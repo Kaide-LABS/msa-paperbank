@@ -39,6 +39,7 @@ class Candidate:
     exam_session: str | None
     gcs_object: str
     score: float = 0.0
+    page_count: int = 1             # >1 when this candidate is a grouped multi-page exam
 
     def label(self) -> str:
         """One-line human label for a disambiguation list / caption."""
@@ -54,7 +55,10 @@ class Candidate:
         sess = _norm_session(self.exam_session)
         if sess:
             meta.append(sess)
-        return f"{head} ({', '.join(meta)})" if meta else head
+        base = f"{head} ({', '.join(meta)})" if meta else head
+        if self.page_count > 1:
+            base += f" — {self.page_count} pages"
+        return base
 
 
 @dataclass
@@ -135,6 +139,22 @@ def _collect(session: Session, src: str, code: str, phrase: str, scope: str | No
     return by_id, exact_hit
 
 
+def _grouping_map(session: Session, ids: list[int]) -> dict[int, tuple[int, int]]:
+    """page_row_id -> (logical_exam_id, page_count) for candidate ids that belong to a grouped exam."""
+    if not ids:
+        return {}
+    rows = session.execute(text(
+        "SELECT page_row_id, logical_exam_id FROM exam_group WHERE page_row_id = ANY(:ids)"
+    ), {"ids": ids}).mappings().all()
+    if not rows:
+        return {}
+    lexes = list({r["logical_exam_id"] for r in rows})
+    counts = dict(session.execute(text(
+        "SELECT logical_exam_id, count(*) FROM exam_group WHERE logical_exam_id = ANY(:lx) GROUP BY 1"
+    ), {"lx": lexes}).all())
+    return {r["page_row_id"]: (r["logical_exam_id"], int(counts.get(r["logical_exam_id"], 1))) for r in rows}
+
+
 def search_index(session: Session, routed, user_text: str, school: str | None = None) -> SearchResult:
     src = settings.serve_source_tag
     code = (routed.course_code or "").upper().replace(" ", "")
@@ -154,16 +174,27 @@ def search_index(session: Session, routed, user_text: str, school: str | None = 
     if not cands:
         return SearchResult("none", None, [], scoped_school=scope)
 
-    # Collapse page-fragments / duplicate scans that share the same logical paper, so a
-    # disambiguation list shows distinct papers, not near-identical rows. (Multi-page exams are
-    # fragmented into per-page rows at ingest — a known V2 cleanup; here we keep one representative,
-    # highest-scored first since cands is score-sorted.)
-    seen, deduped = set(), []
+    # Collapse to logical exams (highest-scored representative first; cands is score-sorted).
+    # Grouped page-rows (exam_group) collapse by logical_exam_id into ONE multi-page exam candidate
+    # — the real grouping supersedes the fragment-dedup hack for these. Ungrouped rows fall back to
+    # the (code,title,year,session) near-dup dedup that still cleans up un-grouped duplicate scans.
+    gmap = _grouping_map(session, [c.id for c in cands]) if settings.serve_multipage_enabled else {}
+    seen_groups, seen_key, deduped = set(), set(), []
     for c in cands:
-        key = (c.course_code, (c.course_title or "").lower().strip(), c.year, _norm_session(c.exam_session))
-        if key in seen:
+        g = gmap.get(c.id)
+        if g:
+            lex, pages = g
+            if lex in seen_groups:
+                continue
+            seen_groups.add(lex)
+            c.id = lex                 # representative id = logical_exam_id; served as the whole exam
+            c.page_count = pages
+            deduped.append(c)
             continue
-        seen.add(key)
+        key = (c.course_code, (c.course_title or "").lower().strip(), c.year, _norm_session(c.exam_session))
+        if key in seen_key:
+            continue
+        seen_key.add(key)
         deduped.append(c)
     cands = deduped
 

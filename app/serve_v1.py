@@ -217,11 +217,9 @@ def handle_message_v1(session: Session, msg: WAMessage, http_client, gcs_client)
                         return _route_and_serve(session, msg, pq, school=school, prefix=confirm)
                     _log_update(session, msg, "sent", intent="onboarded"); session.commit()
                     return TextReply(body=confirm + "Send a course code or title and I'll find the paper.")
-                else:                                    # disambiguation paper pick
-                    c = candidate_by_id(session, chosen["id"])
+                else:                                    # disambiguation paper pick (may be a grouped exam)
                     _log_update(session, msg, "sent", intent="pick", matched_id=chosen["id"]); session.commit()
-                    return DocumentReply(paper_id=chosen["id"],
-                                         caption=(c.label() if c else chosen.get("label", "Your paper")))
+                    return DocumentReply(paper_id=chosen["id"], caption=chosen.get("label", "Your paper"))
         # no/expired/invalid session -> fall through
 
     # 3c. onboarding gate: unknown student.
