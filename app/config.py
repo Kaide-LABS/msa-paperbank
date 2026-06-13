@@ -84,6 +84,14 @@ class Settings(BaseSettings):
     serve_school_scoping_enabled: bool = True      # V1.1: per-student school profile + school-scoped match
     serve_onboarding_ttl_seconds: int = 1800       # how long a pending school-onboarding prompt stays resolvable
     serve_multipage_enabled: bool = True           # V1.2: assemble grouped page-rows into one multi-page exam PDF
+    # Build 2: WhatsApp contribution intake (students photograph papers -> bot validates/collects ->
+    # awaiting_review queue; NOTHING student-visible until the Build-3 web app approves).
+    serve_contributions_enabled: bool = True
+    contribution_gcs_prefix: str = "contributions/"   # contributed raw images, separate from corpus_full/
+    contribution_weekly_cap: int = 20                 # accepted finalized sessions per rolling 7 days (general public)
+    contribution_idle_seconds: int = 90               # idle before the sweep checks in / finalizes a collecting session
+    contribution_max_pages: int = 20                  # safety cap on pages per contribution
+    contribution_max_image_bytes: int = 10_000_000
 
 def load_settings_with_secret_manager() -> Settings:
     if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":

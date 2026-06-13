@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from app.config import settings
 from app.schemas import WAMessage, Reply, TextReply, DocumentReply
-from app import llm
+from app import llm, contributions
 from app.serve_index import search_index, candidate_by_id
 from app.errors import RouterError, DuplicateMessage
 
@@ -165,11 +165,15 @@ def _route_and_serve(session: Session, msg: WAMessage, body: str, school: str | 
 
 # ----------------------------------------------------------------------------- main entry
 def handle_message_v1(session: Session, msg: WAMessage, http_client, gcs_client) -> Reply:
-    if msg.type != "text" or not msg.text:
-        return TextReply(body="Send a course code or title, e.g. 'GST111' or 'introduction to finance'.")
-    body = msg.text.body.strip()
+    # Opportunistic contribution idle-sweep (check-ins / finalize) — side-effect only (Phase-5 pattern).
+    if settings.serve_contributions_enabled:
+        try:
+            contributions.sweep(session, http_client, gcs_client)
+        except Exception:
+            log.exception("contribution_sweep_failed")
+            session.rollback()
 
-    # 1. Idempotency (Meta retries the webhook).
+    # 1. Idempotency first — covers images + text; Meta retries the webhook.
     try:
         _log_insert(session, msg)
         session.commit()
@@ -177,7 +181,19 @@ def handle_message_v1(session: Session, msg: WAMessage, http_client, gcs_client)
         session.rollback()
         raise DuplicateMessage()
 
-    # 2. Rate limit (global, per hour).
+    # 2. Contribution intake: image messages, or any text while a contribution session is active.
+    if settings.serve_contributions_enabled:
+        reply = contributions.handle(session, msg, http_client, gcs_client)
+        if reply is not None:
+            return reply
+
+    # --- retrieval path (text only from here) ---
+    if msg.type != "text" or not msg.text:
+        return TextReply(body="Send a course code or title, e.g. 'GST111' or 'introduction to finance'. "
+                              "Or send a photo of a past paper to contribute one.")
+    body = msg.text.body.strip()
+
+    # 3. Rate limit (retrieval, global per hour).
     one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
     recent = session.execute(text(
         "SELECT count(*) FROM served_log WHERE created_at >= :t AND outcome <> 'rate_limited'"

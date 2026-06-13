@@ -88,6 +88,28 @@ class PageBoundaryProbe(BaseModel):
     # corroborated backstop if a corpus trial ever surfaces a genuine masthead miss.
     has_question_one_reset: bool = False
 
+class ContributionValidation(BaseModel):
+    """Layer-1 cheap vision gate for a contributed image (Flash)."""
+    is_paper_like: bool          # reads as an exam/CA question paper (vs selfie/screenshot/random)
+    clarity_ok: bool             # legible enough (not too dark/blurry)
+    reason: str | None = None    # short why, for the reject message / audit
+
+class MastheadRead(BaseModel):
+    """Filing guess read off page 1's masthead (Flash). ALWAYS confirmed before saving."""
+    course_code: str | None = None
+    course_title: str | None = None
+    year: int | None = None
+    exam_session: Literal["CA1", "CA2", "exam"] | None = None
+    doc_type: Literal["exam", "CA"] | None = None
+    confidence: float = 0.0
+
+    @field_validator("year")
+    @classmethod
+    def _yr(cls, v):
+        if v is None: return v
+        if not (2000 <= v <= 2100): return None
+        return v
+
 class TextReply(BaseModel):
     kind: Literal["text"] = "text"
     body: str

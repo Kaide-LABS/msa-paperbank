@@ -1,7 +1,7 @@
 from google import genai
 from google.genai import types
 from app.config import settings
-from app.schemas import RouterOutput, PageBoundaryProbe
+from app.schemas import RouterOutput, PageBoundaryProbe, ContributionValidation, MastheadRead
 from app.errors import RouterError
 
 client = genai.Client(
@@ -127,6 +127,51 @@ this one page and answer briefly. Return JSON ONLY matching the schema.
   (especially "QUESTION ONE (Compulsory)") even though earlier pages already showed higher-numbered
   questions. Otherwise false.
 """
+
+_VALIDATE_PROMPT = """You are the intake gate for a past-paper contribution bot. Look at ONE photo
+and judge it for accepting as a page of a university EXAM or CA (continuous assessment) question
+paper. Return JSON only.
+- is_paper_like: true if it shows printed/handwritten EXAM or CA question content (course masthead,
+  "Question 1", marks, "Time allowed", instructions, questions). false for selfies, random photos,
+  screenshots of chats, memes, lecture slides/notes that are not a question paper.
+- clarity_ok: false if too dark, blurry, glare-washed, or cropped so the text can't be read; true if
+  a person could comfortably read the questions.
+- reason: a short phrase (e.g. "exam masthead + questions", "selfie", "too dark to read").
+Judge ONLY this image."""
+
+def validate_contribution_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> ContributionValidation:
+    """Cheap Flash gate: is this a legible past-paper page? thinking_budget=0 keeps it fast."""
+    part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+    resp = client.models.generate_content(
+        model=settings.model_flash, contents=[part],
+        config=types.GenerateContentConfig(
+            system_instruction=_VALIDATE_PROMPT, response_mime_type="application/json",
+            response_schema=ContributionValidation, temperature=0.0, max_output_tokens=256,
+            thinking_config=types.ThinkingConfig(thinking_budget=0)))
+    return ContributionValidation.model_validate_json(resp.text)
+
+
+_MASTHEAD_PROMPT = """You are reading the MASTHEAD (top header) of page 1 of a PAU past-exam paper to
+file it. Extract what is printed; guess nothing you can't see. Return JSON only.
+- course_code: the course code if printed (e.g. 'GST111', 'EEE321'), else null.
+- course_title: the course title/name if printed, else null.
+- year: the 4-digit academic/exam year if shown (use the starting year of a 2024/2025 range), else null.
+- exam_session: 'CA1' | 'CA2' if it's a continuous assessment, 'exam' if it's a (semester) Examination, else null.
+- doc_type: 'CA' or 'exam'.
+- confidence: 0..1, your confidence in the course_code/title."""
+
+def read_masthead(image_bytes: bytes, mime_type: str = "image/jpeg", school_hint: str | None = None) -> MastheadRead:
+    """Flash masthead read for filing. Result is ALWAYS confirmed with the contributor before saving."""
+    sys = _MASTHEAD_PROMPT + (f"\nContributor's school context (for disambiguation): {school_hint}." if school_hint else "")
+    part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+    resp = client.models.generate_content(
+        model=settings.model_flash, contents=[part],
+        config=types.GenerateContentConfig(
+            system_instruction=sys, response_mime_type="application/json",
+            response_schema=MastheadRead, temperature=0.0, max_output_tokens=256,
+            thinking_config=types.ThinkingConfig(thinking_budget=0)))
+    return MastheadRead.model_validate_json(resp.text)
+
 
 def probe_page_boundary(image_bytes: bytes) -> PageBoundaryProbe:
     """Cheap per-page boundary probe for app.paper_splitter. Mirrors call_pro_vision but uses
