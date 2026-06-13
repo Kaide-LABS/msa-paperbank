@@ -112,19 +112,20 @@ def render_served_pdf(raw_pdf_bytes: bytes) -> bytes:
     back to that raw page, never dropping content.
     """
     import io
-    import pdfplumber
+    from pypdf import PdfReader
     from app.paper_splitter import rasterize_pdf_to_pngs
     from app.display_enhance import auto_rotate, enhance_for_display
     from app.pdfgen import stitch_images_to_pdf
 
-    # skip clean digital PDFs (don't rasterise vector text)
+    # skip clean digital PDFs (don't rasterise vector text). pypdf (already a dep) reads the first
+    # 1-2 pages' text layer; >=200 chars => born-digital, serve raw untouched.
     try:
-        with pdfplumber.open(io.BytesIO(raw_pdf_bytes)) as pl:
-            txt = (pl.pages[0].extract_text() or "")
-            if len(pl.pages) > 1:
-                txt += (pl.pages[1].extract_text() or "")
-            if len(txt.strip()) >= 200:
-                return raw_pdf_bytes
+        reader = PdfReader(io.BytesIO(raw_pdf_bytes))
+        txt = (reader.pages[0].extract_text() or "")
+        if len(reader.pages) > 1:
+            txt += (reader.pages[1].extract_text() or "")
+        if len(txt.strip()) >= 200:
+            return raw_pdf_bytes
     except Exception:
         pass
 
@@ -147,3 +148,47 @@ def load_pdf_bytes(paper: Paper, gcs_client: storage.Client, bucket_name: str) -
     filename = f"{paper.course_code}_{paper.semester}_{paper.year}.pdf"
     served = render_served_pdf(raw_pdf_bytes) if settings.serve_enhance_enabled else raw_pdf_bytes
     return served, filename
+
+
+def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
+    """V1 serve loader over the corpus-index `pending_papers`. Resolves the row's gcs_object,
+    downloads the RAW artifact, returns (served_pdf_bytes, filename).
+
+    PDFs -> render_served_pdf (born-digital pass through; scans rasterised+enhanced).
+    Image-sourced papers (56% of the corpus) -> decode -> auto_rotate -> enhance_for_display ->
+    wrapped into a single-page PDF, so every served artifact is one uniform captioned document.
+    Raw GCS objects are never modified (all work is on the in-memory copy)."""
+    import io
+    from sqlalchemy import text
+
+    row = session.execute(
+        text("SELECT course_code, gcs_object FROM pending_papers WHERE id = :id"),
+        {"id": pending_id},
+    ).mappings().first()
+    if row is None:
+        raise ValueError(f"pending_paper {pending_id} not found")
+    course_code, gcs_object = row["course_code"], row["gcs_object"]
+    raw = gcs_client.bucket(bucket_name).blob(gcs_object).download_as_bytes()
+    filename = f"{(course_code or 'paper').replace('/', '_')}.pdf"
+    ext = gcs_object.rsplit(".", 1)[-1].lower() if "." in gcs_object else ""
+
+    if ext == "pdf":
+        served = render_served_pdf(raw) if settings.serve_enhance_enabled else raw
+        return served, filename
+
+    # image-sourced paper -> enhanced single-page PDF
+    from app.display_enhance import auto_rotate, enhance_for_display
+    from app.pdfgen import stitch_images_to_pdf
+    img_bytes = raw
+    if ext in ("heic", "heif"):                      # cv2 can't read HEIC; decode to PNG first
+        from pillow_heif import register_heif_opener
+        from PIL import Image
+        register_heif_opener()
+        im = Image.open(io.BytesIO(raw)).convert("RGB")
+        buf = io.BytesIO(); im.save(buf, format="PNG"); img_bytes = buf.getvalue()
+    if settings.serve_enhance_enabled:
+        try:
+            img_bytes = enhance_for_display(auto_rotate(img_bytes), color=False)
+        except Exception:
+            pass                                     # any failure -> original image, never drop content
+    return stitch_images_to_pdf([img_bytes]), filename

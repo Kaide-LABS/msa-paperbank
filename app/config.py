@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     # metadata gate; numeric/question-count disagreements are diagnostics, not human work.
     # "publish" = the old text-trust gating (numeric/structure -> curation). Kept for comparison.
     curation_mode: str = "index"
+    # --- V1 serving bridge (app.serve_v1 / app.serve_index): retrieval directly over the
+    # corpus-index pending_papers (student_visible), NO promotion into the normalized schema. ---
+    serve_v1_enabled: bool = True                 # main.py routes to the lean V1 handler
+    serve_source_tag: str = "corpus_full"         # which ingest source the bot serves
+    serve_fuzzy_threshold: float = 0.30           # pg_trgm similarity floor for L2 title/slug match
+    serve_candidate_k: int = 8                    # L2 fuzzy candidates fetched before narrowing
+    serve_dominance_gap: float = 0.15             # top-vs-second score gap to auto-serve without disambiguation
+    serve_max_candidates: int = 5                 # disambiguation list length cap
+    serve_session_ttl_seconds: int = 900          # how long a tap-to-choose list stays resolvable
 
 def load_settings_with_secret_manager() -> Settings:
     if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":

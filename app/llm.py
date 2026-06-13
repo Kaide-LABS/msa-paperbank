@@ -16,12 +16,18 @@ Classify the user's message into exactly one intent and output JSON matching the
 INTENTS (choose exactly one):
 
 - "paper_request": the user wants a specific past paper. Extract:
-  * course_code: uppercase, no spaces, e.g. 'MTH102', 'CSC305', 'GST122'. Best guess if unsure; the server verifies.
+  * course_code: uppercase, no spaces, e.g. 'MTH102', 'CSC305', 'GST122'. ONLY when the user
+    actually typed a code-like token. If they named the course in words only, leave null.
+  * course_phrase: the natural-language course NAME the student typed, lowercased, e.g.
+    'introduction to finance', 'organic chemistry', 'communication in english'. Strip filler
+    like 'the', 'paper', 'past question', 'abeg', 'send'. null if they gave only a code.
   * year: 4-digit int if present, else null.
   * semester: 'harmattan' (first/Harmattan/dry) or 'rain' (second/Rain). null if absent.
   * exam_session: 'CA1' | 'CA2' | 'exam' if stated, else null.
-  Examples: "MTH102 harmattan 2022", "csc 201 last year", "u get the gst paper?",
-  "mth 102 2nd sem", "how far na, you get mth102 2021?", "abeg send csc201 rain".
+  Examples: "MTH102 harmattan 2022" (code=MTH102, phrase=null),
+  "you get intro to finance paper?" (code=null, phrase='intro to finance'),
+  "organic chemistry 200 level" (code=null, phrase='organic chemistry'),
+  "csc 201 last year", "abeg send csc201 rain", "communication in english past question".
 
 - "greeting": a bare greeting, salutation, or thanks with NO other request in it.
   This INCLUDES Nigerian-English / Pidgin greetings used purely to say hello.
@@ -57,7 +63,13 @@ def route(user_text: str) -> tuple[RouterOutput, int, int]:
                 response_mime_type="application/json",
                 response_schema=RouterOutput,
                 temperature=0.0,
-                max_output_tokens=256,
+                max_output_tokens=512,
+                # thinking_budget=0 is REQUIRED: on gemini-3-flash-preview the default thinking
+                # budget consumes the output cap on some inputs (multi-word course-title phrases
+                # like "communication in english"), so resp.text comes back None (finish=MAX_TOKENS)
+                # and validation fails. Disabling thinking makes the tiny router JSON deterministic
+                # and fast — same fix the OCR path documents in call_pro_vision.
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             ),
         )
         parsed = RouterOutput.model_validate_json(resp.text)

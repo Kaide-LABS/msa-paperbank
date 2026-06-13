@@ -39,6 +39,7 @@ class WAWebhookPayload(BaseModel):
 class RouterOutput(BaseModel):
     intent: Literal["paper_request", "greeting", "other"]
     course_code: str | None = None
+    course_phrase: str | None = None    # natural-language course NAME the student typed, for fuzzy title match
     year: int | None = None
     semester: Literal["harmattan", "rain"] | None = None
     exam_session: Literal["CA1", "CA2", "exam"] | None = None
