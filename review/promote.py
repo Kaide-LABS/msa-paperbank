@@ -16,7 +16,7 @@ from app import whatsapp
 
 log = logging.getLogger(__name__)
 
-_NOTIFY_APPROVED = "Your contribution was added — JazakAllah khair (may God reward you with good)!"
+_NOTIFY_APPROVED = "Your contribution was added — thank you so much for helping grow the bank!"
 
 
 def _ext(obj: str) -> str:
@@ -96,9 +96,8 @@ def deny(session, http, cid: int, comment: str | None, reviewer: str) -> None:
     # The deny message goes to the student AS the Muslim Ummah — wrap the reviewer's reason in warm
     # framing here so a terse comment never lands as the institution's cold voice.
     reason = f" — {comment} —" if comment else ""
-    body = ("JazakAllah khair (may God reward you with good) for your contribution! It wasn't added "
-            f"this time{reason} but please do send another — we'd love to grow the bank with your help, "
-            "in shaa Allah (God willing).")
+    body = ("Thank you for your contribution! It wasn't added "
+            f"this time{reason} but please do send another — we'd love your help growing the bank.")
     try:
         whatsapp.send_text(http, contrib["contributor_phone"], body)
     except Exception:
