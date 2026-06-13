@@ -62,6 +62,8 @@ class SearchResult:
     kind: str                       # "serve" | "disambiguate" | "none"
     match: Candidate | None
     candidates: list[Candidate]
+    fellback: bool = False          # True when school scope found nothing and we widened to all-PAU
+    scoped_school: str | None = None
 
 
 def _norm_session(s: str | None) -> str | None:
@@ -95,28 +97,25 @@ def _infer_level(user_text: str) -> str | None:
     return (m.group(1) or m.group(2))               # '1'..'6' (hundreds)
 
 
-def search_index(session: Session, routed, user_text: str) -> SearchResult:
-    src = settings.serve_source_tag
-    code = (routed.course_code or "").upper().replace(" ", "")
-    phrase = (routed.course_phrase or "").strip()
-    if not phrase and not _CODE_RE.search((routed.course_code or "").upper()):
-        # router gave no clean code and no phrase -> fall back to the raw text as the phrase
-        phrase = (user_text or "").strip()
-
+def _collect(session: Session, src: str, code: str, phrase: str, scope: str | None):
+    """Run L1 (exact code) + L2 (fuzzy title/slug) optionally scoped to a school. The school is
+    matched on the FIRST token of pending_papers.school (raw values are 'SMSS (School of ...)'),
+    so a new department under an existing school needs NO code change — its rows already carry the
+    school from the ingest folder path. Returns (by_id, exact_hit)."""
     by_id: dict[int, Candidate] = {}
+    scope_sql = " AND split_part(school, ' ', 1) = :school" if scope else ""
+    base = {"src": src, **({"school": scope} if scope else {})}
 
-    # ---- L1: exact course_code (real codes only) ----
     exact_hit = False
     if code and _CODE_RE.search(code):
         rows = session.execute(text(
             f"SELECT {_SELECT_COLS} FROM pending_papers "
-            "WHERE student_visible AND source = :src AND upper(course_code) = :code"
-        ), {"src": src, "code": code}).mappings().all()
+            "WHERE student_visible AND source = :src AND upper(course_code) = :code" + scope_sql
+        ), {**base, "code": code}).mappings().all()
         for r in rows:
             by_id[r["id"]] = _row_to_candidate(r, score=1.0)
         exact_hit = bool(rows)
 
-    # ---- L2: fuzzy title / slug-tail ----
     if phrase:
         rows = session.execute(text(
             f"SELECT {_SELECT_COLS}, GREATEST("
@@ -124,19 +123,36 @@ def search_index(session: Session, routed, user_text: str) -> SearchResult:
             "  COALESCE(similarity(lower(replace(regexp_replace(course_code, '^[A-Za-z]+-', ''), '-', ' ')),"
             "                      lower(:phrase)), 0)"
             ") AS score "
-            "FROM pending_papers WHERE student_visible AND source = :src "
+            "FROM pending_papers WHERE student_visible AND source = :src" + scope_sql + " "
             "ORDER BY score DESC LIMIT :k"
-        ), {"src": src, "phrase": phrase, "k": settings.serve_candidate_k}).mappings().all()
+        ), {**base, "phrase": phrase, "k": settings.serve_candidate_k}).mappings().all()
         for r in rows:
             if r["score"] >= settings.serve_fuzzy_threshold:
                 if r["id"] in by_id:
                     by_id[r["id"]].score = max(by_id[r["id"]].score, float(r["score"]))
                 else:
                     by_id[r["id"]] = _row_to_candidate(r, score=float(r["score"]))
+    return by_id, exact_hit
+
+
+def search_index(session: Session, routed, user_text: str, school: str | None = None) -> SearchResult:
+    src = settings.serve_source_tag
+    code = (routed.course_code or "").upper().replace(" ", "")
+    phrase = (routed.course_phrase or "").strip()
+    if not phrase and not _CODE_RE.search((routed.course_code or "").upper()):
+        # router gave no clean code and no phrase -> fall back to the raw text as the phrase
+        phrase = (user_text or "").strip()
+
+    scope = school if (school and settings.serve_school_scoping_enabled) else None
+    by_id, exact_hit = _collect(session, src, code, phrase, scope)
+    fellback = False
+    if scope and not by_id:               # SOFT fallback: never leave a student empty-handed
+        by_id, exact_hit = _collect(session, src, code, phrase, None)
+        fellback = bool(by_id)
 
     cands = sorted(by_id.values(), key=lambda c: -c.score)
     if not cands:
-        return SearchResult("none", None, [])
+        return SearchResult("none", None, [], scoped_school=scope)
 
     # Collapse page-fragments / duplicate scans that share the same logical paper, so a
     # disambiguation list shows distinct papers, not near-identical rows. (Multi-page exams are
@@ -163,6 +179,7 @@ def search_index(session: Session, routed, user_text: str) -> SearchResult:
             cands = narrowed
 
     # ---- L4/L5: decide ----
+    eff_school = None if fellback else scope
     if exact_hit:
         exact = [c for c in cands if c.score >= 1.0] or cands
         if routed.year:
@@ -170,13 +187,15 @@ def search_index(session: Session, routed, user_text: str) -> SearchResult:
             if yr:
                 exact = yr
         if len(exact) == 1:
-            return SearchResult("serve", exact[0], exact)
-        return SearchResult("disambiguate", None, exact[:settings.serve_max_candidates])
+            return SearchResult("serve", exact[0], exact, fellback=fellback, scoped_school=eff_school)
+        return SearchResult("disambiguate", None, exact[:settings.serve_max_candidates],
+                            fellback=fellback, scoped_school=eff_school)
 
     top = cands[0]
     if len(cands) == 1 or (top.score - cands[1].score) >= settings.serve_dominance_gap:
-        return SearchResult("serve", top, [top])
-    return SearchResult("disambiguate", None, cands[:settings.serve_max_candidates])
+        return SearchResult("serve", top, [top], fellback=fellback, scoped_school=eff_school)
+    return SearchResult("disambiguate", None, cands[:settings.serve_max_candidates],
+                        fellback=fellback, scoped_school=eff_school)
 
 
 def candidate_by_id(session: Session, pending_id: int) -> Candidate | None:

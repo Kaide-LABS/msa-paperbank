@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     serve_dominance_gap: float = 0.15             # top-vs-second score gap to auto-serve without disambiguation
     serve_max_candidates: int = 5                 # disambiguation list length cap
     serve_session_ttl_seconds: int = 900          # how long a tap-to-choose list stays resolvable
+    serve_school_scoping_enabled: bool = True      # V1.1: per-student school profile + school-scoped match
+    serve_onboarding_ttl_seconds: int = 1800       # how long a pending school-onboarding prompt stays resolvable
 
 def load_settings_with_secret_manager() -> Settings:
     if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":
