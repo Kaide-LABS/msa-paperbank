@@ -82,7 +82,9 @@ def _page(title: str, body: str, me: str | None = None) -> HTMLResponse:
                 "var l=document.getElementById('lb');l.querySelector('img').src=e.target.src;"
                 "l.style.display='block';window.scrollTo(0,0);}});"
                 "document.addEventListener('keydown',function(e){"
-                "if(e.key==='Escape')document.getElementById('lb').style.display='none';});</script>")
+                "if(e.key==='Escape')document.getElementById('lb').style.display='none';});"
+                "function fillR(r){var t=document.querySelector('textarea[name=comment]');if(t)t.value=r.value;}"
+                "</script>")
     return HTMLResponse(f"<!doctype html><meta charset=utf-8><title>{_esc(title)}</title>"
                         f"<meta name=viewport content='width=device-width,initial-scale=1'>"
                         f"<style>{_CSS}</style>{top}{body}{lightbox}")
@@ -230,8 +232,17 @@ def detail(cid: int, request: Request, s: Session = Depends(get_session)):
       {dedup_field}
       <p><button class=go>Approve &amp; publish</button></p></form></div>
     <div class="card"><form method=post action="/c/{cid}/deny">
-      <label>Deny with an optional reason (sent to the contributor):</label>
-      <textarea name=comment rows=2 style="width:100%" placeholder="e.g. pages were too blurry to read"></textarea>
+      <b>Deny — pick a reason (the bot wraps it in a kind message to the student):</b>
+      <div>
+        <label><input type=radio name=rsn onclick="fillR(this)" value="The photo was too far out / hard to read clearly — a closer, clearer shot would be great"> Too far / hard to read</label>
+        <label><input type=radio name=rsn onclick="fillR(this)" value="Some pages look blurry or dark — please resend in better lighting"> Blurry / dark</label>
+        <label><input type=radio name=rsn onclick="fillR(this)" value="This didn't look like a complete past paper / some pages may be missing"> Incomplete / pages missing</label>
+        <label><input type=radio name=rsn onclick="fillR(this)" value="This doesn't appear to be a past paper"> Not a past paper</label>
+        <label><input type=radio name=rsn onclick="fillR(this)" value=""> Other (write your own)</label>
+      </div>
+      <label>Reason (sent to the student; editable):</label>
+      <textarea name=comment rows=2 style="width:100%" placeholder="pick a reason above, or write your own"></textarea>
+      <p class="muted">This message is sent to the student as the Muslim Ummah — keep it kind and specific.</p>
       <p><button class=no>Deny</button></p></form></div>"""
     return _page(f"Contribution {cid}", body, me)
 
