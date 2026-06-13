@@ -63,16 +63,29 @@ a{color:#1558d6;text-decoration:none}a:hover{text-decoration:underline}
 label{display:block;margin:8px 0 3px;font-size:13px;color:#444}
 button{font:inherit;padding:9px 16px;border:0;border-radius:7px;cursor:pointer}
 .go{background:#16a34a;color:#fff}.no{background:#dc2626;color:#fff}.pri{background:#1558d6;color:#fff}
-img.pg{max-width:280px;border:1px solid #ccc;border-radius:6px;margin:6px}
-.grid{display:flex;flex-wrap:wrap}fieldset{border:1px solid #ddd;border-radius:8px;margin:10px 0}"""
+img.pg{max-width:280px;border:1px solid #ccc;border-radius:6px;margin:6px;cursor:zoom-in}
+.grid{display:flex;flex-wrap:wrap}fieldset{border:1px solid #ddd;border-radius:8px;margin:10px 0}
+#lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:90;cursor:zoom-out;overflow:auto;text-align:center}
+#lb img{max-width:98%;margin:1.5vh auto;box-shadow:0 0 24px #000}
+#lb .hint{position:fixed;top:8px;left:0;right:0;color:#bbb;font-size:13px}"""
 
 
 def _page(title: str, body: str, me: str | None = None) -> HTMLResponse:
     top = (f'<div class="row"><h2>PAU Muslim Ummah — Review</h2><div class="muted">{_esc(me)} · '
            f'<a href="/logout">log out</a></div></div>') if me else "<h2>PAU Muslim Ummah — Review</h2>"
+    # Click-to-zoom lightbox: any <img class=pg> opens full-resolution (same auth'd /img proxy src);
+    # click anywhere or press Esc to close. Vanilla JS/CSS, no library, no backend change.
+    lightbox = ("<div id=lb onclick=\"this.style.display='none'\">"
+                "<div class=hint>click anywhere or press Esc to close</div><img></div>"
+                "<script>document.addEventListener('click',function(e){"
+                "if(e.target.classList&&e.target.classList.contains('pg')){"
+                "var l=document.getElementById('lb');l.querySelector('img').src=e.target.src;"
+                "l.style.display='block';window.scrollTo(0,0);}});"
+                "document.addEventListener('keydown',function(e){"
+                "if(e.key==='Escape')document.getElementById('lb').style.display='none';});</script>")
     return HTMLResponse(f"<!doctype html><meta charset=utf-8><title>{_esc(title)}</title>"
                         f"<meta name=viewport content='width=device-width,initial-scale=1'>"
-                        f"<style>{_CSS}</style>{top}{body}")
+                        f"<style>{_CSS}</style>{top}{body}{lightbox}")
 
 
 # --------------------------------------------------------------------- health
