@@ -42,7 +42,7 @@ def get_session():
 
 
 def _norm_phone(p: str) -> str:
-    return re.sub(r"\D", "", p or "")
+    return auth.normalize_phone(p)
 
 
 def _me(request: Request) -> str | None:
@@ -116,6 +116,8 @@ def verify_form(phone: str = "", err: str = ""):
       <input name=code inputmode=numeric pattern="[0-9]*" maxlength=6 autofocus required>
       <p><button class=pri>Verify</button></p>
       <p class="muted">If you're on the reviewer list, a code was just sent. <a href="/login">Resend</a></p>
+      <p class="muted">Didn't receive a code? Make sure your number is in international format
+      (234&hellip;, not 0&hellip;).</p>
       </form></div>""")
 
 
