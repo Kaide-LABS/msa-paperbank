@@ -97,6 +97,9 @@ def healthz():
 
 
 # --------------------------------------------------------------------- auth
+_BOT_WA = "2349011097151"   # the bot's WhatsApp dial number (+234 901 109 7151) for click-to-chat
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_form(err: str = ""):
     e = f"<p class='muted' style='color:#b91c1c'>{_esc(err)}</p>" if err else ""
@@ -114,11 +117,12 @@ def login_send(request: Request, phone: str = Form(...), s: Session = Depends(ge
     rv = auth.active_reviewer(s, p)
     if rv and auth.can_request(s, p):
         code = auth.issue_otp(s, p)
-        try:
-            whatsapp.send_text(request.app.state.http, p,
-                               f"Your PAU Muslim Ummah review code is {code}. It expires in 5 minutes.")
-        except Exception:
-            log.exception("otp_send_failed")
+        ok, meta_code = whatsapp.try_send_text(request.app.state.http, p,
+            f"Your PAU Muslim Ummah review code is {code}. It expires in 5 minutes.")
+        if not ok:
+            # 131047 = outside the 24h window (reviewer must message the bot first). Observed +
+            # logged, not swallowed; /verify always shows the recovery guidance (non-enumerating).
+            log.warning("otp_send_failed", extra={"meta_code": meta_code, "phase": "review_login"})
     return RedirectResponse(f"/verify?phone={p}", status_code=303)
 
 
@@ -129,11 +133,17 @@ def verify_form(phone: str = "", err: str = ""):
       <input type=hidden name=phone value="{_esc(phone)}">
       <label>Enter the 6-digit code sent to your WhatsApp</label>
       <input name=code inputmode=numeric pattern="[0-9]*" maxlength=6 autofocus required>
-      <p><button class=pri>Verify</button></p>
-      <p class="muted">If you're on the reviewer list, a code was just sent. <a href="/login">Resend</a></p>
-      <p class="muted">Didn't receive a code? Make sure your number is in international format
-      (234&hellip;, not 0&hellip;).</p>
-      </form></div>""")
+      <p><button class=pri>Verify</button></p></form></div>
+      <div class="card"><b>Didn't get a code?</b>
+      <ol>
+        <li>Check your number is in international format (234&hellip;, not 0&hellip;).</li>
+        <li>WhatsApp only lets the bot send you a code if you've messaged it recently.
+            <a href="https://wa.me/{_BOT_WA}?text=hi" target="_blank" rel="noopener">Tap here to message the bot</a>,
+            send &lsquo;hi&rsquo;, then come back.</li>
+        <li>Then resend your code:</li>
+      </ol>
+      <form method=post action="/login"><input type=hidden name=phone value="{_esc(phone)}">
+        <button class=pri>Send code again</button></form></div>""")
 
 
 @app.post("/verify")
