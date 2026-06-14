@@ -49,6 +49,29 @@ def _me(request: Request) -> str | None:
     return auth.read_session(request.cookies.get(auth.COOKIE))
 
 
+def _reviewer(request: Request, s: Session) -> dict | None:
+    """Full reviewer record (phone, name, role, school) for the logged-in session, re-checking the
+    row is still active. school=None means an admin who oversees ALL schools."""
+    phone = auth.read_session(request.cookies.get(auth.COOKIE))
+    return auth.active_reviewer(s, phone) if phone else None
+
+
+def _ident(rv: dict) -> str:
+    return f"{rv.get('name') or rv['phone']} · {rv['school'] or 'all schools'}"
+
+
+def _scoped(rv: dict, contributor_school: str | None) -> bool:
+    """Access rule: admins (school=None) see everything; a school reviewer only their own school."""
+    return rv["school"] is None or contributor_school == rv["school"]
+
+
+def _blocked(rv: dict) -> HTMLResponse:
+    resp = _page("Blocked", "<div class='card'>That contribution isn't in your school's queue. "
+                            "<a href='/'>back to queue</a></div>", _ident(rv) if rv else None)
+    resp.status_code = 403
+    return resp
+
+
 def _esc(x) -> str:
     return html.escape(str(x)) if x is not None else ""
 
@@ -167,17 +190,21 @@ def logout():
 # --------------------------------------------------------------------- queue
 @app.get("/", response_class=HTMLResponse)
 def queue(request: Request, s: Session = Depends(get_session)):
-    me = _me(request)
-    if not me:
+    rv = _reviewer(request, s)
+    if not rv:
         return RedirectResponse("/login", status_code=303)
     rows = s.execute(text(
         "SELECT c.id, c.contributor_school, c.course_code, c.course_title, c.year, c.exam_session, "
         "c.doc_type, c.likely_dup_of, c.created_at, "
         "(SELECT count(*) FROM contribution_pages cp WHERE cp.contribution_id=c.id) AS pages "
-        "FROM contributions c WHERE c.status='awaiting_review' ORDER BY c.created_at ASC"
-    )).mappings().all()
+        "FROM contributions c WHERE c.status='awaiting_review' "
+        "AND (CAST(:school AS text) IS NULL OR c.contributor_school = :school) ORDER BY c.created_at ASC"
+    ), {"school": rv["school"]}).mappings().all()
+    bar = ('<p class="row"><span class="muted">{n} awaiting review · '
+           '{scope}</span><a href="/history">View history →</a></p>').format(
+        n=len(rows), scope=("all schools" if rv["school"] is None else rv["school"]))
     if not rows:
-        return _page("Queue", "<div class='card'>🎉 Queue is clear — no contributions awaiting review.</div>", me)
+        return _page("Queue", bar + "<div class='card'>🎉 Queue is clear — nothing awaiting review.</div>", _ident(rv))
     items = []
     for r in rows:
         dup = " <span class=badge>LIKELY DUPLICATE</span>" if r["likely_dup_of"] else ""
@@ -187,19 +214,22 @@ def queue(request: Request, s: Session = Depends(get_session)):
           <div><a href="/c/{r['id']}"><b>{_esc(filing)}</b></a>{dup}<div class="muted">
           {_esc(r['contributor_school'] or '?')} · {r['pages']} page(s) · {r['created_at']:%Y-%m-%d %H:%M}</div></div>
           <a href="/c/{r['id']}">review →</a></div></div>""")
-    return _page("Queue", f"<p class='muted'>{len(rows)} awaiting review (oldest first)</p>" + "".join(items), me)
+    return _page("Queue", bar + "".join(items), _ident(rv))
 
 
 # --------------------------------------------------------------------- detail
 @app.get("/c/{cid}", response_class=HTMLResponse)
 def detail(cid: int, request: Request, s: Session = Depends(get_session)):
-    me = _me(request)
-    if not me:
+    rv = _reviewer(request, s)
+    if not rv:
         return RedirectResponse("/login", status_code=303)
+    me = _ident(rv)
     c = s.execute(text("SELECT * FROM contributions WHERE id=:c"), {"c": cid}).mappings().first()
     if not c or c["status"] != "awaiting_review":
         return _page("Not found", "<div class='card'>This contribution isn't awaiting review (already handled?). "
                                    "<a href='/'>back to queue</a></div>", me)
+    if not _scoped(rv, c["contributor_school"]):          # server-side access control, not just a UI filter
+        return _blocked(rv)
     pages = s.execute(text("SELECT id, page_order FROM contribution_pages WHERE contribution_id=:c ORDER BY page_order"),
                       {"c": cid}).mappings().all()
     imgs = "".join(f'<img class=pg src="/img/contrib/{p["id"]}" title="page {p["page_order"]}">' for p in pages)
@@ -262,25 +292,62 @@ def detail(cid: int, request: Request, s: Session = Depends(get_session)):
 def approve(cid: int, request: Request, course_code: str = Form(""), course_title: str = Form(""),
             year: str = Form(""), exam_session: str = Form(""), doc_type: str = Form(""),
             dedup_choice: str = Form("keep_both"), s: Session = Depends(get_session)):
-    me = _me(request)
-    if not me:
+    rv = _reviewer(request, s)
+    if not rv:
         return RedirectResponse("/login", status_code=303)
+    csch = s.execute(text("SELECT contributor_school FROM contributions WHERE id=:c"), {"c": cid}).scalar()
+    if not _scoped(rv, csch):                              # block out-of-school approve via guessed URL
+        return _blocked(rv)
     filing = {"course_code": (course_code.strip().upper().replace(" ", "") or None),
               "course_title": (course_title.strip() or None), "year": (re.sub(r"\D", "", year)[:9] or None),
               "exam_session": (exam_session or None), "doc_type": (doc_type or None)}
-    n = promo.promote(s, request.app.state.gcs, request.app.state.http, cid, filing, dedup_choice, me)
-    log.info("approved", extra={"cid": cid, "by": me, "pages": n})
+    n = promo.promote(s, request.app.state.gcs, request.app.state.http, cid, filing, dedup_choice, rv["phone"])
+    log.info("approved", extra={"cid": cid, "by": rv["phone"], "pages": n})
     return RedirectResponse("/", status_code=303)
 
 
 @app.post("/c/{cid}/deny")
 def deny(cid: int, request: Request, comment: str = Form(""), s: Session = Depends(get_session)):
-    me = _me(request)
-    if not me:
+    rv = _reviewer(request, s)
+    if not rv:
         return RedirectResponse("/login", status_code=303)
-    promo.deny(s, request.app.state.http, cid, comment.strip() or None, me)
-    log.info("denied", extra={"cid": cid, "by": me})
+    csch = s.execute(text("SELECT contributor_school FROM contributions WHERE id=:c"), {"c": cid}).scalar()
+    if not _scoped(rv, csch):                              # block out-of-school deny via guessed URL
+        return _blocked(rv)
+    promo.deny(s, request.app.state.http, cid, comment.strip() or None, rv["phone"])
+    log.info("denied", extra={"cid": cid, "by": rv["phone"]})
     return RedirectResponse("/", status_code=303)
+
+
+# --------------------------------------------------------------------- audit history
+@app.get("/history", response_class=HTMLResponse)
+def history(request: Request, s: Session = Depends(get_session)):
+    rv = _reviewer(request, s)
+    if not rv:
+        return RedirectResponse("/login", status_code=303)
+    rows = s.execute(text(
+        "SELECT id, contributor_school, course_code, course_title, year, exam_session, status, "
+        "reviewed_by, reviewed_at, review_comment FROM contributions "
+        "WHERE status IN ('approved','denied') AND (CAST(:school AS text) IS NULL OR contributor_school = :school) "
+        "ORDER BY reviewed_at DESC NULLS LAST LIMIT 100"
+    ), {"school": rv["school"]}).mappings().all()
+    top = ("<p class='row'><a href='/'>← queue</a>"
+           f"<span class='muted'>reviewed history · {'all schools' if rv['school'] is None else rv['school']}</span></p>")
+    if not rows:
+        return _page("History", top + "<div class='card'>No reviewed contributions yet.</div>", _ident(rv))
+    items = []
+    for r in rows:
+        ok = r["status"] == "approved"
+        badge = (f'<span class="badge" style="background:{"#bbf7d0" if ok else "#fecaca"};'
+                 f'color:{"#166534" if ok else "#991b1b"}">{r["status"].upper()}</span>')
+        filing = " · ".join(x for x in [r["course_code"] or r["course_title"] or "(unfiled)", r["year"],
+                                        r["exam_session"]] if x)
+        when = f"{r['reviewed_at']:%Y-%m-%d %H:%M}" if r["reviewed_at"] else "?"
+        cmt = (f"<div class='muted'>Reason: {_esc(r['review_comment'])}</div>"
+               if not ok and r["review_comment"] else "")
+        items.append(f"<div class='card'><b>#{r['id']}</b> {_esc(filing)} {badge}<div class='muted'>"
+                     f"{_esc(r['contributor_school'] or '?')} · by {_esc(r['reviewed_by'])} · {when}</div>{cmt}</div>")
+    return _page("History", top + "".join(items), _ident(rv))
 
 
 # --------------------------------------------------------------------- image proxy (auth'd; bucket private)

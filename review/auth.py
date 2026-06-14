@@ -62,7 +62,7 @@ def read_session(token: str | None) -> str | None:
 
 # ---------------------------------------------------------------- reviewers + OTP
 def active_reviewer(session, phone: str) -> dict | None:
-    r = session.execute(text("SELECT phone, name, role FROM reviewers WHERE phone=:p AND active"),
+    r = session.execute(text("SELECT phone, name, role, school FROM reviewers WHERE phone=:p AND active"),
                         {"p": phone}).mappings().first()
     return dict(r) if r else None
 
