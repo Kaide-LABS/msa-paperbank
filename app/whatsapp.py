@@ -69,6 +69,26 @@ def send_text(http_client: httpx.Client, to: str, body: str) -> None:
     if resp.status_code >= 400:
         raise WhatsAppError(f"Failed to send text: {resp.status_code} {resp.text}")
 
+def try_send_text(http_client: httpx.Client, to: str, body: str) -> tuple[bool, int | None]:
+    """Like send_text but never raises — returns (ok, meta_error_code). Used by the review OTP flow
+    so an outside-24h-window failure (Meta code 131047) is observed and logged, not swallowed."""
+    url = f"https://graph.facebook.com/{settings.wa_graph_version}/{settings.wa_phone_number_id}/messages"
+    headers = {"Authorization": f"Bearer {settings.wa_access_token.get_secret_value()}",
+               "Content-Type": "application/json"}
+    payload = {"messaging_product": "whatsapp", "recipient_type": "individual", "to": to,
+               "type": "text", "text": {"body": body, "preview_url": False}}
+    try:
+        resp = http_client.post(url, headers=headers, json=payload)
+    except Exception:
+        return False, None
+    if resp.status_code < 400:
+        return True, None
+    try:
+        return False, resp.json().get("error", {}).get("code")
+    except Exception:
+        return False, None
+
+
 def send_document(http_client: httpx.Client, to: str, media_id: str, caption: str, filename: str) -> None:
     url = f"https://graph.facebook.com/{settings.wa_graph_version}/{settings.wa_phone_number_id}/messages"
     headers = {
