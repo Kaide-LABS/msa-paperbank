@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     serve_candidate_k: int = 8                    # L2 fuzzy candidates fetched before narrowing
     serve_dominance_gap: float = 0.15             # top-vs-second score gap to auto-serve without disambiguation
     serve_max_candidates: int = 5                 # disambiguation list length cap
+    serve_clean_miss_enabled: bool = True         # A1: a weak CLUSTER (no clear winner) -> honest miss, not junk list
+    serve_confident_bar: float = 0.45             # A1: top fuzzy score below this (and clustered) => miss
+    serve_fallback_disambiguate_enabled: bool = True  # A3: cross-school fallback never auto-serves; always disambiguate
     serve_session_ttl_seconds: int = 900          # how long a tap-to-choose list stays resolvable
     serve_school_scoping_enabled: bool = True      # V1.1: per-student school profile + school-scoped match
     serve_onboarding_ttl_seconds: int = 1800       # how long a pending school-onboarding prompt stays resolvable

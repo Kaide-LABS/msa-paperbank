@@ -42,9 +42,8 @@ _GREETING = ("Hi! Send a course code or title — e.g. 'GST111' or "
              "'introduction to finance' — and I'll find the past paper for you.")
 _OTHER = ("I'm the PAU Muslim Ummah past-paper bot — I find past papers. Send a course code or title, "
           "e.g. 'CSC201' or 'organic chemistry'.")
-_MISS = ("I couldn't find that paper. Try the course code or a fuller title "
-         "(e.g. 'GST111' or 'introduction to finance'). Soon you'll be able to send a photo to "
-         "add a paper yourself.")
+_MISS = ("I couldn't find a past paper for that. Double-check the course code or title — or if you "
+         "have it, snap a photo and contribute it so the next person can find it!")
 _BUSY = "The bot is busy right now. Please try again in a minute."
 
 
@@ -124,7 +123,7 @@ def _serve_for(session: Session, msg: WAMessage, routed, body: str, school: str 
     result = search_index(session, routed, body, school=school)
     note = ""
     if result.fellback and result.scoped_school is None and school:
-        note = f"No {school} match for that — here's what I found across PAU:\n"
+        note = f"I couldn't find that in {school} — here's what I found across PAU:\n"
 
     if result.kind == "serve":
         c = result.match
