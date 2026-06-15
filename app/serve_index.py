@@ -38,7 +38,8 @@ class Candidate:
     year: str | None
     exam_session: str | None
     gcs_object: str
-    score: float = 0.0
+    score: float = 0.0              # fuzzy (pg_trgm) score
+    sem: float = 0.0                # semantic (cosine) score, hybrid only — 0 if not scored
     page_count: int = 1             # >1 when this candidate is a grouped multi-page exam
 
     def label(self) -> str:
@@ -209,11 +210,24 @@ def search_index(session: Session, routed, user_text: str, school: str | None = 
         if narrowed:
             cands = narrowed
 
+    # ---- B (hybrid): semantic RE-RANK over the FUZZY-surfaced candidates ONLY. Semantic never
+    # introduces a course fuzzy didn't surface, so absent courses (low fuzzy -> A1 gate) can't be
+    # rescued. Enrichment: on any embed failure scores are empty and we fall back to pure fuzzy. ----
+    hyb = settings.serve_hybrid_enabled
+    if hyb and cands:
+        from app import title_index
+        sem = title_index.semantic_scores(session, phrase or user_text, list({c.course_code for c in cands}))
+        for c in cands:
+            c.sem = sem.get(c.course_code, 0.0)
+
     # ---- L4/L5: decide ----
     eff_school = None if fellback else scope
-    # A3: a result that came from the all-PAU widen (fellback) must NEVER auto-serve — the student
-    # explicitly picks a cross-school paper instead of being handed one silently.
+    # A3: a result that came from the all-PAU widen (fellback) must NEVER auto-serve.
     force_disambig = fellback and settings.serve_fallback_disambiguate_enabled
+    bar, sbar = settings.serve_confident_bar, settings.serve_semantic_bar
+    f_strong = lambda c: c.score >= bar
+    s_strong = lambda c: hyb and c.sem >= sbar
+    either = lambda c: f_strong(c) or s_strong(c)            # strong on at least one signal
 
     if exact_hit:
         exact = [c for c in cands if c.score >= 1.0] or cands
@@ -226,15 +240,31 @@ def search_index(session: Session, routed, user_text: str, school: str | None = 
         return SearchResult("disambiguate", None, exact[:settings.serve_max_candidates],
                             fellback=fellback, scoped_school=eff_school)
 
+    if hyb:                                                  # rank by the combined signal
+        cands.sort(key=lambda c: -max(c.score, c.sem))
     top = cands[0]
-    second = cands[1].score if len(cands) > 1 else 0.0
-    dominant = len(cands) == 1 or (top.score - second) >= settings.serve_dominance_gap
-    # A1: a CLUSTER of near-threshold candidates with no clear winner is boilerplate noise (shared
-    # "introduction to" / "for engineers" trigrams), not a real match — miss honestly. A dominant
-    # winner still serves even if weak (don't kill a weak-but-correct single match).
-    if settings.serve_clean_miss_enabled and not dominant and top.score < settings.serve_confident_bar:
+    rank = (lambda c: max(c.score, c.sem)) if hyb else (lambda c: c.score)
+    second = rank(cands[1]) if len(cands) > 1 else 0.0
+    dominant = len(cands) == 1 or (rank(top) - second) >= settings.serve_dominance_gap
+
+    # A1 clean-miss (generalised): nothing strong on EITHER signal + no clear winner -> honest miss.
+    # (Hybrid off -> either() == fuzzy-only, so this is exactly the prior A1 behaviour.)
+    if settings.serve_clean_miss_enabled and not dominant and not any(either(c) for c in cands):
         return SearchResult("none", None, [], scoped_school=scope)
 
+    # CONSENSUS: auto-serve ONLY on agreement — top strong on BOTH signals AND a clear winner. A
+    # paraphrase that's fuzzy-weak/semantic-strong is OFFERED (signals disagree), never silently served.
+    if hyb:
+        both_strong = lambda c: f_strong(c) and s_strong(c)
+        if dominant and not force_disambig and both_strong(top):
+            return SearchResult("serve", top, [top], fellback=fellback, scoped_school=eff_school)
+        shortlist = [c for c in cands if either(c)] or cands
+        # exactly one viable, agreeing match -> serve it (no pointless 1-item list)
+        if len(shortlist) == 1 and not force_disambig and both_strong(shortlist[0]):
+            return SearchResult("serve", shortlist[0], shortlist, fellback=fellback, scoped_school=eff_school)
+        return SearchResult("disambiguate", None, shortlist[:settings.serve_max_candidates],
+                            fellback=fellback, scoped_school=eff_school)
+    # hybrid OFF -> prior pure A1/A3 behaviour
     if dominant and not force_disambig:
         return SearchResult("serve", top, [top], fellback=fellback, scoped_school=eff_school)
     return SearchResult("disambiguate", None, cands[:settings.serve_max_candidates],
