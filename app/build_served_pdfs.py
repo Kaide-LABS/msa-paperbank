@@ -17,6 +17,7 @@ already have served_object). Run with the prod env (GCP_PROJECT / CLOUD_SQL_INST
   python -m app.build_served_pdfs --skip-existing # resume: only rows missing served_object
   python -m app.build_served_pdfs --ids 854,967   # just these served ids (targeted backfill)
 """
+import os
 import sys
 from sqlalchemy import text
 from google.cloud import storage
@@ -58,6 +59,15 @@ def build(skip_existing: bool = False, only_ids: list[int] | None = None) -> Non
             "SELECT id FROM pending_papers WHERE served_object IS NOT NULL"
         )).scalars().all())
         ids = [i for i in ids if i not in done]
+
+    # Cloud Run parallel-task sharding: each task processes a disjoint slice (index % count), so
+    # --tasks N --parallelism N renders ~1/N each -> the whole corpus finishes in ~1/N the wall time.
+    # Sequential WITHIN a task (one render at a time) keeps each container's memory bounded (no OOM).
+    shard_i = int(os.environ.get("CLOUD_RUN_TASK_INDEX", "0"))
+    shard_n = int(os.environ.get("CLOUD_RUN_TASK_COUNT", "1"))
+    if shard_n > 1:
+        ids = [x for k, x in enumerate(ids) if k % shard_n == shard_i]
+        print(f"shard {shard_i}/{shard_n}: {len(ids)} ids this task", flush=True)
 
     total = len(ids)
     print(f"pre-rendering {total} servable papers -> {settings.serve_precompute_prefix}<id>.pdf "
