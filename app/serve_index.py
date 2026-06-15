@@ -210,25 +210,15 @@ def search_index(session: Session, routed, user_text: str, school: str | None = 
         if narrowed:
             cands = narrowed
 
-    # ---- B (hybrid): semantic RE-RANK over the FUZZY-surfaced candidates ONLY. Semantic never
-    # introduces a course fuzzy didn't surface, so absent courses (low fuzzy -> A1 gate) can't be
-    # rescued. Enrichment: on any embed failure scores are empty and we fall back to pure fuzzy. ----
+    # ---- L4/L5: decide. The semantic embed (~11s cold) is DEFERRED until we know it can actually
+    # change the answer — exact-code and decisively-dominant fuzzy matches skip it entirely. ----
     hyb = settings.serve_hybrid_enabled
-    if hyb and cands:
-        from app import title_index
-        sem = title_index.semantic_scores(session, phrase or user_text, list({c.course_code for c in cands}))
-        for c in cands:
-            c.sem = sem.get(c.course_code, 0.0)
-
-    # ---- L4/L5: decide ----
     eff_school = None if fellback else scope
     # A3: a result that came from the all-PAU widen (fellback) must NEVER auto-serve.
     force_disambig = fellback and settings.serve_fallback_disambiguate_enabled
     bar, sbar = settings.serve_confident_bar, settings.serve_semantic_bar
-    f_strong = lambda c: c.score >= bar
-    s_strong = lambda c: hyb and c.sem >= sbar
-    either = lambda c: f_strong(c) or s_strong(c)            # strong on at least one signal
 
+    # EXACT code match is decisive and NEVER reads semantic -> resolve here, skipping the embed.
     if exact_hit:
         exact = [c for c in cands if c.score >= 1.0] or cands
         if routed.year:
@@ -240,6 +230,27 @@ def search_index(session: Session, routed, user_text: str, school: str | None = 
         return SearchResult("disambiguate", None, exact[:settings.serve_max_candidates],
                             fellback=fellback, scoped_school=eff_school)
 
+    # SKIP-EMBED fast path: a near-exact top (score >= skip bar) that dominates the runner-up can't be
+    # unseated by the semantic re-rank -> serving it is outcome-identical to the hybrid (verified by a
+    # skip-on-vs-off comparison), so don't pay the ~11s embed cold-init. Ambiguous/weak/paraphrase
+    # queries do NOT match this and fall through to the embed below (correctness over speed).
+    fz_top = cands[0]
+    fz_second = cands[1].score if len(cands) > 1 else 0.0
+    fuzzy_dominant = (len(cands) == 1) or (fz_top.score - fz_second) >= settings.serve_dominance_gap
+    if (hyb and settings.serve_skip_embed_when_dominant and not force_disambig
+            and fuzzy_dominant and fz_top.score >= settings.serve_skip_dominant_bar):
+        return SearchResult("serve", fz_top, [fz_top], fellback=fellback, scoped_school=eff_school)
+
+    # Not decisive -> NOW embed (the minority of queries where semantic genuinely matters).
+    if hyb and cands:
+        from app import title_index
+        sem = title_index.semantic_scores(session, phrase or user_text, list({c.course_code for c in cands}))
+        for c in cands:
+            c.sem = sem.get(c.course_code, 0.0)
+
+    f_strong = lambda c: c.score >= bar
+    s_strong = lambda c: hyb and c.sem >= sbar
+    either = lambda c: f_strong(c) or s_strong(c)            # strong on at least one signal
     if hyb:                                                  # rank by the combined signal
         cands.sort(key=lambda c: -max(c.score, c.sem))
     top = cands[0]
