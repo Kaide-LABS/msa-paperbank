@@ -83,6 +83,8 @@ class Settings(BaseSettings):
     serve_clean_miss_enabled: bool = True         # A1: a weak CLUSTER (no clear winner) -> honest miss, not junk list
     serve_confident_bar: float = 0.45             # A1: top fuzzy score below this (and clustered) => miss
     serve_fallback_disambiguate_enabled: bool = True  # A3: cross-school fallback never auto-serves; always disambiguate
+    serve_hybrid_enabled: bool = True             # B: semantic re-ranks the FUZZY-surfaced candidates (consensus layer)
+    serve_semantic_bar: float = 0.70              # B: semantic-'strong' bar for the re-rank role (tuned vs absent-vs-paraphrase)
     serve_session_ttl_seconds: int = 900          # how long a tap-to-choose list stays resolvable
     serve_school_scoping_enabled: bool = True      # V1.1: per-student school profile + school-scoped match
     serve_onboarding_ttl_seconds: int = 1800       # how long a pending school-onboarding prompt stays resolvable
