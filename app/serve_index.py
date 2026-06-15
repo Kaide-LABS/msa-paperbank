@@ -211,19 +211,31 @@ def search_index(session: Session, routed, user_text: str, school: str | None = 
 
     # ---- L4/L5: decide ----
     eff_school = None if fellback else scope
+    # A3: a result that came from the all-PAU widen (fellback) must NEVER auto-serve — the student
+    # explicitly picks a cross-school paper instead of being handed one silently.
+    force_disambig = fellback and settings.serve_fallback_disambiguate_enabled
+
     if exact_hit:
         exact = [c for c in cands if c.score >= 1.0] or cands
         if routed.year:
             yr = [c for c in exact if str(routed.year) in (c.year or "")]
             if yr:
                 exact = yr
-        if len(exact) == 1:
+        if len(exact) == 1 and not force_disambig:
             return SearchResult("serve", exact[0], exact, fellback=fellback, scoped_school=eff_school)
         return SearchResult("disambiguate", None, exact[:settings.serve_max_candidates],
                             fellback=fellback, scoped_school=eff_school)
 
     top = cands[0]
-    if len(cands) == 1 or (top.score - cands[1].score) >= settings.serve_dominance_gap:
+    second = cands[1].score if len(cands) > 1 else 0.0
+    dominant = len(cands) == 1 or (top.score - second) >= settings.serve_dominance_gap
+    # A1: a CLUSTER of near-threshold candidates with no clear winner is boilerplate noise (shared
+    # "introduction to" / "for engineers" trigrams), not a real match — miss honestly. A dominant
+    # winner still serves even if weak (don't kill a weak-but-correct single match).
+    if settings.serve_clean_miss_enabled and not dominant and top.score < settings.serve_confident_bar:
+        return SearchResult("none", None, [], scoped_school=scope)
+
+    if dominant and not force_disambig:
         return SearchResult("serve", top, [top], fellback=fellback, scoped_school=eff_school)
     return SearchResult("disambiguate", None, cands[:settings.serve_max_candidates],
                         fellback=fellback, scoped_school=eff_school)
