@@ -8,6 +8,7 @@ retrieval falls back to pure fuzzy."""
 import threading
 import numpy as np
 from sqlalchemy import text
+from app.config import settings
 from app.embeddings import embed_query
 
 _LOCK = threading.Lock()
@@ -18,15 +19,36 @@ _IDX: dict[str, int] | None = None
 
 def _load(session) -> None:
     global _CODES, _MAT, _IDX
-    rows = session.execute(text("SELECT course_code, embedding FROM title_embeddings")).mappings().all()
-    if not rows:
+    dim = settings.embedding_dim
+    # Fast path: select ONLY the bytea column (never transfer/deserialise the slow double[]).
+    rows = session.execute(text(
+        "SELECT course_code, embedding_f32 FROM title_embeddings"
+    )).mappings().all()
+    codes, vecs, missing = [], [], []
+    for r in rows:
+        buf = r["embedding_f32"]
+        if buf is None:
+            missing.append(r["course_code"])                      # pre-bytea row -> fallback below
+            continue
+        v = np.frombuffer(bytes(buf), dtype=np.float32)
+        if v.shape[0] == dim:
+            codes.append(r["course_code"]); vecs.append(v)
+    if missing:
+        # rare: fetch the old double[] only for rows not yet re-embedded (enrichment, never crash)
+        fb = session.execute(text(
+            "SELECT course_code, embedding FROM title_embeddings WHERE course_code = ANY(:m)"
+        ), {"m": missing}).mappings().all()
+        for r in fb:
+            if r["embedding"] is not None:
+                v = np.asarray(r["embedding"], dtype=np.float32)
+                if v.shape[0] == dim:
+                    codes.append(r["course_code"]); vecs.append(v)
+    if not codes:
         _CODES, _MAT, _IDX = [], np.zeros((0, 1), dtype=np.float32), {}
         return
-    mat = np.array([r["embedding"] for r in rows], dtype=np.float32)
-    mat /= (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-9)
-    _CODES = [r["course_code"] for r in rows]
-    _MAT = mat
-    _IDX = {c: i for i, c in enumerate(_CODES)}
+    mat = np.array(vecs, dtype=np.float32)
+    mat /= (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-9)     # normalise at load, exactly as before
+    _CODES, _MAT, _IDX = codes, mat, {c: i for i, c in enumerate(codes)}
 
 
 def ensure_loaded(session) -> None:
