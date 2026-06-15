@@ -1,4 +1,5 @@
 import logging
+import threading
 import httpx
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Header, Query, HTTPException, Depends
@@ -20,11 +21,40 @@ from app.errors import DuplicateMessage
 
 log = logging.getLogger(__name__)
 
+def _warmup() -> None:
+    """Fire-and-forget at boot: pay the cold-init costs OFF the first user message's critical path.
+    The embedding model's first call is ~11s cold (gemini-embedding-001) — force it here; also
+    preload the in-memory title vectors. Behaviour-unchanged: this only moves WHEN init happens.
+    NEVER fatal — warmup is an optimisation, not a dependency (a boot-time Vertex hiccup is logged
+    and swallowed; the bot starts and serves regardless)."""
+    try:
+        from app.embeddings import embed_query
+        try:
+            embed_query("warmup")                    # forces the ~11s gemini-embedding cold init
+        except Exception:
+            log.warning("warmup_embed_failed", extra={"phase": "warmup"}, exc_info=True)
+        try:
+            from app import title_index
+            s = db.SessionLocal()
+            try:
+                title_index.ensure_loaded(s)         # ~322 bytea vectors into RAM
+            finally:
+                s.close()
+        except Exception:
+            log.warning("warmup_title_index_failed", extra={"phase": "warmup"}, exc_info=True)
+        log.info("warmup_complete", extra={"phase": "warmup"})
+    except Exception:
+        log.exception("warmup_failed", extra={"phase": "warmup"})
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging(settings.log_level)
     app.state.http = httpx.Client(timeout=httpx.Timeout(connect=5, read=30, write=30, pool=5))
     app.state.gcs = storage.Client(project=settings.gcp_project)
+    # NON-BLOCKING: start warmup in a daemon thread so readiness is NOT delayed (the startup probe
+    # passes immediately; the ~11s embed-init runs in the background, not before 'ready').
+    threading.Thread(target=_warmup, name="warmup", daemon=True).start()
     yield
     app.state.http.close()
     db.dispose()
