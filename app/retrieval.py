@@ -8,6 +8,8 @@ from app.config import settings
 from app import embeddings
 from google.cloud import storage
 
+log = logging.getLogger(__name__)
+
 _courses_cache = None
 _courses_cache_time = 0
 
@@ -231,12 +233,12 @@ def precompute_served_pdf(session, served_id: int, gcs_client: storage.Client, b
     # Some multi-page image exams render to tens of MB -> resumable upload + a generous timeout and a
     # single retry so a slow/flaky link doesn't abort the (one-time) precompute. timeout is per-chunk.
     last_err = None
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             blob.upload_from_string(pdf_bytes, content_type="application/pdf", timeout=600)
             last_err = None
             break
-        except Exception as e:                       # transient write/socket timeout -> retry once
+        except Exception as e:                       # transient write/socket timeout -> retry
             last_err = e
             log.warning("served_upload_retry", extra={"served_id": served_id, "attempt": attempt})
     if last_err is not None:
