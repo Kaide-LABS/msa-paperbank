@@ -87,6 +87,8 @@ class Settings(BaseSettings):
     serve_semantic_bar: float = 0.70              # B: semantic-'strong' bar for the re-rank role (tuned vs absent-vs-paraphrase)
     serve_skip_embed_when_dominant: bool = True   # latency: skip the embed when fuzzy is already decisive (outcome-identical)
     serve_skip_dominant_bar: float = 1.0          # skip only when top fuzzy >= this AND dominates (tuned for zero divergence)
+    serve_precompute_enabled: bool = True         # hardening: serve the pre-rendered served/ PDF (download) instead of live-rendering; falls back to live render if absent
+    serve_precompute_prefix: str = "served/"      # GCS prefix for the pre-rendered enhanced PDFs
     serve_session_ttl_seconds: int = 900          # how long a tap-to-choose list stays resolvable
     serve_school_scoping_enabled: bool = True      # V1.1: per-student school profile + school-scoped match
     serve_onboarding_ttl_seconds: int = 1800       # how long a pending school-onboarding prompt stays resolvable

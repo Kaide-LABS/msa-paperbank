@@ -1,3 +1,4 @@
+import logging
 import time
 from sqlalchemy.orm import Session
 from sqlalchemy import select, or_, func
@@ -212,3 +213,57 @@ def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, b
         served = render_served_pdf(raw) if settings.serve_enhance_enabled else raw
         return served, filename
     return stitch_images_to_pdf([_image_to_enhanced_png(raw, ext)]), filename
+
+
+def precompute_served_pdf(session, served_id: int, gcs_client: storage.Client, bucket_name: str) -> tuple[str, str]:
+    """Render the served PDF for `served_id` ONCE (reusing the EXACT live render path,
+    load_served_bytes_v1) and store it at served/<id>.pdf, recording (served_object, served_filename)
+    on the pending_papers row. Idempotent: re-running overwrites the GCS object and the columns.
+
+    `served_id` is whatever the bot serves: a logical_exam_id (grouped multi-page exam) OR a single
+    pending_papers.id — both are pending_papers.id values, so the cache lives on that one row.
+    The caller commits. Heavy (does the full rasterize/enhance/stitch) -> call OFFLINE or at approval,
+    never in the serve request path."""
+    from sqlalchemy import text
+    pdf_bytes, filename = load_served_bytes_v1(session, served_id, gcs_client, bucket_name)
+    obj = f"{settings.serve_precompute_prefix}{served_id}.pdf"
+    blob = gcs_client.bucket(bucket_name).blob(obj)
+    # Some multi-page image exams render to tens of MB -> resumable upload + a generous timeout and a
+    # single retry so a slow/flaky link doesn't abort the (one-time) precompute. timeout is per-chunk.
+    last_err = None
+    for attempt in range(2):
+        try:
+            blob.upload_from_string(pdf_bytes, content_type="application/pdf", timeout=600)
+            last_err = None
+            break
+        except Exception as e:                       # transient write/socket timeout -> retry once
+            last_err = e
+            log.warning("served_upload_retry", extra={"served_id": served_id, "attempt": attempt})
+    if last_err is not None:
+        raise last_err
+    session.execute(
+        text("UPDATE pending_papers SET served_object = :o, served_filename = :f WHERE id = :id"),
+        {"o": obj, "f": filename, "id": served_id},
+    )
+    return obj, filename
+
+
+def load_served_cached(session, served_id: int, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
+    """Serve-path loader: if a pre-rendered served/ PDF exists for `served_id`, DOWNLOAD it (~0.5s,
+    no rasterize) and return it — this is the hardening fast path (kills render latency AND the
+    concurrency OOM/SIGABRT risk, since no live render runs). Otherwise FALL BACK to the live render
+    (load_served_bytes_v1) so an un-backfilled paper, or one whose precompute failed, never fails to
+    serve. Flag serve_precompute_enabled=False forces the legacy always-live-render behaviour."""
+    if settings.serve_precompute_enabled:
+        from sqlalchemy import text
+        try:
+            row = session.execute(
+                text("SELECT served_object, served_filename FROM pending_papers WHERE id = :id"),
+                {"id": served_id},
+            ).mappings().first()
+            if row and row["served_object"]:
+                data = gcs_client.bucket(bucket_name).blob(row["served_object"]).download_as_bytes()
+                return data, (row["served_filename"] or f"paper.pdf")
+        except Exception:
+            log.warning("served_cache_miss_fallback", extra={"served_id": served_id}, exc_info=True)
+    return load_served_bytes_v1(session, served_id, gcs_client, bucket_name)
