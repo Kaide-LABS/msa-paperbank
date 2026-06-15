@@ -98,7 +98,7 @@ async def webhook_inbound(
                         reply = serve_v1.handle_message_v1(
                             session, msg, request.app.state.http, request.app.state.gcs
                         )
-                        paper_loader = lambda pid: retrieval.load_served_bytes_v1(
+                        paper_loader = lambda pid: retrieval.load_served_cached(
                             session, pid, request.app.state.gcs, settings.gcs_bucket
                         )
                     else:

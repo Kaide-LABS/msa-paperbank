@@ -78,6 +78,20 @@ def promote(session, gcs, http, cid: int, filing: dict, dedup_choice: str, revie
         "year": filing.get("year"), "sess": filing.get("exam_session"), "dt": filing.get("doc_type"), "c": cid})
     session.commit()
 
+    # Hardening: pre-render the served PDF ONCE now (served id = logical_exam_id for multi-page,
+    # else the single row's id), so the bot serves a fast GCS download instead of live-rendering on
+    # every request. Best-effort — the paper is already live (committed above); a precompute failure
+    # just leaves it on the live-render fallback path, never blocks the promotion.
+    if settings.serve_precompute_enabled and new_ids:
+        served_id = min(new_ids) if len(new_ids) > 1 else new_ids[0]
+        try:
+            from app import retrieval
+            retrieval.precompute_served_pdf(session, served_id, gcs, settings.gcs_bucket)
+            session.commit()
+        except Exception:
+            session.rollback()
+            log.exception("precompute_served_failed", extra={"cid": cid, "served_id": served_id})
+
     try:
         whatsapp.send_text(http, contrib["contributor_phone"], _NOTIFY_APPROVED)
     except Exception:
