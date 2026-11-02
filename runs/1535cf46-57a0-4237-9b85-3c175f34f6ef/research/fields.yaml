@@ -1,0 +1,335 @@
+# OSA research field schema -- every item result must cover these fields.
+common:
+  - name: "summary"
+    description: "2-5 sentences answering the item's question for THIS build."
+    type: "string"
+    required: true
+  - name: "key_findings"
+    description: "Concrete, verifiable findings (versions, signatures, limits, dates)."
+    type: "string[]"
+    required: true
+  - name: "recommendations"
+    description: "What the build should do, and what it should avoid."
+    type: "string[]"
+    required: true
+  - name: "as_of"
+    description: "The date or version the information is current as of."
+    type: "string"
+    required: true
+  - name: "sources"
+    description: "Every source relied on: title, url, type (official-docs|paper|repo|article|forum|other), and a short supporting quote."
+    type: "sources"
+    required: true
+byItem:
+  docs-azure-openai-service:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-azure-ai-foundry:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-text-embedding-3-large:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-azure-ai-document-intelligence:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-azure-database-for-postgresql-flexible-server:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-pgvector:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-pg-trgm:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-azure-container-apps:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-azure-container-apps-jobs:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-azure-container-registry:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-azure-key-vault:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-azure-managed-identity:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-microsoft-entra-id:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-bicep:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-microsoft-graph-api:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-sharepoint:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-onedrive:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-azure-storage-blob:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-azure-identity:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-fastapi:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-sqlalchemy:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-pydantic-settings:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-gunicorn:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true
+  docs-uvicorn:
+    - name: "current_version"
+      description: "The current stable version of the library/framework/API."
+      type: "string"
+      required: true
+    - name: "api_surface"
+      description: "The commands/functions/endpoints/config this build will actually use."
+      type: "string[]"
+      required: true
+    - name: "pitfalls"
+      description: "Breaking changes, deprecations and known gotchas in the research time range."
+      type: "string[]"
+      required: true

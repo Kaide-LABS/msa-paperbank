@@ -1,0 +1,84 @@
+{
+  "summary": "OneDrive is accessed programmatically via the Microsoft Graph REST API (v1.0), not a separate 'OneDrive API' product; Microsoft's guidance explicitly says the legacy OneDrive API is superseded and the Graph endpoints (drive, driveItem) are the supported path. For this build's 'Graph import' feature, the bot would use app-only (client credentials) auth against Entra ID, then call drive/driveItem endpoints under https://graph.microsoft.com/v1.0 to list and download past-paper files from a OneDrive or SharePoint document library. No installation is needed beyond registering an Entra ID app and (for Python) installing the msgraph-sdk package; there is no 'enabling' OneDrive itself since it's a standard Microsoft 365 service.",
+  "key_findings": [
+    "OneDrive/SharePoint file access is fully folded into Microsoft Graph; the legacy standalone OneDrive API is not the recommended path per the OneDrive dev center docs (learn.microsoft.com/onedrive/developer).",
+    "Core resources: Drive (/me/drive, /drives/{drive-id}, /sites/{site-id}/drive) and DriveItem (/drives/{drive-id}/items/{item-id}), addressable by id or by path using root:/path/to/file syntax.",
+    "List folder contents: GET /drives/{drive-id}/items/{item-id}/children; paginated via @odata.nextLink once results exceed the 200-item default page size.",
+    "Download file content: GET /drives/{drive-id}/items/{item-id}/content returns HTTP 302 redirecting to a time-limited preauthenticated download URL (also exposed as @microsoft.graph.downloadUrl); supports Range header for partial downloads.",
+    "Least-privileged permissions for read/import workflows: Files.Read.All (application permission) or Files.Read (delegated); higher-privilege Files.ReadWrite.All/Sites.Read.All only if write access is needed.",
+    "Python SDK is 'msgraph-sdk' on PyPI, current version 1.65.0 (released 2026-10-22), requires Python 3.10+, installed via pip install msgraph-sdk; client is msgraph.GraphServiceClient with async calls like graph_client.drives.by_drive_id(...).items.by_drive_item_id(...).content.get().",
+    "2025-2026 breaking changes: Permission resource properties grantedTo/grantedToIdentities are being removed in favor of grantedToV2/grantedToIdentitiesV2 after a 4-year deprecation notice (announced 2025-03-21); no exact final removal date disclosed in the post.",
+    "Pre-authenticated 'tempauth' download/upload URLs (the same mechanism underlying @microsoft.graph.downloadUrl and the /content redirect) are being retired; Graph file APIs stop returning tempauth tokens after 2027-04-01, requiring an Entra ID (or SharePoint) token instead.",
+    "sharedWithMe API is deprecated and will stop returning data after November 2027 — not relevant to this build's planned use (direct drive/folder import, not shared-with-me)."
+  ],
+  "recommendations": [
+    "Use the Microsoft Graph v1.0 endpoint (graph.microsoft.com/v1.0) with app-only Entra ID client-credentials auth and the Files.Read.All application permission for a non-interactive import job (matches Container Apps Job model already planned).",
+    "Implement the OneDrive/Graph import adapter against /drives/{drive-id}/items/{item-id}/children for listing and /content (following the 302 or using @microsoft.graph.downloadUrl) for fetching past-paper files, handling @odata.nextLink pagination.",
+    "Install msgraph-sdk (current 1.65.0, Python 3.10+) rather than hand-rolling raw HTTP calls, to stay aligned with Microsoft's supported SDK surface.",
+    "Do not rely on cached/hardcoded download URLs beyond their short validity window, and do not build logic around tempauth query-parameter URLs — fetch fresh @microsoft.graph.downloadUrl per run so the 2027-04-01 tempauth retirement won't break the import job.",
+    "If any permission-related metadata (grantedTo/grantedToIdentities) is ever read from imported items, use grantedToV2/grantedToIdentitiesV2 now rather than the deprecated fields."
+  ],
+  "as_of": "Microsoft Graph v1.0 OneDrive/driveItem docs (list-children updated 2025-11-25, get-content updated 2025-08-27); msgraph-sdk Python 1.65.0 released 2026-10-22; devblogs posts dated 2025-03-21 (permission props) and n.d. tempauth retirement (deadline 2027-04-01)",
+  "sources": [
+    {
+      "title": "OneDrive for Developers - OneDrive dev center",
+      "url": "https://learn.microsoft.com/en-us/onedrive/developer/?view=odsp-graph-online",
+      "type": "official-docs",
+      "quote": "The best way to connect to OneDrive, OneDrive for Business, and SharePoint document libraries is the Microsoft Graph."
+    },
+    {
+      "title": "Working with files in Microsoft Graph (OneDrive resource) - v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/resources/onedrive?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "Microsoft Graph exposes two resource types for working with files: Drive ... DriveItem ..."
+    },
+    {
+      "title": "List the contents of a folder - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/driveitem-list-children?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "If a collection exceeds the default page size (200 items), the @odata.nextLink property is returned in the response"
+    },
+    {
+      "title": "Download driveItem content - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/driveitem-get-content?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "Returns a 302 Found response redirecting to a preauthenticated download URL for the file, which is the same URL available through the @microsoft.graph.downloadUrl property"
+    },
+    {
+      "title": "msgraph-sdk · PyPI",
+      "url": "https://pypi.org/project/msgraph-sdk/",
+      "type": "official-docs",
+      "quote": "Latest Version: 1.65.0 ... Install Command: pip install msgraph-sdk ... Supported Python Versions: Python 3.10 and later"
+    },
+    {
+      "title": "Removal of Deprecated SharePoint & OneDrive Permission Resource Properties",
+      "url": "https://devblogs.microsoft.com/microsoft365dev/removal-of-deprecated-sharepoint-onedrive-permission-resource-properties/",
+      "type": "official-docs",
+      "quote": "Update your applications to reference the grantedToV2 and grantedToIdentitiesV2 permissions when using any of the following API calls for SharePoint and OneDrive."
+    },
+    {
+      "title": "Pre-authenticated (tempauth) URLs are retiring: move to Microsoft Entra ID tokens before April 1, 2027",
+      "url": "https://devblogs.microsoft.com/microsoft365dev/pre-authenticated-tempauth-urls-are-retiring-move-to-microsoft-entra-id-tokens-before-april-1-2027/",
+      "type": "official-docs",
+      "quote": "After this date, affected Microsoft Graph file APIs will stop returning URLs with embedded tempauth tokens."
+    }
+  ],
+  "current_version": "Microsoft Graph API v1.0 (OneDrive via drive/driveItem resources, no separate OneDrive API version); msgraph-sdk (Python) 1.65.0",
+  "api_surface": [
+    "GET /drives/{drive-id} and GET /me/drive (Drive resource)",
+    "GET /drives/{drive-id}/items/{item-id}/children (list folder contents, with @odata.nextLink pagination)",
+    "GET /drives/{drive-id}/items/{item-id}/content (download file content, 302 to @microsoft.graph.downloadUrl)",
+    "Addressing by path: /drives/{drive-id}/root:/path/to/folder:/children",
+    "Entra ID app-only (client credentials) auth with Graph scope Files.Read.All",
+    "Python: msgraph.GraphServiceClient, graph_client.drives.by_drive_id(...).items.by_drive_item_id(...).children.get() / .content.get()"
+  ],
+  "pitfalls": [
+    "Legacy standalone OneDrive API is not the current recommended surface; must use Microsoft Graph endpoints instead.",
+    "Preauthenticated download URLs (/content redirect, @microsoft.graph.downloadUrl) expire within minutes — fetch and use immediately, don't cache long-term.",
+    "Tempauth-based preauthenticated URLs across file download/upload/preview/thumbnail/convert APIs are being retired by 2027-04-01; plan to use Entra ID tokens against SharePoint/Graph instead.",
+    "Permission resource fields grantedTo/grantedToIdentities are deprecated in favor of grantedToV2/grantedToIdentitiesV2 (announced 2025-03-21); avoid the old fields in any new code.",
+    "Default page size for children listings is 200 items — import logic must handle @odata.nextLink or it will silently miss files in large folders.",
+    "sharedWithMe API is deprecated and stops returning data after November 2027 — don't build the import path on shared-with-me semantics."
+  ],
+  "uncertain": []
+}

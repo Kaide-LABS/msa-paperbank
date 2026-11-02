@@ -1,0 +1,71 @@
+{
+  "summary": "Azure Managed Identity is a platform capability (not a versioned product) that lets Azure resources obtain Microsoft Entra ID tokens without stored credentials, via system-assigned or user-assigned identities. For this build, Container Apps and Container Apps Jobs get a user-assigned managed identity (configured in Bicep), and the Python code uses the azure-identity SDK's DefaultAzureCredential/ManagedIdentityCredential to authenticate to Azure OpenAI/Foundry, Key Vault, ACR image pull, and Postgres Flexible Server (Entra auth, token used as the PG password). The current azure-identity Python package is 1.27.0; the managed-identity mechanics themselves (IDENTITY_ENDPOINT/IDENTITY_HEADER, RBAC role assignment on the target resource) have been stable, with the main recent behavioral change being DefaultAzureCredential's v1.14.0+ continuation policy. Postgres Flexible Server Entra tokens expire in 5-60 minutes and must be refreshed per connection, which matters for the SQLAlchemy adapter.",
+  "key_findings": [
+    "Two managed identity types: system-assigned (tied to one resource's lifecycle) and user-assigned (standalone resource, reusable across Container Apps, Jobs, etc.) — user-assigned is Microsoft's recommended type for multi-resource workloads (Entra ID overview, updated 2026-06-15).",
+    "Container Apps: enable identity via `az containerapp identity assign --system-assigned` / `--user-assigned <ID>`, or Bicep `identity: { type: 'UserAssigned', userAssignedIdentities: {...} }`; an app can have both types simultaneously (type `SystemAssigned,UserAssigned`) (Container Apps managed-identity doc, updated 2026-02-13).",
+    "Container Apps exposes a local REST token endpoint via env vars IDENTITY_ENDPOINT and IDENTITY_HEADER; GET with `resource`, `api-version=2019-08-01` (or later) and optional `client_id`/`principal_id`/`mi_res_id` for a specific user-assigned identity — omit all ID params to default to system-assigned.",
+    "azure-identity for Python current version is 1.27.0 (source link `azure-identity_1.27.0` on the docs page dated 2026-10-26); requires Python 3.10+ and non-EOL Python 3.",
+    "DefaultAzureCredential continuation policy changed in v1.14.0: it now tries every developer credential until one succeeds regardless of prior errors, whereas deployed-service credentials (incl. managed identity) still stop the chain with an exception on failure.",
+    "Container Apps pitfall: when using Azure Identity client library, you must explicitly specify the user-assigned managed identity's client ID if the app has more than one identity attached — there is no implicit default.",
+    "Container Apps token cache for a resource URI persists ~24h; after changing a target resource's role assignment, a cached token with the old permissions may still be returned, and forced refresh isn't supported.",
+    "Init containers cannot use managed identity in consumption-only or dedicated workload-profile environments; API version 2024-02-02-preview added per-identity lifecycle control (`Init`/`Main`/`All`/`None`) to scope which containers/phases can use a given identity.",
+    "Azure Database for PostgreSQL Flexible Server supports Microsoft Entra auth: an Entra access token (resource `https://ossrdbms-aad.database.windows.net`, or `az account get-access-token --resource-type oss-rdbms`) is passed as the PostgreSQL password; tokens are valid only 5-60 minutes and must be fetched fresh per connection, not cached in scripts (Postgres Flexible Server Entra auth doc, updated 2026-09-06).",
+    "Postgres: the Entra admin role has elevated privileges (e.g. CREATEDB) and should not be used for normal app connections; a separate app role/principal should be created via `pgaadauth_create_principal(...)`, and managed identities/service principals are supported as members of synced Entra groups."
+  ],
+  "recommendations": [
+    "Provision a user-assigned managed identity in the Bicep templates (not system-assigned) and attach it to Container Apps and Container Apps Jobs, so the acceptance criterion `az deployment` on a fresh subscription can grant RBAC roles before/alongside resource creation.",
+    "In the Python code, standardize on azure-identity's DefaultAzureCredential for all adapters (OpenAI/Foundry, Key Vault secrets, Postgres token) so the same code path works locally (falls back to Azure CLI credential) and in Container Apps (managed identity) without branching logic.",
+    "Pin azure-identity to >=1.14.0 (ideally current 1.27.0) to get the safer DefaultAzureCredential continuation policy on developer-credential failures.",
+    "If more than one user-assigned identity is ever attached to a Container App, pass the explicit `client_id` into ManagedIdentityCredential/DefaultAzureCredential to avoid ambiguous token requests.",
+    "For the Postgres adapter, implement a SQLAlchemy connection-creator that fetches a fresh Entra token (`oss-rdbms` resource) per new connection rather than caching it, and create a dedicated non-admin Entra-mapped Postgres role for the app identity via `pgaadauth_create_principal`.",
+    "Assign RBAC roles (Key Vault, Postgres Entra role membership, Azure OpenAI/Foundry resource) to the identity's principal ID inside the Bicep templates themselves, not as a manual post-deploy step, to keep the fresh-subscription deployment self-contained.",
+    "After any role-assignment change during testing, allow for the ~24h managed-identity token cache before concluding a permission grant 'didn't work' — re-test with a fresh identity or expect delayed effect.",
+    "Avoid system-assigned-only identities for anything that must be pre-authorized before the compute resource exists (e.g. pre-granting DB/Key Vault access as part of IaC) — use user-assigned for that reason, per Microsoft's own recommendation."
+  ],
+  "as_of": "Entra ID managed identities overview updated 2026-06-15; Container Apps managed-identity doc updated 2026-02-13 (ms.date 2025-06-03); azure-identity Python docs updated 2026-10-27 (package 1.27.0); Postgres Flexible Server Entra auth doc updated 2026-09-06",
+  "sources": [
+    {
+      "title": "Managed identities for Azure resources - overview",
+      "url": "https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview",
+      "type": "official-docs",
+      "quote": "User-assigned managed identities, which are provisioned independently from compute and can be assigned to multiple compute resources, are the recommended managed identity type for Microsoft services."
+    },
+    {
+      "title": "Managed identities in Azure Container Apps",
+      "url": "https://learn.microsoft.com/en-us/azure/container-apps/managed-identity",
+      "type": "official-docs",
+      "quote": "The back-end services for managed identities maintain a cache per resource URI for around 24 hours... Forcing a token refresh isn't supported."
+    },
+    {
+      "title": "Azure Identity client library for Python",
+      "url": "https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme",
+      "type": "official-docs",
+      "quote": "As of version 1.14.0, DefaultAzureCredential attempts to authenticate with all developer credentials until one succeeds, regardless of any errors previous developer credentials experienced."
+    },
+    {
+      "title": "Use Microsoft Entra ID Authentication in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/security/security-entra-configure",
+      "type": "official-docs",
+      "quote": "The access token is valid for 5 to 60 minutes. Get the access token before initiating the sign-in to Azure Database for PostgreSQL."
+    }
+  ],
+  "current_version": "Managed Identity is an unversioned Entra ID platform feature; the azure-identity Python SDK that implements ManagedIdentityCredential/DefaultAzureCredential is at 1.27.0 as of the docs page dated 2026-10-27",
+  "api_surface": [
+    "azure.identity.DefaultAzureCredential() / ManagedIdentityCredential(client_id=...) — .get_token()/.get_token_info() (Python, used by OpenAI/Foundry, Key Vault, storage adapters)",
+    "az containerapp identity assign/show/remove --system-assigned|--user-assigned <ID> (CLI, also used for Container Apps Jobs)",
+    "Bicep `identity: { type: 'UserAssigned'|'SystemAssigned', userAssignedIdentities: { <resourceId>: {} } }` on containerApps/containerAppJobs resources",
+    "Container Apps REST token endpoint: GET $IDENTITY_ENDPOINT?resource=<uri>&api-version=2019-08-01&client_id=<id>, header X-IDENTITY-HEADER=$IDENTITY_HEADER",
+    "az account get-access-token --resource-type oss-rdbms (or --resource https://ossrdbms-aad.database.windows.net) — token used as PGPASSWORD for Postgres Flexible Server Entra auth",
+    "pgaadauth_create_principal('<role name>', false, false) — creates the non-admin Entra-mapped Postgres role for the app's managed identity"
+  ],
+  "pitfalls": [
+    "DefaultAzureCredential continuation-policy change in v1.14.0 — developer credentials no longer abort the chain on failure, but deployed credentials (incl. managed identity) still do.",
+    "Must explicitly pass client_id when a Container App has more than one user-assigned identity, or token requests are ambiguous.",
+    "Role-assignment changes may not take effect for up to 24h due to the managed-identity token cache; forced refresh isn't supported.",
+    "Init containers can't use managed identity in consumption-only or dedicated workload-profile environments unless using the 2024-02-02-preview lifecycle (`Init`/`Main`/`All`/`None`) API.",
+    "Postgres Entra tokens expire in 5-60 minutes — must be fetched fresh per connection, not cached/stored in scripts or long-lived connection pools without refresh logic.",
+    "Don't use the Postgres Entra admin identity for app connections — it has elevated permissions (e.g. CREATEDB); create a separate role via pgaadauth_create_principal for the app identity.",
+    "Container Apps created before 2022-04-11 require a new revision when a managed identity is first added (legacy note still in current docs)."
+  ],
+  "uncertain": []
+}

@@ -1,0 +1,219 @@
+# OSA research outline -- generated from the locked baby PRD. Do not hand-edit mid-run.
+topic: "Migrate a FastAPI retrieval bot from GCP/Vertex to Azure: OpenAI/Foundry models, Postgres+pgvector, Container Apps, Graph import"
+items:
+  - slug: "docs-azure-openai-service"
+    title: "Official documentation: Azure OpenAI Service"
+    question: "Find the OFFICIAL documentation for \"Azure OpenAI Service\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-ai-foundry"
+    title: "Official documentation: Azure AI Foundry"
+    question: "Find the OFFICIAL documentation for \"Azure AI Foundry\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-text-embedding-3-large"
+    title: "Official documentation: text-embedding-3-large"
+    question: "Find the OFFICIAL documentation for \"text-embedding-3-large\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-ai-document-intelligence"
+    title: "Official documentation: Azure AI Document Intelligence"
+    question: "Find the OFFICIAL documentation for \"Azure AI Document Intelligence\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-database-for-postgresql-flexible-server"
+    title: "Official documentation: Azure Database for PostgreSQL Flexible Server"
+    question: "Find the OFFICIAL documentation for \"Azure Database for PostgreSQL Flexible Server\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-pgvector"
+    title: "Official documentation: pgvector"
+    question: "Find the OFFICIAL documentation for \"pgvector\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-pg-trgm"
+    title: "Official documentation: pg_trgm"
+    question: "Find the OFFICIAL documentation for \"pg_trgm\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-container-apps"
+    title: "Official documentation: Azure Container Apps"
+    question: "Find the OFFICIAL documentation for \"Azure Container Apps\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-container-apps-jobs"
+    title: "Official documentation: Azure Container Apps Jobs"
+    question: "Find the OFFICIAL documentation for \"Azure Container Apps Jobs\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-container-registry"
+    title: "Official documentation: Azure Container Registry"
+    question: "Find the OFFICIAL documentation for \"Azure Container Registry\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-key-vault"
+    title: "Official documentation: Azure Key Vault"
+    question: "Find the OFFICIAL documentation for \"Azure Key Vault\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-managed-identity"
+    title: "Official documentation: Azure Managed Identity"
+    question: "Find the OFFICIAL documentation for \"Azure Managed Identity\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-microsoft-entra-id"
+    title: "Official documentation: Microsoft Entra ID"
+    question: "Find the OFFICIAL documentation for \"Microsoft Entra ID\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-bicep"
+    title: "Official documentation: Bicep"
+    question: "Find the OFFICIAL documentation for \"Bicep\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-microsoft-graph-api"
+    title: "Official documentation: Microsoft Graph API"
+    question: "Find the OFFICIAL documentation for \"Microsoft Graph API\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-sharepoint"
+    title: "Official documentation: SharePoint"
+    question: "Find the OFFICIAL documentation for \"SharePoint\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-onedrive"
+    title: "Official documentation: OneDrive"
+    question: "Find the OFFICIAL documentation for \"OneDrive\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-storage-blob"
+    title: "Official documentation: azure-storage-blob"
+    question: "Find the OFFICIAL documentation for \"azure-storage-blob\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-identity"
+    title: "Official documentation: azure-identity"
+    question: "Find the OFFICIAL documentation for \"azure-identity\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-fastapi"
+    title: "Official documentation: FastAPI"
+    question: "Find the OFFICIAL documentation for \"FastAPI\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-sqlalchemy"
+    title: "Official documentation: SQLAlchemy"
+    question: "Find the OFFICIAL documentation for \"SQLAlchemy\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-pydantic-settings"
+    title: "Official documentation: pydantic-settings"
+    question: "Find the OFFICIAL documentation for \"pydantic-settings\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-gunicorn"
+    title: "Official documentation: gunicorn"
+    question: "Find the OFFICIAL documentation for \"gunicorn\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-uvicorn"
+    title: "Official documentation: uvicorn"
+    question: "Find the OFFICIAL documentation for \"uvicorn\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings)."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "azure-openai-foundry-models"
+    title: "Current Azure OpenAI/Foundry models (Nov 2026)"
+    question: "Which current chat/vision models support structured JSON output and a thinking/reasoning budget equivalent, with pricing?"
+    kind: "research"
+    modules:
+      - "general-web"
+  - slug: "azure-structured-output"
+    title: "Structured JSON output on Azure OpenAI"
+    question: "How to enforce response_schema/JSON-mode and vision inputs via Azure OpenAI SDK to replace google-genai response_schema?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "stackoverflow"
+  - slug: "azure-embeddings-768"
+    title: "Azure embeddings shortened to 768 dims"
+    question: "How to call text-embedding-3-large (or current) with dimensions=768 and confirm HNSW<=2000 and Vector(768) parity?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "stackoverflow"
+  - slug: "document-intelligence-ocr"
+    title: "Azure AI Document Intelligence vs LLM vision OCR"
+    question: "Accuracy/cost/API for scanned exam papers; how to A/B gate against Gemini OCR output on a sample?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "academic-papers"
+  - slug: "postgres-flexible-pgvector"
+    title: "Azure Postgres Flexible Server pgvector+pg_trgm"
+    question: "Enabling pgvector/pg_trgm, HNSW support, connection via managed identity, and backup/restore drill mechanics?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "github-debug"
+  - slug: "container-apps-bicep"
+    title: "Container Apps + Jobs + ACR via Bicep"
+    question: "Parameterized Bicep for web apps and jobs, ingress on 8080, managed identity, ACR pull; replacing Cloud Run scripts?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "github-debug"
+  - slug: "keyvault-managed-identity"
+    title: "Key Vault + managed identity config loader"
+    question: "How to load secrets via Key Vault references/managed identity in Container Apps to replace GCP Secret Manager pattern?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "stackoverflow"
+  - slug: "graph-sharepoint-import"
+    title: "Microsoft Graph SharePoint/OneDrive import"
+    question: "Graph API for listing/downloading drive files with auth and keeping sha256 dedupe, replacing Drive import?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "github-debug"
+execution:
+  timeRange: "last 2 years (prioritise 2025-2026 current Azure offerings)"
+  batchSize: 4
+  resume: true
+  docsRequired: true
+  academic:
+    enabled: true
+    queries:
+      - "OCR accuracy evaluation scanned exam documents transformer vision models"
+      - "document retrieval parity evaluation after embedding model change top-k overlap"
+  githubLookup:
+    enabled: true
+    queries:
+      - "FastAPI pgvector Azure PostgreSQL Flexible Server HNSW retrieval example"
+      - "Azure Container Apps Bicep FastAPI gunicorn deployment template"
+      - "Microsoft Graph SharePoint drive download Python sha256 dedupe"
+      - "storage abstraction interface GCS Azure Blob Python adapter"

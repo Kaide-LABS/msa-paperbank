@@ -1,0 +1,70 @@
+{
+  "summary": "Yes: parameterized Bicep can replace Cloud Run deploy scripts using Microsoft.App/containerApps for the web/bot service (ingress targetPort 8080) and Microsoft.App/jobs for batch/import work (e.g. the Graph import), both authenticating to ACR via managed identity so no registry passwords are stored. Microsoft's official pattern uses a user-assigned managed identity granted the built-in AcrPull role, referenced in the containerApp/job's `identity` block and in `configuration.registries[].identity`; system-assigned identity also works but Microsoft recommends user-assigned to avoid circular create-then-assign dependencies. Jobs support Manual, Schedule, and Event trigger types (cron for Schedule, KEDA-based scalers for Event) and are the direct Azure analogue of Cloud Run Jobs, sharing the same Container Apps environment as the web app for networking/logging.",
+  "key_findings": [
+    "Official Microsoft Learn Bicep example (updated 2025-10-08) sets `ingress: { targetPort: 8080, external: true }` on `Microsoft.App/containerApps@2022-06-01-preview` and configures `registries: [{ server: '<acr>.azurecr.io', identity: identity.id }]` with no secrets.",
+    "ACR must allow ARM-audience tokens for managed-identity pulls: `az acr config authentication-as-arm show/update -r <REGISTRY> --status enabled`.",
+    "The built-in AcrPull role definition ID is 7f951dda-4ed3-4680-a7ca-43fe172d538d; Microsoft's sample grants it to the identity via a `Microsoft.Authorization/roleAssignments` resource using `guid(resourceGroup().id, acr, 'AcrPullTestUserAssigned')`.",
+    "Microsoft explicitly recommends: 'When possible, you should use a user-assigned managed identity to pull images' (over system-assigned) for ACR pull scenarios.",
+    "Current Microsoft.App/containerApps template schema (fetched, API version 2026-07-01) confirms ingress supports external/targetPort/transport ('auto'|'http'|'http2'|'tcp'), and `identity.type` accepts 'SystemAssigned', 'UserAssigned', or both combined.",
+    "Container Apps Jobs (Microsoft.App/jobs) is the Cloud Run Jobs equivalent: official docs (page dated 2026-09-16) describe triggerType 'Manual' | 'Schedule' | 'Event', with scheduleTriggerConfig.cronExpression, manualTriggerConfig.parallelism/replicaCompletionCount, and eventTriggerConfig.scale (KEDA scale rules, e.g. azure-queue).",
+    "Jobs share registries/identity config identical to containerApps (same `registries[].identity` + managed-identity block), confirmed on the same docs page's ARM JSON example using `registry-server`/`registry-username`/`registry-password` or identity-based auth.",
+    "Jobs restrictions per official docs: Dapr and ingress (and related custom domains/SSL) are NOT supported on jobs -- jobs are compute-only, batch-style workloads.",
+    "The Azure Verified Module (AVM) 'avm/res/app/job' (Azure/bicep-registry-modules repo) wraps this with a `managedIdentities` object (`systemAssigned`/`userAssignedResourceIds`) and the same `registries[].identity` + `triggerType`/`scheduleTriggerConfig` shape, giving a maintained, parameterized starting point instead of hand-rolling the resource.",
+    "`az containerapp job start`, `az containerapp job execution list`, and the REST `jobs/{name}/start` (api-version 2023-05-01) operation are the mechanisms to invoke/monitor a job programmatically -- useful for the Graph-import job's operational runbook."
+  ],
+  "recommendations": [
+    "Use one Bicep module for the web/bot Container App (ingress targetPort 8080, external true) and a separate Microsoft.App/jobs module for the Graph import (triggerType Schedule or Manual), both under the same Container Apps environment so logging/networking are shared.",
+    "Create one user-assigned managed identity per workload (or a shared one if acceptable) and grant it AcrPull (role ID 7f951dda-4ed3-4680-a7ca-43fe172d538d) on the ACR; reference it via `registries[].identity` on both the app and the job rather than embedding registry admin credentials.",
+    "Enable ARM-audience tokens on the ACR (`az acr config authentication-as-arm update --status enabled`) as a prerequisite step in the deployment docs/runbook, since managed-identity pulls fail silently otherwise.",
+    "Parameterize image tag, CPU/memory, cron expression (for the import job), and ACR/registry name so the same Bicep can target dev/staging/prod without edits, matching the 'parameterized Bicep' requirement.",
+    "Do not add ingress or Dapr to the Graph-import job -- official docs confirm jobs don't support ingress, so any HTTP-triggerable import logic must live in the web app or be invoked via the Jobs Start REST/CLI API instead.",
+    "Consider adopting the AVM `avm/res/app/job` and an equivalent `avm/res/app/container-app` module instead of hand-written resources, since they already encode the identity/ACR-pull pattern and reduce custom Bicep surface area to maintain.",
+    "For the daily cost-cap breaker (acceptance criterion 10), note Jobs restrictions and the separate Job vs App billing model when wiring cost checks -- scheduled job executions bill per execution duration, distinct from the always-on app."
+  ],
+  "as_of": "Pages fetched 2026-11-02; Microsoft Learn 'jobs' doc last updated 2026-09-16, 'managed-identity-image-pull' doc last updated 2025-10-08, containerApps template reference reflects API version 2026-07-01 (latest at fetch time).",
+  "sources": [
+    {
+      "title": "Azure Container Apps image pull from Azure Container Registry with managed identity",
+      "url": "https://learn.microsoft.com/en-us/azure/container-apps/managed-identity-image-pull",
+      "type": "official-docs",
+      "quote": "Your Azure Container Registry must allow ARM audience tokens for authentication in order to use managed identity to pull images... When possible, you should use a user-assigned managed identity to pull images."
+    },
+    {
+      "title": "Microsoft.App/containerApps - Bicep, ARM template & Terraform AzAPI reference",
+      "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.app/containerapps",
+      "type": "official-docs",
+      "quote": "identity: { type: 'string' } // Required: 'None', 'SystemAssigned', 'UserAssigned', 'SystemAssigned,UserAssigned' ... registries: [ { identity: 'string', server: 'string' } ]"
+    },
+    {
+      "title": "Jobs in Azure Container Apps",
+      "url": "https://learn.microsoft.com/en-us/azure/container-apps/jobs?tabs=azure-cli",
+      "type": "official-docs",
+      "quote": "A job's trigger type determines how the job is started... Manual, Schedule, Event... The following features aren't supported: Dapr; Ingress and related features such as custom domains and SSL certificates."
+    },
+    {
+      "title": "Microsoft.App/jobs - Bicep, ARM template & Terraform AzAPI reference",
+      "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.app/jobs",
+      "type": "official-docs",
+      "quote": "ms.date: 2024-12-09 ... Microsoft.App/jobs syntax and properties to use in Azure Resource Manager templates for deploying the resource."
+    },
+    {
+      "title": "GitHub - Azure-Samples/container-apps-jobs",
+      "url": "https://github.com/Azure-Samples/container-apps-jobs",
+      "type": "repo",
+      "quote": "This sample shows how to create Azure Container Apps Jobs via Azure CLI and Bicep and how to start and monitor these components."
+    },
+    {
+      "title": "bicep-registry-modules avm/res/app/job README",
+      "url": "https://github.com/Azure/bicep-registry-modules/blob/main/avm/res/app/job/README.md",
+      "type": "repo",
+      "quote": "managedIdentities: { systemAssigned: true, userAssignedResourceIds: [...] } ... registries: [{ server: 'myregistry.azurecr.io', identity: '<identity>' }] ... triggerType: 'Schedule'"
+    },
+    {
+      "title": "Azure built-in roles - AcrPull",
+      "url": "https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles#acrpull",
+      "type": "official-docs",
+      "quote": "Role ID (GUID): 7f951dda-4ed3-4680-a7ca-43fe172d538d; Description: Pull artifacts from a container registry."
+    }
+  ],
+  "uncertain": []
+}

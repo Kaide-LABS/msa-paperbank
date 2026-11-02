@@ -1,0 +1,65 @@
+{
+  "summary": "Microsoft Graph (v1.0, stable) is the official API for reading SharePoint content; this build will use it under 'Graph import' to pull past-paper documents from a SharePoint site/document library via an Entra ID app-only (client credentials) registration. SharePoint itself requires no install — it is a hosted SaaS service enabled per-tenant; access is enabled by registering an Entra ID app, granting it Microsoft Graph permissions (Sites.Selected recommended over broad Sites.Read.All), and for Sites.Selected explicitly granting that app access to the specific site collection via POST /sites/{siteId}/permissions. The legacy SharePoint Add-in model and Azure ACS app-only auth were fully retired April 2, 2026, so any import code must use modern Entra ID app-only auth, not ACS tokens. No breaking changes affect the core Graph /sites, /drive, /drive/items endpoints this build needs; the main 2025-2026 pitfalls are the ACS/Add-in retirement and a deprecated GrantedToIdentities permission property (replaced by GrantedToIdentitiesV2).",
+  "key_findings": [
+    "Microsoft Graph SharePoint API is documented at api version 'v1.0' (stable) and 'beta'; sharepoint.md page content dated 2024-03-14, last updated 2024-11-21 [uncertain: may have had minor unlogged edits since]",
+    "Core read scenario: GET /sites/{site-id}, /sites/{site-id}/drive, /sites/{site-id}/drives, /sites/{site-id}/lists/{list-id}/items; sites can be addressed by hostname:/path as well as by ID",
+    "SharePoint Add-ins (SharePoint-hosted and provider-hosted) reached end of life in SharePoint Online on April 2, 2026; Azure ACS auth for SharePoint stopped working the same date",
+    "CSOM, JSOM and SharePoint REST APIs are NOT retired by the Add-in/ACS retirement; Graph is the recommended first choice, REST/CSOM only for gaps Graph doesn't cover",
+    "Sites.Selected is the recommended app-only permission for scoping an app to one site collection; it grants NO access until an admin/owner calls POST /sites/{siteId}/permissions with a role (read/write/owner/fullcontrol) for that app",
+    "Granting that permission itself requires Sites.FullControl.All or Sites.Selected+FullControl/Owner on the target site — a one-time admin setup step outside the app's own runtime permissions",
+    "Response schema shows GrantedToIdentities is deprecated in favor of GrantedToIdentitiesV2 on permission objects",
+    "Microsoft Graph Search API (/search/query) does NOT enforce Sites.Selected scoping in app-only scenarios — avoid it for a site-restricted app; use direct /sites or /drive endpoints instead",
+    "Remote event receivers using Azure ACS stopped working April 2, 2026; replacement is SharePoint Online webhooks or Graph change notifications (subscription on a SharePoint list) if the import ever needs push notifications",
+    "Python Graph SDK (msgraph-sdk-python code sample) states 'Current version is 1.x' as of the fetched permissions-selected-overview page (updated 2026-02-26)"
+  ],
+  "recommendations": [
+    "Use Microsoft Graph v1.0 (not beta, not legacy SharePoint REST/CSOM) for the one-off/periodic past-paper import job",
+    "Authenticate via an Entra ID app registration using client-credentials (app-only) flow, not any Azure ACS or SharePoint Add-in auth, since the latter is retired",
+    "Request the Sites.Selected application permission scoped to only the one site/library holding past papers, and have an admin run POST /sites/{siteId}/permissions once to grant that app 'read' role — avoid broad Sites.Read.All/Sites.FullControl.All",
+    "Fetch file content via GET /sites/{site-id}/drive/items/{item-id}/content (driveItem) rather than the Graph Search API, since Search does not respect Sites.Selected scoping in app-only mode",
+    "Do not build on SharePoint Add-ins, Azure ACS auth, or remote event receivers for this import — all are retired or on a deprecation path as of April 2, 2026",
+    "If future real-time sync is needed, use Graph change notifications/webhooks on the list, not ACS-based remote event receivers"
+  ],
+  "as_of": "2026-10-28 (ACS/Add-in retirement FAQ page last updated); SharePoint Graph resource page dated 2024-03-14/updated 2024-11-21; Selected-permissions overview updated 2026-02-26",
+  "sources": [
+    {
+      "title": "Working with SharePoint sites in Microsoft Graph - Microsoft Graph v1.0 | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/graph/api/resources/sharepoint?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "The SharePoint API in Microsoft Graph supports... Access to SharePoint sites, lists, and drives (document libraries)... /sites/{site-id}/drive | Access the default drive (document library) for the given site."
+    },
+    {
+      "title": "SharePoint Add-Ins and Azure ACS retirement FAQ | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/sharepoint/dev/sp-add-ins/add-ins-and-azure-acs-retirements-faq",
+      "type": "official-docs",
+      "quote": "SharePoint Add-ins reached end of life in SharePoint Online on April 2, 2026... Using Azure ACS... will stop working from April 2nd 2026... This retirement does not retire SharePoint REST APIs, CSOM, JSOM, or SPFx."
+    },
+    {
+      "title": "Overview of Selected Permissions in OneDrive and SharePoint - Microsoft Graph | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/graph/permissions-selected-overview",
+      "type": "official-docs",
+      "quote": "Sites.Selected | Manages application access at the site collection level... The application must be granted permissions to a list via a call to POST /sites/{siteid}/lists/{listid}/permissions with a specific role."
+    }
+  ],
+  "current_version": "Microsoft Graph REST API v1.0 (stable); SharePoint Online is a continuously-updated SaaS service with no discrete version number",
+  "api_surface": [
+    "GET /sites/{site-id} or /sites/{hostname}:/{relative-path} — resolve the target SharePoint site",
+    "GET /sites/{site-id}/drive and /sites/{site-id}/drives — enumerate document libraries",
+    "GET /sites/{site-id}/drive/items/{item-id}/content — download a file's bytes for OCR/import",
+    "GET /sites/{site-id}/lists/{list-id}/items — enumerate list/library items and metadata",
+    "POST /sites/{siteId}/permissions — admin-side grant of Sites.Selected app-only role on the site collection",
+    "Entra ID OAuth2 client-credentials (app-only) token acquisition with the Sites.Selected application permission"
+  ],
+  "pitfalls": [
+    "SharePoint Add-in model and Azure ACS app-only auth fully retired April 2, 2026 — do not build or rely on either",
+    "Sites.Selected grants zero access by default; forgetting the admin POST /sites/{siteId}/permissions step silently blocks the app",
+    "Granting that Sites.Selected permission requires Sites.FullControl.All or an equivalent higher-privilege scope — plan for an admin-run one-time setup step, not something the import job can self-serve",
+    "Graph Search API (/search/query) ignores Sites.Selected scoping in app-only mode — do not use it to 'search' for files if relying on Sites.Selected for isolation",
+    "GrantedToIdentities field on permission objects is deprecated in favor of GrantedToIdentitiesV2 — use the V2 field when reading/writing permission grants",
+    "Assigning permissions at list/item/file level breaks inheritance and counts against SharePoint Online's unique-permissions-per-list service limit; prefer site-collection-level Sites.Selected grants for a simple bulk import"
+  ],
+  "uncertain": [
+    "key_findings",
+    "as_of"
+  ]
+}

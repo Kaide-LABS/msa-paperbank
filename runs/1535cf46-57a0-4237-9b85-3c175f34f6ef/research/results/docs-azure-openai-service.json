@@ -1,0 +1,74 @@
+{
+  "summary": "Azure OpenAI Service is now documented as 'Azure OpenAI in Microsoft Foundry Models,' reachable via a classic or new Foundry portal, and offers two parallel API surfaces: dated REST `api-version=YYYY-MM-DD` versions and a new unified `v1` API that reached GA in August 2025 and removes the need to track monthly api-versions. For this build, the relevant surface is resource/model deployment (via `az cognitiveservices account create`/`deployment create` or Bicep), the embeddings endpoint (supports a `dimensions` parameter on text-embedding-3-and-later models, needed to force 768-dim output), and chat completions for text and vision (OCR) calls. The main pitfalls are the ongoing Foundry rebrand changing doc URLs/resource types, and the v1-vs-dated-API split requiring a deliberate choice of client pattern.",
+  "key_findings": [
+    "Azure OpenAI Service is documented as 'Azure OpenAI in Microsoft Foundry Models,' with docs split across a new Foundry portal (/azure/foundry/openai/...) and a Foundry (classic) portal (/azure/foundry-classic/openai/...), per pages dated 2026-05 through 2026-09.",
+    "A unified v1 API reached GA starting August 2025: base_url `https://{resource}.openai.azure.com/openai/v1/`, no `api-version` query param needed for GA features, use the plain `OpenAI()` client (not `AzureOpenAI()`), and Microsoft Entra ID tokens auto-refresh without a separate Azure client.",
+    "Dated REST versioning (`?api-version=YYYY-MM-DD`) still works in parallel: latest GA data-plane image/audio release is `2024-10-21`; preview chain runs through `2025-04-01-preview` then v1-preview/v1; control-plane (resource/deployment management) latest GA is `2025-06-01`, latest preview `2025-07-01-preview`.",
+    "Embeddings endpoint: `POST {endpoint}/openai/v1/embeddings` (or `/openai/deployments/{deployment-id}/embeddings?api-version=...` on dated versions). Request body fields: `model`, `input` (required), optional `dimensions` (integer, min 1), `encoding_format` (`float`|`base64`), `user`.",
+    "`dimensions` is documented as supported only on `text-embedding-3` and later models (not `text-embedding-ada-002`); default output is 3072-dim for text-embedding-3-large / 1536-dim for text-embedding-3-small, and the parameter is how a smaller vector such as 768 is requested. [uncertain: the exact minimum dated api-version that first exposed `dimensions` was not confirmed from a primary docs page opened in this research]",
+    "Resource provisioning: create a resource via Azure Portal, `az cognitiveservices account create --kind OpenAI --sku s0`, `New-AzCognitiveServicesAccount -Type OpenAI`, or ARM/Bicep (`Microsoft.CognitiveServices/accounts`); then deploy a model with `az cognitiveservices account deployment create --model-name ... --model-format OpenAI --sku-name Standard|GlobalStandard|GlobalBatch|ProvisionedManaged`, producing a separate deployment name used in API calls instead of the raw model name.",
+    "Chat, completions, and embeddings operations live under the REST reference at `/rest/api/microsoft-foundry/azureopenai/*`, which is a separate reference page from the image/audio-only data-plane reference."
+  ],
+  "recommendations": [
+    "Use the v1 API (base_url .../openai/v1/, plain OpenAI() client) for new adapter code to avoid monthly api-version churn; only pin a dated api-version if a needed capability isn't yet GA under v1.",
+    "Deploy text-embedding-3-small or text-embedding-3-large and pass dimensions=768 explicitly on every embeddings call to match the existing Vector(768) pgvector column; never rely on the model's default dimensionality.",
+    "Confirm the installed openai Python SDK version supports the dimensions keyword argument before wiring the embeddings adapter.",
+    "Keep 'deployment name' (not base model name) as the configurable value in the swappable AI adapter/pydantic-settings config, since Azure always calls models by deployment name.",
+    "Pick once whether to provision the classic 'Azure OpenAI resource' or the newer 'Foundry resource' type and keep Bicep/IaC consistent; don't let the portal's upgrade prompt change the resource type mid-project.",
+    "For the OCR A/B gate, use a generally-available vision-capable chat-completions model rather than any limited-access/registration-gated model, to avoid access-approval delays blocking the comparison.",
+    "Re-check region, model, and quota availability before finalizing Bicep parameters, since embedding and vision model availability is region- and SKU-dependent."
+  ],
+  "as_of": "Docs read Nov 2026; v1 API GA since Aug 2025; dated GA data-plane 2024-10-21, control-plane GA 2025-06-01",
+  "sources": [
+    {
+      "title": "What's new in Azure OpenAI in Microsoft Foundry Models? (classic)",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/whats-new",
+      "type": "official-docs",
+      "quote": "Starting in August 2025, you can opt in to the next generation v1 Azure OpenAI APIs which add support for: Ongoing access to the latest features with no need to specify new api-version's each month."
+    },
+    {
+      "title": "Azure OpenAI image and audio REST API reference (2024-10-21) - Microsoft Foundry",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/reference",
+      "type": "official-docs",
+      "quote": "The service APIs are versioned using the api-version query parameter. All versions follow the YYYY-MM-DD date structure."
+    },
+    {
+      "title": "Azure OpenAI in Microsoft Foundry Models v1 API",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-lifecycle",
+      "type": "official-docs",
+      "quote": "The v1 API simplifies authentication, removes the need for dated api-version parameters, and supports cross-provider model calls."
+    },
+    {
+      "title": "Microsoft Foundry REST Reference - Azure OpenAI - Embeddings",
+      "url": "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/embeddings",
+      "type": "official-docs",
+      "quote": "dimensions | integer | The number of dimensions the resulting output embeddings should have. Only supported in text-embedding-3 and later models. Constraints: min: 1"
+    },
+    {
+      "title": "How-to: Create and deploy an Azure OpenAI in Microsoft Foundry Models resource (classic)",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/create-resource",
+      "type": "official-docs",
+      "quote": "az cognitiveservices account create --name MyOpenAIResource --resource-group OAIResourceGroup --location eastus --kind OpenAI --sku s0 ..."
+    }
+  ],
+  "current_version": "Dual versioning: dated REST api-version=YYYY-MM-DD (latest GA data-plane 2024-10-21 for image/audio; control-plane GA 2025-06-01) plus the new unified v1 API (GA since Aug 2025, api-version=v1)",
+  "api_surface": [
+    "POST {endpoint}/openai/v1/embeddings with body {model, input, dimensions=768, encoding_format}",
+    "POST {endpoint}/openai/deployments/{deployment-id}/chat/completions?api-version=... for text and vision (image_url content parts) used in retrieval answers and OCR comparison",
+    "az cognitiveservices account create --kind OpenAI --sku s0 (or Microsoft.CognitiveServices/accounts in Bicep) for resource provisioning",
+    "az cognitiveservices account deployment create --model-name ... --model-format OpenAI --sku-name Standard|GlobalStandard for model deployment (embedding + chat/vision models)",
+    "Auth via api-key header or Microsoft Entra ID bearer token (DefaultAzureCredential + get_bearer_token_provider, scope https://ai.azure.com/.default or https://cognitiveservices.azure.com/.default)",
+    "OpenAI() Python client with base_url=https://{resource}.openai.azure.com/openai/v1/ as the v1 API alternative to the dated-version AzureOpenAI() client"
+  ],
+  "pitfalls": [
+    "Ongoing Foundry rebrand: docs and portal are split into 'new Foundry portal' and 'Foundry (classic) portal' with different URL trees; mixing instructions from both can lead to stale steps.",
+    "v1 API GA (Aug 2025) changes the client pattern (OpenAI() + base_url .../openai/v1/, no api-version) versus the older AzureOpenAI()+dated-api-version pattern; mixing the two patterns in one codebase is a common source of confusion.",
+    "A documented breaking change between 2024-03-01-preview and 2024-04-01-preview removed the 'Enhancements' parameters, impacting the gpt-4 vision-preview model family — relevant if the OCR path uses an older vision-preview deployment.",
+    "The 2025-04-01-preview spec uses OpenAPI 3.1, which is a known issue for full support in Azure API Management if the build fronts Azure OpenAI with APIM.",
+    "The Azure portal now prompts an 'Azure OpenAI resource' -> 'Foundry resource' upgrade; accepting it mid-project can change behavior/endpoint handling, so Bicep/IaC should fix one resource type deliberately.",
+    "Azure OpenAI always requires calling by deployment name, not the underlying model name, which differs from direct OpenAI API usage and is easy to miss when porting existing calling code."
+  ],
+  "uncertain": [
+    "key_findings"
+  ]
+}

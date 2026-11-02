@@ -1,0 +1,58 @@
+{
+  "summary": "Azure AI Document Intelligence's Read model (prebuilt-read, API version 2024-11-30, part of v4.0 GA) is a mature, officially documented OCR service that returns per-word confidence scores and a handwriting-style flag per line, making it directly usable as an OCR-quality signal for an A/B gate. It accepts PDFs/images up to 500MB and 2000 pages (S0 tier) and extracts print and handwritten text from scanned exam papers. No rigorous, independent, task-specific benchmark comparing Azure Document Intelligence to Gemini vision OCR on handwritten exam content exists publicly; third-party comparison blogs report Azure as strong on printed text but weaker than LLM-vision OCR on messy/cursive handwriting, but these figures are vendor-adjacent or SEO-style summaries, not peer-reviewed. The build should therefore implement its own A/B gate (acceptance criterion 8) rather than relying on published numbers: run both engines on a real sample of scanned papers, score against a small human-corrected ground truth with CER/WER, and record pass/fail per sample.",
+  "key_findings": [
+    "Read model (prebuilt-read) is GA under API version 2024-11-30 as part of Document Intelligence v4.0; supports PDF, JPEG/PNG/BMP/TIFF/HEIF images, plus DOCX/XLSX/PPTX/HTML (Microsoft Learn, page dated 2026-08-15, last updated 2026-10-19).",
+    "Paid (S0) tier: file size limit 500MB, up to 2000 pages per PDF/TIFF; free (F0) tier: 4MB file size, only first 2 pages processed, ~500 free pages/month.",
+    "Analyze output includes per-word `confidence` scores and a top-level `styles` collection flagging `isHandwritten: true` per text line with its own confidence score -- usable directly as a quality signal in the A/B gate.",
+    "Searchable-PDF output (`analyze?output=pdf`) is bundled free with prebuilt-read under API version 2024-11-30, no extra cost.",
+    "Minimum extractable text height is 12px in a 1024x768 image (~8pt type at 150 DPI); image dimensions must be between 50x50px and 10,000x10,000px -- relevant for low-resolution WhatsApp photo scans of exam papers.",
+    "[uncertain] Pay-as-you-go pricing is commonly cited by third-party pricing trackers at ~$1.50 per 1,000 pages for Read, dropping to ~$0.60/1,000 pages above 1M pages/month, with ~500 free pages/month on F0; the official Azure pricing page did not render live dollar figures when fetched directly, so these numbers are secondary-source, not confirmed from Azure's own calculator output.",
+    "[uncertain] Third-party comparison articles (dated Jan 2026) report Azure Document Intelligence as the printed-text accuracy leader but weaker than GPT-5/Mistral-class vision OCR on pure/cursive handwriting (one source cites Azure ~78.2% vs Mistral OCR 3 ~88.9% on handwriting); the same article notes competing vendors' benchmarks are self-reported internal tests with no independent, identical-test-set comparison available, and no source found benchmarks Azure against Gemini specifically.",
+    "No candidate academic paper benchmarks Azure Document Intelligence directly; 'Lost in OCR Translation' (arXiv:2505.05666) is relevant background showing that OCR errors on degraded/complex scanned documents can meaningfully hurt downstream retrieval quality even when raw text accuracy looks acceptable, supporting a retrieval-level (not just text-level) comparison in the gate."
+  ],
+  "recommendations": [
+    "Implement Document Intelligence as the OCR adapter behind the existing OCR port using the `prebuilt-read` model, API version 2024-11-30 (Python SDK package `azure-ai-documentintelligence`), capturing per-line text, confidence, and isHandwritten flags.",
+    "Build the OCR A/B gate (acceptance criterion 8) as a standalone script: run a fixed sample of real scanned exam papers through both Azure Read and the current Gemini OCR path, diff extracted text against a small human-corrected ground truth, score with CER/WER, and record a documented pass/fail per sample.",
+    "Also compare downstream retrieval results (not just raw OCR text accuracy) on the same sample, since OCR errors can silently degrade retrieval even when word-level accuracy looks fine -- this mirrors the risk documented in 'Lost in OCR Translation' (arXiv:2505.05666).",
+    "Reject or re-scan images below the ~12px/8pt-at-150-DPI text-height threshold or under 50x50px before sending to OCR, since sub-threshold scans won't extract reliably in either engine.",
+    "Do not hardcode per-page OCR cost into the daily cost-cap breaker from aggregator-sourced pricing; pull the live rate from the Azure Pricing Calculator or billing APIs for the actual resource region/tier before wiring it into the cost-cap test.",
+    "Treat handwriting-heavy exam answer scans as the highest-risk bucket in the A/B gate's sample set, given consistent (though unverified) third-party reports that OCR engines degrade most on cursive/messy handwriting versus clean print."
+  ],
+  "as_of": "2026-11-02; Document Intelligence Read docs last updated 2026-10-19 (v4.0 GA, API version 2024-11-30); third-party pricing/accuracy figures checked/dated Jan-Oct 2026",
+  "sources": [
+    {
+      "title": "Read model OCR data extraction - Document Intelligence - Foundry Tools | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/prebuilt/read?view=doc-intel-4.0.0",
+      "type": "official-docs",
+      "quote": "Document Intelligence Read Optical Character Recognition (OCR) model runs at a higher resolution than Azure Vision Read and extracts print and handwritten text from PDF documents and scanned images."
+    },
+    {
+      "title": "Azure AI Document Intelligence Pricing",
+      "url": "https://azure.microsoft.com/en-us/pricing/details/ai-document-intelligence/",
+      "type": "official-docs",
+      "quote": "0 - 500 pages free per month"
+    },
+    {
+      "title": "Azure Document Intelligence pricing per 1,000 pages",
+      "url": "https://plosys.com/blog/48234-azure-document-intelligence-pricing-what-drives-the-cost/",
+      "type": "article",
+      "quote": "$1.50 per 1,000 pages for the Read model, which drops to $0.60 per 1,000 pages after the first million pages in a month"
+    },
+    {
+      "title": "Azure OCR Comparison: Mistral, GPT & Document Intelligence",
+      "url": "https://jannikreinhard.com/master-the-paper-chaos-comparing-azures-ocr-and-document-intelligence-powerhouses/",
+      "type": "article",
+      "quote": "Mistral's benchmarks are 'internal'—conducted by the vendor themselves. Independent comparisons using identical test sets are still lacking."
+    },
+    {
+      "title": "Lost in OCR Translation? Vision-Based Approaches to Robust Document Retrieval",
+      "url": "https://arxiv.org/abs/2505.05666",
+      "type": "paper",
+      "quote": "Traditional RAG systems rely on Optical Character Recognition (OCR) to first process scanned documents into text. However, even state-of-the-art OCRs can introduce errors, especially in degraded or complex documents."
+    }
+  ],
+  "uncertain": [
+    "key_findings",
+    "recommendations"
+  ]
+}

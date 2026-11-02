@@ -1,0 +1,194 @@
+{
+  "queries": [
+    {
+      "query": "OCR accuracy evaluation scanned exam documents transformer vision models",
+      "arxiv": 5,
+      "openalex": 5,
+      "semanticScholar": "skipped",
+      "merged": 10,
+      "relevant": 6,
+      "problems": []
+    },
+    {
+      "query": "document retrieval parity evaluation after embedding model change top-k overlap",
+      "arxiv": 1,
+      "openalex": 5,
+      "semanticScholar": "skipped",
+      "merged": 6,
+      "relevant": 2,
+      "problems": []
+    }
+  ],
+  "papers": [
+    {
+      "title": "OCRVerse: Towards Holistic OCR in End-to-End Vision-Language Models",
+      "authors": [
+        "Yufeng Zhong",
+        "Lei Chen",
+        "Xuanle Zhao",
+        "Wenkang Han",
+        "Liming Zheng",
+        "Jing Huang",
+        "Deyang Jiang",
+        "Yilin Cao",
+        "Lin Ma",
+        "Zhixiong Zeng"
+      ],
+      "year": 2026,
+      "abstract": "The development of large vision language models drives the demand for managing, and applying massive amounts of multimodal data, making OCR technology, which extracts information from visual images, increasingly popular. However, existing OCR methods primarily focus on recognizing text elements from images or scanned documents (Text-centric OCR), neglecting the identification of visual elements from visually information-dense image sources (Vision-centric OCR), such as charts, web pages and science plots. In reality, these visually information-dense images are widespread on the internet and have significant real-world application value, such as data visualization and web page analysis. In this technical report, we propose OCRVerse, the first holistic OCR method in end-to-end manner that enables unified text-centric OCR and vision-centric OCR. To this end, we constructe comprehensive data engineering to cover a wide range of text-centric documents, such as newspapers, magazines and books, as well as vision-centric rendered composites, including charts, web pages and scientific plots. Moreover, we propose a two-stage SFT-RL multi-domain training method for OCRVerse. SFT directly mixes cross-domain data to train and establish initial domain knowledge, while RL focuses on designing personalized reward strategies for the characteristics of each domain. Specifically, since different domains require various output formats and expected outputs, we provide sufficient flexibility in the RL stage to customize flexible reward signals for each domain, thereby improving cross-domain fusion and avoiding data conflicts. Experimental results demonstrate the effectiveness of OCRVerse, achieving competitive results across text-centric and vision-centric data types, even comparable to large-scale open-source and closed-source models.",
+      "doi": "10.48550/arxiv.2601.21639",
+      "arxivId": "2601.21639",
+      "url": "https://doi.org/10.48550/arxiv.2601.21639",
+      "pdfUrl": "https://arxiv.org/pdf/2601.21639",
+      "citedByCount": 0,
+      "references": [],
+      "sources": [
+        "openalex"
+      ]
+    },
+    {
+      "title": "Automated Handwriting Recognition and Digital Document Transformation Using Vision Transformers and TrOCR",
+      "authors": [
+        "Mohamed Haleem Akmal S"
+      ],
+      "year": 2026,
+      "abstract": "This paper presents an Automated Handwriting Recognition and Digital Document Transformation System de- signed to convert handwritten documents into editable digital formats. The system accepts scanned PDFs and handwritten images as input and performs image preprocessing and noise reduction to improve text clarity. A Vision Transformer (ViT) encoder is employed to extract visual features from image patches, while a Transformer-based decoder generates character sequences using self-attention and cross-attention mechanisms. The core recognition model utilises TrOCR for end-to-end hand- writing recognition without requiring character segmentation. Post-processing algorithms such as token decoding, spell correc- tion, and text formatting are applied to enhance readability and consistency. Finally, the recognised text is exported into digital formats such as TXT, DOCX, and searchable PDF, enabling efficient and accurate digital document transformation.",
+      "doi": "10.22214/ijraset.2026.79652",
+      "arxivId": null,
+      "url": "https://doi.org/10.22214/ijraset.2026.79652",
+      "pdfUrl": "https://doi.org/10.22214/ijraset.2026.79652",
+      "citedByCount": 0,
+      "references": [],
+      "sources": [
+        "openalex"
+      ]
+    },
+    {
+      "title": "SABER-Math: Automated Benchmark for Information Retrieval Evaluation in Mathematics",
+      "authors": [
+        "Nikolay Georgiev",
+        "Maria Drencheva",
+        "Ксения Ибрагимова",
+        "Ivo Petrov",
+        "Dimitar I. Dimitrov",
+        "Martin Vechev"
+      ],
+      "year": 2026,
+      "abstract": "As agentic AI systems tackle more complex mathematical tasks, they increasingly rely on information retrieval (IR) to search problem databases, theorem libraries, and educational resources. However, choosing the right retriever remains difficult, as it is infeasible to directly isolate its effect on downstream performance. On the other hand, existing retrieval-specific benchmarks often fail to capture fine-grained mathematical relevance, penalizing relevant documents. We address this gap by introducing SABER-Math, the first fully automated benchmark for evaluating mathematical IR without expert annotation. Starting from 283K high-school-level math problems with solutions, SABER-Math builds challenging reranking tasks in three steps: (i) first, LLMs extract concise solution summaries and mathematical topics for each problem; (ii) then, per-query relevant documents are discovered using ontology topic-based and lexical solutions-summary-based similarities, and (iii) finally, a Swiss-style LLM preference tournament produces fine-grained relevance ratings for the documents. We evaluate lexical retrievers, specialized mathematical retrieval systems, and recent embedding models. We find that while modern embedding models substantially outperform classical and math-specific baselines, even the strongest systems struggle in symbol-heavy domains like Algebra and Calculus. Importantly, we show that general-purpose IR benchmarks such as MTEB do not reliably predict mathematical performance, especially for recent embedding models, highlighting the need for math-specific retrieval benchmarks.",
+      "doi": "10.48550/arxiv.2606.29894",
+      "arxivId": "2606.29894",
+      "url": "https://doi.org/10.48550/arxiv.2606.29894",
+      "pdfUrl": "https://arxiv.org/pdf/2606.29894",
+      "citedByCount": 0,
+      "references": [],
+      "sources": [
+        "openalex"
+      ]
+    },
+    {
+      "title": "Algebraic Retrieval: Composable Search for Agents",
+      "authors": [
+        "Damian Delmas"
+      ],
+      "year": 2026,
+      "abstract": "Algebraic Retrieval lets AI agents compose search strategies at query time. Relevance criteria, eligibility constraints, and ranking preferences can be expressed together in a mathematical query. The query surface exposes available operations, so an agent can combine them for the question at hand and revise a program after inspecting results. We evaluate execution parity, not agent behavior or retrieval quality. Building on Programmatic Embedding Modulation (PEM), which exposes vector and score arithmetic during retrieval, we demonstrate contrastive scoring, candidate-pool reranking, and weighted ranking as composable queries, alongside executable SQL and PyTerrier counterparts. On the public 11,429-document Vaswani fixture, each program's implementations select the same document set with score differences below 1e-6; one tied pair orders differently across scoring paths.",
+      "doi": null,
+      "arxivId": "2609.19482",
+      "url": "https://arxiv.org/abs/2609.19482",
+      "pdfUrl": "https://arxiv.org/pdf/2609.19482v1",
+      "citedByCount": null,
+      "references": [],
+      "sources": [
+        "arxiv"
+      ]
+    },
+    {
+      "title": "Digitization of Document and Information Extraction using OCR",
+      "authors": [
+        "Rasha Sinha",
+        "Rekha B S"
+      ],
+      "year": 2025,
+      "abstract": "Retrieving accurate details from documents is a crucial task, especially when handling a combination of scanned images and native digital formats. This document presents a combined framework for text extraction that merges Optical Character Recognition (OCR) techniques with Large Language Models (LLMs) to deliver structured outputs enriched by contextual understanding and confidence indicators. Scanned files are processed using OCR engines, while digital files are interpreted through layout-aware libraries. The extracted raw text is subsequently analyzed by an LLM to identify key-value pairs and resolve ambiguities. A comparative analysis of different OCR tools is presented to evaluate their effectiveness concerning accuracy, layout recognition, and processing speed. The approach demonstrates significant improvements over traditional rule-based and template-based methods, offering enhanced flexibility and semantic precision across different document categories",
+      "doi": null,
+      "arxivId": "2506.11156",
+      "url": "https://arxiv.org/abs/2506.11156",
+      "pdfUrl": "https://arxiv.org/pdf/2506.11156v1",
+      "citedByCount": null,
+      "references": [],
+      "sources": [
+        "arxiv"
+      ]
+    },
+    {
+      "title": "Lost in OCR Translation? Vision-Based Approaches to Robust Document Retrieval",
+      "authors": [
+        "Alexander Most",
+        "Joseph Winjum",
+        "Ayan Biswas",
+        "Shawn Jones",
+        "Nishath Rajiv Ranasinghe",
+        "Dan O'Malley",
+        "Manish Bhattarai"
+      ],
+      "year": 2025,
+      "abstract": "Retrieval-Augmented Generation (RAG) has become a popular technique for enhancing the reliability and utility of Large Language Models (LLMs) by grounding responses in external documents. Traditional RAG systems rely on Optical Character Recognition (OCR) to first process scanned documents into text. However, even state-of-the-art OCRs can introduce errors, especially in degraded or complex documents. Recent vision-language approaches, such as ColPali, propose direct visual embedding of documents, eliminating the need for OCR. This study presents a systematic comparison between a vision-based RAG system (ColPali) and more traditional OCR-based pipelines utilizing Llama 3.2 (90B) and Nougat OCR across varying document qualities. Beyond conventional retrieval accuracy metrics, we introduce a semantic answer evaluation benchmark to assess end-to-end question-answering performance. Our findings indicate that while vision-based RAG performs well on documents it has been fine-tuned on, OCR-based RAG is better able to generalize to unseen documents of varying quality. We highlight the key trade-offs between computational efficiency and semantic accuracy, offering practical guidance for RAG practitioners in selecting between OCR-dependent and vision-based document retrieval systems in production environments.",
+      "doi": null,
+      "arxivId": "2505.05666",
+      "url": "https://arxiv.org/abs/2505.05666",
+      "pdfUrl": "https://arxiv.org/pdf/2505.05666v1",
+      "citedByCount": null,
+      "references": [],
+      "sources": [
+        "arxiv"
+      ]
+    },
+    {
+      "title": "Seeing Straight: Document Orientation Detection for Efficient OCR",
+      "authors": [
+        "Suranjan Goswami",
+        "Abhinav Ravi",
+        "Raja Kolla",
+        "Ali Faraz",
+        "Shaharukh Khan",
+        "Akash",
+        "Chandra Khatri",
+        "Shubham Agarwal"
+      ],
+      "year": 2025,
+      "abstract": "Despite significant advances in document understanding, determining the correct orientation of scanned or photographed documents remains a critical pre-processing step in the real world settings. Accurate rotation correction is essential for enhancing the performance of downstream tasks such as Optical Character Recognition (OCR) where misalignment commonly arises due to user errors, particularly incorrect base orientations of the camera during capture. In this study, we first introduce OCR-Rotation-Bench (ORB), a new benchmark for evaluating OCR robustness to image rotations, comprising (i) ORB-En, built from rotation-transformed structured and free-form English OCR datasets, and (ii) ORB-Indic, a novel multilingual set spanning 11 Indic mid to low-resource languages. We also present a fast, robust and lightweight rotation classification pipeline built on the vision encoder of Phi-3.5-Vision model with dynamic image cropping, fine-tuned specifically for 4-class rotation task in a standalone fashion. Our method achieves near-perfect 96% and 92% accuracy on identifying the rotations respectively on both the datasets. Beyond classification, we demonstrate the critical role of our module in boosting OCR performance: closed-source (up to 14%) and open-weights models (up to 4x) in the simulated real-world setting.",
+      "doi": null,
+      "arxivId": "2511.04161",
+      "url": "https://arxiv.org/abs/2511.04161",
+      "pdfUrl": "https://arxiv.org/pdf/2511.04161v2",
+      "citedByCount": null,
+      "references": [],
+      "sources": [
+        "arxiv"
+      ]
+    },
+    {
+      "title": "DocParseNet: Advanced Semantic Segmentation and OCR Embeddings for Efficient Scanned Document Annotation",
+      "authors": [
+        "Ahmad Mohammadshirazi",
+        "Ali Nosrati Firoozsalari",
+        "Mengxi Zhou",
+        "Dheeraj Kulshrestha",
+        "Rajiv Ramnath"
+      ],
+      "year": 2024,
+      "abstract": "Automating the annotation of scanned documents is challenging, requiring a balance between computational efficiency and accuracy. DocParseNet addresses this by combining deep learning and multi-modal learning to process both text and visual data. This model goes beyond traditional OCR and semantic segmentation, capturing the interplay between text and images to preserve contextual nuances in complex document structures. Our evaluations show that DocParseNet significantly outperforms conventional models, achieving mIoU scores of 49.12 on validation and 49.78 on the test set. This reflects a 58% accuracy improvement over state-of-the-art baseline models and an 18% gain compared to the UNext baseline. Remarkably, DocParseNet achieves these results with only 2.8 million parameters, reducing the model size by approximately 25 times and speeding up training by 5 times compared to other models. These metrics, coupled with a computational efficiency of 0.039 TFLOPs (BS=1), highlight DocParseNet's high performance in document annotation. The model's adaptability and scalability make it well-suited for real-world corporate document processing applications. The code is available at https://github.com/ahmad-shirazi/DocParseNet",
+      "doi": null,
+      "arxivId": "2406.17591",
+      "url": "https://arxiv.org/abs/2406.17591",
+      "pdfUrl": "https://arxiv.org/pdf/2406.17591v3",
+      "citedByCount": null,
+      "references": [],
+      "sources": [
+        "arxiv"
+      ]
+    }
+  ],
+  "noneRelevant": false,
+  "notes": []
+}

@@ -1,0 +1,91 @@
+{
+  "summary": "Azure AI Foundry was rebranded to \"Microsoft Foundry\" at Ignite 2025 (effective naming from Jan 2026); the new Foundry portal is GA, and official docs now live under learn.microsoft.com/azure/foundry/. For this build, Azure OpenAI chat/vision models are called through the new v1 GA REST surface (`{endpoint}/openai/v1/...`) using the plain `openai` Python SDK's `OpenAI()` client (not `AzureOpenAI()`) with a `base_url` ending in `/openai/v1/`, authenticated by API key or Microsoft Entra ID (`DefaultAzureCredential` + bearer token). Embeddings use `POST {endpoint}/openai/v1/embeddings` with a `dimensions` parameter that is only supported on `text-embedding-3-*` and later models — this is the mechanism to force a 768-dim vector to match the existing pgvector `Vector(768)` column. OCR for the A/B gate should use the Document Intelligence `prebuilt-read` model via `azure-ai-documentintelligence` (current stable 1.0.2, REST API `2024-11-30` GA), as a separate, auditable OCR engine distinct from GPT-4o vision chat completions.",
+  "key_findings": [
+    "Azure AI Foundry was renamed \"Microsoft Foundry\" at Microsoft Ignite (Nov 2025), with docs/portal using the new name as current as of 2026; the new Foundry portal is GA (learn.microsoft.com/azure/foundry/concepts/general-availability, dated 2026-08-14).",
+    "Standalone Azure OpenAI resources are NOT supported in the new Foundry portal UI (use Foundry classic portal or a Foundry project) — but the v1 API itself works against either 'a Foundry resource or Azure OpenAI resource' per the API prerequisites.",
+    "Azure OpenAI v1 GA API (opt-in since August 2025) removes dated `api-version` query params; use `from openai import OpenAI`, `base_url=\"https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1/\"`, with `api_key` = static key or an Entra ID bearer-token provider (`get_bearer_token_provider(DefaultAzureCredential(), \"https://ai.azure.com/.default\")`).",
+    "The older `AzureOpenAI()` client + monthly dated `api-version` (e.g. 2024-10-21, up to 2025-04-01-preview) still exists and is documented, but Microsoft recommends the v1 client for new code.",
+    "Embeddings REST reference (`/openai/v1/embeddings`, API version `v1`): request supports `dimensions` (integer, min 1) 'Only supported in text-embedding-3 and later models'; max 8192 tokens per input, 300,000 tokens total per request.",
+    "Document Intelligence Python SDK `azure-ai-documentintelligence` current stable release is 1.0.2 (released 2025-03-27 per PyPI); REST API `2024-11-30` is GA for Document Intelligence v4.0; `prebuilt-read` is the base OCR model, called via `client.begin_analyze_document(\"prebuilt-read\", ...)`.",
+    "`azure-ai-inference` package (ChatCompletionsClient/EmbeddingsClient) is the generic Foundry-models client for non-OpenAI catalog models; install with `pip install azure-ai-inference`; exact current version not stated on the fetched docs page [uncertain].",
+    "Known breaking change: between API versions 2024-03-01-preview and 2024-04-01-preview, the GPT-4 `vision-preview` \"enhancements\" parameters were removed — any old Vision-grounding/enhancements-style code would break.",
+    "Foundry is retiring the 'Workflows' preview feature on 2026-12-01 in favor of Microsoft Agent Framework — not directly used by this build but should not be adopted as a new dependency.",
+    "Auth scopes differ slightly by surface: the v1 OpenAI API sample uses Entra scope `https://ai.azure.com/.default`; the embeddings REST reference lists OAuth2 scope `https://cognitiveservices.azure.com/.default` — both are valid Azure OpenAI/Cognitive Services scopes [uncertain] which one is canonical going forward."
+  ],
+  "recommendations": [
+    "Use the plain `openai` Python package with the `OpenAI()` client (not `AzureOpenAI()`) and `base_url=\"https://<resource>.openai.azure.com/openai/v1/\"` for chat/vision calls — this is the current GA pattern and avoids churn from monthly dated api-versions.",
+    "For embeddings, explicitly pass `dimensions=768` on a `text-embedding-3-small` or `text-embedding-3-large` deployment to match the existing `Vector(768)` pgvector column unchanged; do not use `text-embedding-ada-002`, which does not support the `dimensions` param.",
+    "Implement the OCR A/B gate (`prebuilt-read` via `azure-ai-documentintelligence` 1.0.2 / REST `2024-11-30`) as a distinct adapter from the Azure OpenAI vision chat path, since they are separate services with separate SLAs/pricing.",
+    "Prefer Microsoft Entra ID (`DefaultAzureCredential`) over static API keys for the secrets/config adapter, per Foundry GA guidance that API keys 'don't provide the same role-based permission granularity.'",
+    "Provision the Azure OpenAI resource as (or connected to) a Foundry project rather than a bare standalone Azure OpenAI resource, since standalone AOAI resources are out of GA scope for the new Foundry portal.",
+    "Do not build any new dependency on Foundry 'Workflows' (slated for retirement 2026-12-01); keep the bot's own orchestration logic independent of that feature.",
+    "Pin SDK versions explicitly in dependency files (`openai`, `azure-ai-documentintelligence==1.0.2`, `azure-identity`) since Foundry's API surface is still evolving rapidly (new preview headers, v1 GA features added 'rapidly')."
+  ],
+  "as_of": "Docs fetched dated 2026-05-13 (api-version-lifecycle), 2026-08-14 (GA overview), 2026-09-01 (what's-new), 2026-07-09 (embeddings REST ref), 2025-03-27 (azure-ai-documentintelligence 1.0.2 release)",
+  "sources": [
+    {
+      "title": "Microsoft Foundry docs: What's new for August 2026",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/whats-new-foundry",
+      "type": "official-docs",
+      "quote": "Welcome! This article highlights key updates for Microsoft Foundry in August 2026."
+    },
+    {
+      "title": "Microsoft Foundry portal general availability overview",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/concepts/general-availability",
+      "type": "official-docs",
+      "quote": "Standalone Azure OpenAI resources: Not supported in the new Foundry portal... Foundry is retiring workflows on December 1, 2026."
+    },
+    {
+      "title": "Microsoft Foundry REST Reference - Azure OpenAI - Embeddings",
+      "url": "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/embeddings",
+      "type": "official-docs",
+      "quote": "dimensions | integer | The number of dimensions the resulting output embeddings should have. Only supported in text-embedding-3 and later models."
+    },
+    {
+      "title": "Azure OpenAI in Microsoft Foundry Models v1 API",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle",
+      "type": "official-docs",
+      "quote": "Starting in August 2025, you can opt in to the next generation v1 Azure OpenAI APIs... OpenAI() client is used instead of AzureOpenAI()."
+    },
+    {
+      "title": "Azure AI Inference client library README (azure-sdk-for-python)",
+      "url": "https://github.com/Azure/azure-sdk-for-python/blob/main/sdk/ai/azure-ai-inference/README.md",
+      "type": "repo",
+      "quote": "pip install azure-ai-inference ... client.complete(messages=[SystemMessage(...), UserMessage(...)])"
+    },
+    {
+      "title": "Quickstart: Document Intelligence client libraries - Foundry Tools",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/quickstarts/get-started-sdks-rest-api?view=doc-intel-4.0.0",
+      "type": "official-docs",
+      "quote": "pip install azure-ai-documentintelligence==1.0.0 ... The current supported REST API version is 2024-11-30 (GA) for Document Intelligence v4.0."
+    },
+    {
+      "title": "azure-ai-documentintelligence · PyPI",
+      "url": "https://pypi.org/project/azure-ai-documentintelligence/",
+      "type": "other",
+      "quote": "The most recent stable release is version 1.0.2, released on March 27, 2025."
+    }
+  ],
+  "current_version": "Microsoft Foundry portal: GA (renamed from Azure AI Foundry, Ignite 2025 / effective Jan 2026); Azure OpenAI v1 API: GA (opt-in since Aug 2025); azure-ai-documentintelligence: 1.0.2 (Mar 2025) / REST 2024-11-30 GA",
+  "api_surface": [
+    "openai.OpenAI(base_url='https://<resource>.openai.azure.com/openai/v1/', api_key=...).chat.completions.create(model=..., messages=[...])",
+    "openai.OpenAI(...).responses.create(model=..., input=...) — Responses API, recommended for new Azure OpenAI code",
+    "POST {endpoint}/openai/v1/embeddings  body: {model, input, dimensions: 768}",
+    "azure.identity.get_bearer_token_provider(DefaultAzureCredential(), 'https://ai.azure.com/.default') for Entra-based api_key",
+    "azure.ai.documentintelligence.DocumentIntelligenceClient(endpoint, AzureKeyCredential(key)).begin_analyze_document('prebuilt-read', document_url_or_bytes)",
+    "azure.ai.inference.ChatCompletionsClient / EmbeddingsClient (for non-OpenAI Foundry catalog models, if ever needed)"
+  ],
+  "pitfalls": [
+    "Terminology/URL churn: 'Azure AI Foundry' → 'Microsoft Foundry' (Ignite 2025 / Jan 2026) — older blog posts, tutorials, and some doc paths (e.g. /azure/ai-foundry/...) may be stale redirects; verify against /azure/foundry/ paths.",
+    "Standalone Azure OpenAI resources are excluded from the new Foundry portal's GA scope — provision via a Foundry project to get full GA support.",
+    "v1 GA API uses `OpenAI()` not `AzureOpenAI()` and drops `api-version` entirely; mixing old `AzureOpenAI()` + dated api-version code with new v1 code in the same adapter will cause confusing auth/behavior differences.",
+    "`dimensions` param for embeddings only works on text-embedding-3-small/large and later — will silently fail or be ignored/rejected on ada-002-class models.",
+    "GPT-4 vision 'enhancements' parameters were removed in the 2024-04-01-preview API — do not port any old grounding/enhancements-based OCR logic expecting that parameter to exist.",
+    "Foundry 'Workflows' preview feature is being retired 2026-12-01 — avoid building new orchestration on it.",
+    "API key auth does not provide the same RBAC granularity as Entra ID per Foundry's own GA rollout guidance — plan secrets/config adapter accordingly for a school-owned, lower-ops-maturity deployment."
+  ],
+  "uncertain": [
+    "key_findings",
+    "current_version"
+  ]
+}

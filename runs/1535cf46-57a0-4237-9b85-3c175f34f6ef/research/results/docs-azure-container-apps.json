@@ -1,0 +1,88 @@
+{
+  "summary": "Azure Container Apps (ACA) is Microsoft's serverless container platform (Microsoft.App resource provider) and is the target compute for this build's FastAPI app plus scheduled/async workloads (Container Apps Jobs). It is enabled per-subscription by registering the Microsoft.App (and Microsoft.OperationalInsights) resource providers and installing the `containerapp` Azure CLI extension; apps and jobs are both deployed via Bicep/ARM resources (`Microsoft.App/containerApps`, `Microsoft.App/jobs`) or `az containerapp` / `az containerapp job` CLI commands. The ARM API surface this build needs is: managed environment creation, `containerApps` (HTTP ingress, secrets, registries, revisions) and `jobs` (Manual/Schedule/Event trigger types) resources, now at GA API version 2026-07-01. Key 2025-2026 pitfalls: CLI extensions stopped enabling preview features by default from May 2024 (need `--allow-preview true` for preview features), the ARM schema has repeatedly added/removed preview-only properties (`extendedLocation`, `imageType`, `runningState`) between preview and GA API versions, Service Connector (Preview) on Container Apps retires 2026-03-30, and a new Container Apps Express preview tier appeared at Build 2026 that should NOT be relied on for this GA-targeted build.",
+  "key_findings": [
+    "Official overview (ms.date 2026-07-07) confirms Container Apps is a serverless platform managed via Azure CLI extension, portal, or ARM templates; supports jobs run on-demand/schedule/event, KEDA-based autoscale (incl. scale-to-zero for non-CPU/memory rules), revisions, and Dapr for apps (not jobs).",
+    "Resource provider registration required: `az provider register --namespace Microsoft.App` and `--namespace Microsoft.OperationalInsights` before first use (quickstart doc, ms.date 2025-02-03).",
+    "CLI extension install/upgrade: `az extension add --name containerapp --upgrade`; since May 2024 preview features require `--allow-preview true` added to that command.",
+    "Container Apps Jobs support exactly three trigger types: Manual, Schedule (cron, 5-field, evaluated in UTC), Event (KEDA custom scalers) — per official 'Jobs in Azure Container Apps' page, ms.date 2026-09-16.",
+    "Microsoft.App/jobs ARM/Bicep API versions observed via official change-log (updated 2026-09-21): ...2024-10-02-preview, 2025-01-01 (GA), 2025-02-02-preview, 2025-07-01 (GA), 2025-10-02-preview, 2026-01-01 (GA), 2026-03-02-preview, 2026-07-01 (GA, latest). Preview versions repeatedly add `extendedLocation`/`imageType`/`runningState`; the following GA version removes them — do not pin to a preview-only property.",
+    "Jobs REST 'start' and 'executions' examples in official docs still use api-version=2023-05-01 in sample calls — docs examples lag the latest GA API version; verify the api-version used actually matches intended behavior rather than copying samples verbatim.",
+    "Permissions warning (official docs): built-in roles 'Container Apps Jobs Contributor' and 'Container Apps Jobs Operator' both include `Microsoft.App/jobs/*/action`, which also matches `listSecrets` — holders can read job secrets in plaintext; avoid wildcard actions in custom roles.",
+    "Jobs restrictions (official docs): Dapr and ingress (incl. custom domains/SSL) are NOT supported on Container Apps Jobs — only on Container Apps.",
+    "Execution history for scheduled/event jobs is capped at the 100 most recent successful + failed executions; use the environment's log provider for full history.",
+    "Long-running job replicas can be interrupted by platform maintenance; official guidance is to set replicaRetryLimit >= 1 and design for at-least-once processing.",
+    "Service Connector (Preview) on Azure Container Apps is being retired 2026-03-30 per the official azure-container-apps GitHub issue tracker — do not build the Postgres/ACA wiring on it.",
+    "At Build 2026, Microsoft announced 'Azure Container Apps Express' as a new public-preview environment tier that removes the separate environment-creation step — still preview as of research date, avoid for this production-targeted build."
+  ],
+  "recommendations": [
+    "Pin Bicep templates to a named GA API version for `Microsoft.App/containerApps` and `Microsoft.App/jobs` (latest observed GA: 2026-07-01) rather than 'latest', since preview-only properties flip in/out between releases.",
+    "Use `Microsoft.App/jobs` with trigger type Schedule for recurring batch tasks (e.g. nightly report/sync jobs) and Manual or Event for on-demand/queue-triggered work (e.g. OCR/Graph import jobs), matching the PRD's Container Apps Jobs requirement.",
+    "Register `Microsoft.App` and `Microsoft.OperationalInsights` providers and install the `containerapp` CLI extension (`az extension add --name containerapp --upgrade`, no `--allow-preview` needed unless a specific preview feature is required) as part of the Bicep/deployment runbook.",
+    "Do not use Service Connector (Preview) for the Container Apps <-> Postgres Flexible Server wiring given its 2026-03-30 retirement; use managed identity + connection string/secret via Key Vault references instead, consistent with the 'no plaintext secrets' acceptance criterion.",
+    "Avoid Container Apps Express (preview, Build 2026) for the production deployment target; use the standard environment + containerApps/jobs resources so `az deployment` with Bicep behaves predictably in a fresh subscription (acceptance criterion 9).",
+    "When defining custom RBAC roles for job start/stop, avoid `Microsoft.App/jobs/*/action` wildcards (it grants `listSecrets`); grant only `read`, `start/action`, `stop/action`, `stop/execution/action`, `executions/read`, `execution/read` as needed.",
+    "Do not rely on Dapr or ingress features inside Container Apps Jobs — those are app-only; keep HTTP-facing retrieval/handler logic in the Container App, batch/OCR/import work in Jobs."
+  ],
+  "as_of": "Official pages fetched carry ms.date/updated_at stamps of 2025-02-03 through 2026-09-21; API version change-log fetched reflects data current as of 2026-09-21. Treat 2026-07-01 as the latest confirmed GA ARM API version at research time (2026-11-02).",
+  "sources": [
+    {
+      "title": "Azure Container Apps overview",
+      "url": "https://learn.microsoft.com/en-us/azure/container-apps/overview",
+      "type": "official-docs",
+      "quote": "Azure Container Apps is a serverless platform for running containerized applications without managing the underlying infrastructure... Run jobs on-demand, on a schedule, or based on events."
+    },
+    {
+      "title": "Quickstart: Deploy an existing container image with the command line",
+      "url": "https://learn.microsoft.com/en-us/azure/container-apps/get-started-existing-container-image",
+      "type": "official-docs",
+      "quote": "Starting in May 2024, Azure CLI extensions no longer enable preview features by default. To access Container Apps preview features, install the Container Apps extension with --allow-preview true."
+    },
+    {
+      "title": "Jobs in Azure Container Apps",
+      "url": "https://learn.microsoft.com/en-us/azure/container-apps/jobs",
+      "type": "official-docs",
+      "quote": "A job's trigger type determines how the job is started. The following trigger types are available: Manual, Schedule, Event... The following features aren't supported: Dapr; Ingress and related features such as custom domains and SSL certificates."
+    },
+    {
+      "title": "Microsoft.App/jobs - Bicep, ARM template & Terraform AzAPI reference",
+      "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.app/jobs",
+      "type": "official-docs",
+      "quote": "description: Azure Microsoft.App/jobs syntax and properties to use in Azure Resource Manager templates for deploying the resource. API version latest"
+    },
+    {
+      "title": "API change log for Microsoft.App/jobs",
+      "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.app/change-log/jobs",
+      "type": "official-docs",
+      "quote": "## 2026-07-01\nRemoved:\n- ExtendedLocation\nUpdated:\n- Container: Removed property 'imageType'... ## 2025-01-01\nRemoved:\n- ExtendedLocation"
+    },
+    {
+      "title": "RETIREMENT: Service Connector (Preview) on Azure Container Apps will be retired on March 30, 2026",
+      "url": "https://github.com/microsoft/azure-container-apps/issues/1566",
+      "type": "repo",
+      "quote": "Service Connector (Preview) on Azure Container Apps will be retired on March 30, 2026."
+    }
+  ],
+  "current_version": "No semantic product version; latest confirmed GA ARM/Bicep API version for Microsoft.App/jobs (and tracking Microsoft.App/containerApps) is 2026-07-01 as of the official change-log fetched 2026-09-21 [uncertain: whether 2026-07-01 is still the newest GA as of 2026-11-02, and whether containerApps shares this exact version cadence]",
+  "api_surface": [
+    "az provider register --namespace Microsoft.App / Microsoft.OperationalInsights",
+    "az extension add --name containerapp --upgrade (CLI extension required for az containerapp/job commands)",
+    "az containerapp env create / az containerapp create (HTTP ingress, secrets, registries, revisions)",
+    "az containerapp job create --trigger-type Manual|Schedule|Event (cron via --cron-expression; event via --scale-rule-* )",
+    "az containerapp job start / az containerapp job execution list",
+    "Bicep resource Microsoft.App/managedEnvironments, Microsoft.App/containerApps, Microsoft.App/jobs@<GA api-version>",
+    "jobs.configuration: manualTriggerConfig | scheduleTriggerConfig | eventTriggerConfig, secrets, registries, replicaTimeout/replicaRetryLimit/parallelism/replicaCompletionCount",
+    "REST: POST .../providers/Microsoft.App/jobs/{job}/start and GET .../jobs/{job}/executions (pin an explicit, current api-version rather than copying the 2023-05-01 used in docs samples)"
+  ],
+  "pitfalls": [
+    "Preview-only ARM properties (extendedLocation, imageType, runningState) are added in *-preview versions and removed again in the next GA version — building against a preview version risks a schema change at GA.",
+    "Azure CLI/PowerShell extensions no longer auto-enable preview Container Apps features since May 2024; omitting --allow-preview silently hides preview commands rather than erroring clearly.",
+    "Container Apps Jobs do not support Dapr or ingress/custom domains/SSL — do not architect OCR/import jobs assuming inbound HTTP or Dapr service invocation.",
+    "Built-in Jobs Contributor/Operator roles implicitly grant listSecrets via the Microsoft.App/jobs/*/action wildcard; custom roles must enumerate explicit actions to avoid unintended secret exposure.",
+    "Execution history retention is capped at 100 entries for scheduled/event jobs; long-term audit of job runs must go through Log Analytics, not the executions API alone.",
+    "Service Connector (Preview) integration with Container Apps is being retired 2026-03-30 — do not adopt it for new Postgres/secret wiring.",
+    "Container Apps Express (preview, announced Build 2026) changes the environment-creation workflow but is not GA; mixing it with standard Bicep-provisioned environments is unsupported for this build's fresh-subscription provisioning requirement."
+  ],
+  "uncertain": [
+    "current_version"
+  ]
+}

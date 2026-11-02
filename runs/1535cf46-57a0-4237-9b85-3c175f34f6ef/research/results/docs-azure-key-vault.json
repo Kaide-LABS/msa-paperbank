@@ -1,0 +1,70 @@
+{
+  "summary": "Azure Key Vault is Microsoft's managed secrets/keys/certificates store; this build will use only the data-plane Secrets API (store API keys, DB creds, WhatsApp tokens) via the azure-keyvault-secrets Python SDK plus azure-identity for managed-identity auth from Container Apps. No installation of a 'server' is needed — you provision a Microsoft.KeyVault/vaults resource (e.g. via Bicep) and call the REST/SDK data-plane API against https://{vault}.vault.azure.net. Current stable data-plane API is 2025-07-01 and control-plane (ARM) API is 2026-02-01; the Python secrets SDK is at 4.12.0 (Oct 28, 2026) and now requires Python >=3.10. The key trend over the research window is a steady, well-documented push from access-policy to Azure RBAC authorization, culminating in RBAC becoming the default for new vaults as of API version 2026-02-01 (March 2026) — access policies remain supported for existing vaults, so this is additive, not a breaking removal.",
+  "key_findings": [
+    "Latest Python data-plane SDK: azure-keyvault-secrets 4.12.0, published 2026-10-28, requires Python >=3.10 (3.9 support dropped); regenerated against Key Vault API version 2026-04-01 [uncertain-marked only for the exact release date, verified via PyPI fetch].",
+    "Core usage pattern (official devguide): `from azure.identity import DefaultAzureCredential; from azure.keyvault.secrets import SecretClient; SecretClient(vault_url=..., credential=DefaultAzureCredential())` then `set_secret`/`get_secret`.",
+    "Authentication best practice (official): use Managed Identity for Azure-hosted apps (recommended); service-principal+secret or +certificate are explicitly 'not recommended' due to rotation burden — directly applicable to Container Apps managed identity.",
+    "Key Vault has a two-plane model: control plane (ARM, resource create/delete/RBAC vs access-policy assignment) and data plane (actual get/set of secrets), each with separate SDKs and separate API-version tracks.",
+    "May 2023 (official 'what's new'): Azure RBAC became the *recommended* data-plane authorization model over access policies.",
+    "March 2026 (official 'what's new'): new control-plane API versions 2026-02-01 (stable) and 2026-03-01-preview released; Azure RBAC is now the *default* access-control model for newly-created vaults under API 2026-02-01 (existing vaults unaffected unless explicitly migrated; access policies still fully supported).",
+    "March 2026: control-plane management SDKs on API versions older than 2026-02-01 will stop working when those versions retire on 2027-02-27 — only affects control-plane (azure-mgmt-keyvault/Bicep deploy tooling), not the data-plane secrets SDK used at runtime.",
+    "March 2026: preview control-plane API versions are being deprecated with a 90-day notice (except 2026-04-01-preview) — build should pin Bicep/ARM templates to a stable API version, not a preview one.",
+    "June 2023: Key Vault enforces TLS 1.2 or higher for all client connections.",
+    "azure-keyvault-secrets 4.11.2 fixed a security bug where an authentication challenge was cached before the challenge resource was verified; 4.12.0 further hardened challenge-cache reuse — pin to >=4.11.2, ideally latest.",
+    "Official guidance: store only true secrets (connection strings, passwords, API keys, SSH keys) in Key Vault; non-secret config should go in Azure App Configuration, not Key Vault tags."
+  ],
+  "recommendations": [
+    "Use RBAC authorization (enableRbacAuthorization: true) on the Bicep-provisioned vault and assign the Container Apps managed identity the built-in 'Key Vault Secrets User' (read) or 'Key Vault Secrets Officer' (read/write) role — this matches current Microsoft default/recommended posture (default since API 2026-02-01, recommended since May 2023) and satisfies 'no plaintext secrets' acceptance criteria.",
+    "Authenticate from Container Apps with a user-assigned managed identity + DefaultAzureCredential (or ManagedIdentityCredential) — never service-principal secrets, matching the secrets/config adapter's job of swapping GCP Secret Manager for Key Vault without code using credentials directly.",
+    "Pin azure-keyvault-secrets to >=4.11.2 (ideally 4.12.0) and azure-identity to a current release; require Python >=3.10 in the runtime image since 4.12.0 dropped 3.9.",
+    "In Bicep templates, target a stable ARM API version (2026-02-01 or 2025-05-01) for Microsoft.KeyVault/vaults, not a preview version, given the active preview-deprecation cycle.",
+    "Cache fetched secrets in-process at startup (per official performance guidance) rather than calling get_secret on every request, to avoid Key Vault throttling limits.",
+    "Do not store non-secret config (project IDs, feature flags) in Key Vault; keep that in pydantic-settings/env/App Configuration, reserving Key Vault strictly for credentials — this also helps the 'no hardcoded GCP project ids' grep criterion stay clean."
+  ],
+  "as_of": "Docs: 'basic-concepts' updated 2026-04-10, 'developers-guide' updated 2026-05-13, 'whats-new' updated 2026-09-08 (content through March 2026 entries); SDK: azure-keyvault-secrets 4.12.0 published 2026-10-28 per PyPI.",
+  "sources": [
+    {
+      "title": "What is Azure Key Vault? (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/azure/key-vault/general/basic-concepts",
+      "type": "official-docs",
+      "quote": "Using a managed identity makes solving this problem simpler by giving Azure services an automatically managed identity in Microsoft Entra ID... We recommend this approach as a best practice."
+    },
+    {
+      "title": "Azure Key Vault developer's guide (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/azure/key-vault/general/developers-guide",
+      "type": "official-docs",
+      "quote": "The data plane controls access to keys, certificates, and secrets. You can use Azure RBAC with Key Vault for access control through the data plane... Use Azure Key Vault to store only secrets for your application."
+    },
+    {
+      "title": "What's new for Azure Key Vault (Microsoft Learn)",
+      "url": "https://learn.microsoft.com/en-us/azure/key-vault/general/whats-new",
+      "type": "official-docs",
+      "quote": "Azure Key Vault API version 2026-02-01 introduces Azure RBAC as the default access control model for newly created key vaults... Both Azure RBAC and access policies remain fully supported."
+    },
+    {
+      "title": "azure-keyvault-secrets · PyPI",
+      "url": "https://pypi.org/project/azure-keyvault-secrets/",
+      "type": "repo",
+      "quote": "The current release is 4.12.0... requires Python >=3.10... Regenerated with Key Vault API version 2026-04-01."
+    }
+  ],
+  "current_version": "Data-plane SDK: azure-keyvault-secrets 4.12.0 (Python, Oct 2026); data-plane REST API 2025-07-01 (stable); control-plane/ARM API 2026-02-01 (stable, recommended)",
+  "api_surface": [
+    "azure.identity.DefaultAzureCredential / ManagedIdentityCredential (token acquisition for Container Apps managed identity)",
+    "azure.keyvault.secrets.SecretClient(vault_url, credential)",
+    "SecretClient.get_secret(name) / .set_secret(name, value) / .list_properties_of_secrets() / .begin_delete_secret(name)",
+    "Bicep/ARM resource Microsoft.KeyVault/vaults with properties.enableRbacAuthorization=true",
+    "Built-in RBAC roles: 'Key Vault Secrets User' (read) and 'Key Vault Secrets Officer' (read/write), assigned via Microsoft.Authorization/roleAssignments scoped to the vault",
+    "Vault data-plane endpoint https://{vault-name}.vault.azure.net/ (TLS 1.2+ enforced)"
+  ],
+  "pitfalls": [
+    "azure-keyvault-secrets 4.12.0 dropped Python 3.9 support — pin runtime to Python >=3.10 or stay on an older SDK pin.",
+    "RBAC is now the default for brand-new vaults under API 2026-02-01 (March 2026) but older/existing vaults keep access policies unless explicitly migrated — don't assume RBAC is already on for any pre-existing vault; set enableRbacAuthorization explicitly in Bicep.",
+    "Control-plane management SDKs (azure-mgmt-keyvault, ARM/Bicep tooling) pinned to API versions older than 2026-02-01 stop working when those versions retire 2027-02-27 — irrelevant to the runtime secrets client but relevant to deploy tooling/CI.",
+    "Preview control-plane API versions are being deprecated on a rolling 90-day notice (March 2026 wave) — avoid pinning Bicep templates to a preview apiVersion.",
+    "A security bug (auth challenge cached before resource verification) existed in SDK versions before 4.11.2 — ensure the dependency pin is >=4.11.2.",
+    "TLS 1.2+ has been mandatory since June 2023; any legacy HTTP client config forcing TLS 1.0/1.1 will fail to connect.",
+    "Per-vault/per-region transaction throttling limits apply (service-limits doc referenced in developer's guide) — cache secrets at app startup rather than per-request fetches to avoid 429s."
+  ],
+  "uncertain": []
+}
