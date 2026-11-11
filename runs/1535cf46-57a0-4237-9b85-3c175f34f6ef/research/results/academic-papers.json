@@ -6,7 +6,7 @@
       "openalex": 5,
       "semanticScholar": "skipped",
       "merged": 10,
-      "relevant": 6,
+      "relevant": 5,
       "problems": []
     },
     {
@@ -40,47 +40,76 @@
       "arxivId": "2601.21639",
       "url": "https://doi.org/10.48550/arxiv.2601.21639",
       "pdfUrl": "https://arxiv.org/pdf/2601.21639",
-      "citedByCount": 0,
-      "references": [],
+      "citedByCount": 18,
+      "references": [
+        "https://openalex.org/W2981274875",
+        "https://openalex.org/W4327810158",
+        "https://openalex.org/W4366208220",
+        "https://openalex.org/W4386228584",
+        "https://openalex.org/W4391631327",
+        "https://openalex.org/W4392867139",
+        "https://openalex.org/W4398796934",
+        "https://openalex.org/W4399759273",
+        "https://openalex.org/W4399795339",
+        "https://openalex.org/W4402955109",
+        "https://openalex.org/W4403799507",
+        "https://openalex.org/W4407794264",
+        "https://openalex.org/W4412945118",
+        "https://openalex.org/W4414857703",
+        "https://openalex.org/W4414992111",
+        "https://openalex.org/W4415036291",
+        "https://openalex.org/W4415068209",
+        "https://openalex.org/W4415089831",
+        "https://openalex.org/W4415189326",
+        "https://openalex.org/W4415330511",
+        "https://openalex.org/W4415854763",
+        "https://openalex.org/W4415937508",
+        "https://openalex.org/W4416053382",
+        "https://openalex.org/W4416055645",
+        "https://openalex.org/W4416060568",
+        "https://openalex.org/W4416138682",
+        "https://openalex.org/W4416538152",
+        "https://openalex.org/W4416780398",
+        "https://openalex.org/W4417006752",
+        "https://openalex.org/W4417298651",
+        "https://openalex.org/W6891898817",
+        "https://openalex.org/W6948369276",
+        "https://openalex.org/W7077911270",
+        "https://openalex.org/W7083286904",
+        "https://openalex.org/W7124307284",
+        "https://openalex.org/W7126026301",
+        "https://openalex.org/W7166845830"
+      ],
       "sources": [
         "openalex"
       ]
     },
     {
-      "title": "Automated Handwriting Recognition and Digital Document Transformation Using Vision Transformers and TrOCR",
+      "title": "Field Order Should Not Matter: Permutation-Invariant Embedding Model Fine-Tuning for Structured Metadata Retrieval",
       "authors": [
-        "Mohamed Haleem Akmal S"
+        "Aivin V. Solatorio",
+        "Olivier Dupriez",
+        "Rafael Macalaba"
       ],
       "year": 2026,
-      "abstract": "This paper presents an Automated Handwriting Recognition and Digital Document Transformation System de- signed to convert handwritten documents into editable digital formats. The system accepts scanned PDFs and handwritten images as input and performs image preprocessing and noise reduction to improve text clarity. A Vision Transformer (ViT) encoder is employed to extract visual features from image patches, while a Transformer-based decoder generates character sequences using self-attention and cross-attention mechanisms. The core recognition model utilises TrOCR for end-to-end hand- writing recognition without requiring character segmentation. Post-processing algorithms such as token decoding, spell correc- tion, and text formatting are applied to enhance readability and consistency. Finally, the recognised text is exported into digital formats such as TXT, DOCX, and searchable PDF, enabling efficient and accurate digital document transformation.",
-      "doi": "10.22214/ijraset.2026.79652",
-      "arxivId": null,
-      "url": "https://doi.org/10.22214/ijraset.2026.79652",
-      "pdfUrl": "https://doi.org/10.22214/ijraset.2026.79652",
+      "abstract": "We study retrieval over catalogs of structured metadata, where each record is a small schema whose fields answer different kinds of query. Embedding a record with a text encoder first serializes its fields into a string, which forces a choice of field order. We show this choice, usually treated as an implementation detail, silently controls retrieval quality once the encoder is fine-tuned. A standard fine-tune loses 7.4 nDCG@10 points when the index is rebuilt under a different field order, because it reads absolute position instead of the field labels. We propose permutation-invariant fine-tuning ($\\textbf{PI-FT}$), which serializes each record under a freshly sampled field order with random field dropout, so meaning binds to the labels rather than to position. The change is about two lines in the data loader; it costs negligible in-distribution accuracy and cuts the order-change penalty to 0.2 points. We study this in the discovery of development statistics, a catalog of nearly 10,000 indicators that should be searchable in many languages by a model small enough to self-host. As AI assistants and agents increasingly mediate access to public data and statistics, this retrieval step decides whether an answer is grounded in the right indicator or series, making discoverability a precondition for disseminating data through AI. Because usage logs cannot provide training signal for indicators no one has searched, we generate the queries instead. $\\textbf{DevDataBench}$ is a fully LLM-generated benchmark of grounded, facet-targeted queries across 15 languages, covering every indicator for both training and evaluation. A fine-tuned 118M-parameter CPU encoder outperforms every zero-shot baseline, including $\\texttt{text-embedding-3-large}$ (0.707 vs.\\ 0.556 nDCG@10), with the largest gains in low-resource languages. We release the benchmark, pipeline, models, and a reusable PI-FT framework.",
+      "doi": "10.48550/arxiv.2606.30473",
+      "arxivId": "2606.30473",
+      "url": "https://doi.org/10.48550/arxiv.2606.30473",
+      "pdfUrl": "https://arxiv.org/pdf/2606.30473",
       "citedByCount": 0,
-      "references": [],
-      "sources": [
-        "openalex"
-      ]
-    },
-    {
-      "title": "SABER-Math: Automated Benchmark for Information Retrieval Evaluation in Mathematics",
-      "authors": [
-        "Nikolay Georgiev",
-        "Maria Drencheva",
-        "Ксения Ибрагимова",
-        "Ivo Petrov",
-        "Dimitar I. Dimitrov",
-        "Martin Vechev"
+      "references": [
+        "https://openalex.org/W2611029872",
+        "https://openalex.org/W2937036051",
+        "https://openalex.org/W2951534261",
+        "https://openalex.org/W3198713493",
+        "https://openalex.org/W4310923309",
+        "https://openalex.org/W4319452093",
+        "https://openalex.org/W4385681674",
+        "https://openalex.org/W4391709827",
+        "https://openalex.org/W4392223206",
+        "https://openalex.org/W4400531953"
       ],
-      "year": 2026,
-      "abstract": "As agentic AI systems tackle more complex mathematical tasks, they increasingly rely on information retrieval (IR) to search problem databases, theorem libraries, and educational resources. However, choosing the right retriever remains difficult, as it is infeasible to directly isolate its effect on downstream performance. On the other hand, existing retrieval-specific benchmarks often fail to capture fine-grained mathematical relevance, penalizing relevant documents. We address this gap by introducing SABER-Math, the first fully automated benchmark for evaluating mathematical IR without expert annotation. Starting from 283K high-school-level math problems with solutions, SABER-Math builds challenging reranking tasks in three steps: (i) first, LLMs extract concise solution summaries and mathematical topics for each problem; (ii) then, per-query relevant documents are discovered using ontology topic-based and lexical solutions-summary-based similarities, and (iii) finally, a Swiss-style LLM preference tournament produces fine-grained relevance ratings for the documents. We evaluate lexical retrievers, specialized mathematical retrieval systems, and recent embedding models. We find that while modern embedding models substantially outperform classical and math-specific baselines, even the strongest systems struggle in symbol-heavy domains like Algebra and Calculus. Importantly, we show that general-purpose IR benchmarks such as MTEB do not reliably predict mathematical performance, especially for recent embedding models, highlighting the need for math-specific retrieval benchmarks.",
-      "doi": "10.48550/arxiv.2606.29894",
-      "arxivId": "2606.29894",
-      "url": "https://doi.org/10.48550/arxiv.2606.29894",
-      "pdfUrl": "https://arxiv.org/pdf/2606.29894",
-      "citedByCount": 0,
-      "references": [],
       "sources": [
         "openalex"
       ]

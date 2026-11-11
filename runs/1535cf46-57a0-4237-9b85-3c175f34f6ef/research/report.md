@@ -1,6 +1,6 @@
 # Research report -- Migrate a FastAPI retrieval bot from GCP/Vertex to Azure: OpenAI/Foundry models, Postgres+pgvector, Container Apps, Graph import
 
-Generated 2026-11-02T10:51:02.108Z by OSA. Researched by claude-code using its built-in web search. Time range: last 2 years (prioritise 2025-2026 current Azure offerings).
+Generated 2026-11-11T06:15:25.069Z by OSA. Researched by claude-code using its built-in web search. Time range: last 2 years (prioritise 2025-2026 current Azure offerings).
 Values marked [uncertain] could not be verified from a source the agent opened; they are repeated under *Open uncertainties*.
 
 ## Findings
@@ -1078,6 +1078,63 @@ FastAPI's official docs (fastapi.tiangolo.com) confirm the current stable releas
 - [FastAPI CLI](https://fastapi.tiangolo.com/fastapi-cli/) (official-docs) -- "fastapi dev ... fastapi run"
 
 
+### Official documentation: SQLAlchemy
+*Find the OFFICIAL documentation for "SQLAlchemy": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings).*
+
+SQLAlchemy 2.0 is the API style this build is locked to (per CLAUDE.md-equivalent build constraints: plain Python, pydantic-settings, SQLAlchemy 2.0). As of Nov 2026, the 2.0 line is in maintenance at 2.0.57 (released ~Nov 3, 2026) while 2.1 (currently 2.1.8) is the new active series; the official docs at docs.sqlalchemy.org/en/20/ explicitly label 2.0 'legacy' and point to /en/21/. Installation is `pip install SQLAlchemy` (async support via the bundled greenlet dependency, plus an asyncpg driver for Postgres). This build will use declarative `Mapped[]`/`mapped_column` models, `select()` + `Session.execute()`/`AsyncSession.execute()`, `create_async_engine('postgresql+asyncpg://...')`, and `Index(..., postgresql_using='hnsw', postgresql_with={...}, postgresql_ops={...})` for the pgvector HNSW index, matching the pgvector-python + Azure Postgres sample patterns found.
+
+**Key findings**
+- Latest SQLAlchemy release overall is 2.1.8 (PyPI, as of fetch date Nov 2026); the 2.0 series' latest point release is 2.0.57 (~Nov 3, 2026) and is now flagged 'legacy'/maintenance on docs.sqlalchemy.org/en/20/, with 2.1 as the current docs series.
+- PyPI package requires Python >=3.11 for the latest build metadata shown, but the 2.0 docs intro page states the 2.0 series itself targets Python 3.7+ (cPython and PyPy) [uncertain] — version-specific requirement pages may have shifted since initial 2.0 release.
+- Core 2.0 ORM pattern: `class Base(DeclarativeBase)` with `id: Mapped[int] = mapped_column(primary_key=True)` replacing the old `declarative_base()`/plain `Column()` style.
+- Querying in 2.0 is unified around `select()` passed to `Session.execute()` (sync) or `AsyncSession.execute()` (async); the legacy `Query` object still works but is considered the old paradigm.
+- Async support requires `sqlalchemy[asyncio]` (pulls in greenlet) plus an async DBAPI driver — `asyncpg` for Postgres; engine URL form is `postgresql+asyncpg://user:pass@host/db`.
+- A single `AsyncSession` is not safe for concurrent tasks — each concurrent coroutine needs its own session; `expire_on_commit=False` is recommended to avoid implicit lazy I/O after commit, which async disallows by default.
+- `relationship(lazy='dynamic')` is legacy in 2.0; replacement is `lazy='write_only'` requiring explicit `.select()` calls — relevant if this build adds any ORM relationships beyond simple columns.
+- pgvector-python integrates with SQLAlchemy via `from pgvector.sqlalchemy import Vector` (or `VECTOR`), used as `mapped_column(Vector(768))` for this build's 768-dim column, matching the existing required `Vector(768)` type.
+- HNSW index creation pattern confirmed from both pgvector-python README and an Azure-Samples repo (azure-postgres-pgvector-python): `Index(name, Model.col, postgresql_using='hnsw', postgresql_with={'m':16,'ef_construction':64}, postgresql_ops={'col':'vector_cosine_ops'})`.
+- Some pgvector-python examples register the vector type via an SQLAlchemy `connect` event (`register_vector(dbapi_connection)`) for raw psycopg2 use; this may be unnecessary when using the dedicated `pgvector.sqlalchemy.Vector` column type with asyncpg — needs confirmation against the specific driver chosen [uncertain].
+
+**Recommendations**
+- Pin to the SQLAlchemy 2.0.x maintenance line (not 2.1) to match the build's explicit 'SQLAlchemy 2.0' constraint and avoid untested 2.1 behavior changes; verify exact pinned version against the current GCP codebase's requirements file.
+- Use `Mapped[]`/`mapped_column` declarative style consistently if the existing models already use it; do not introduce the 2.1-only patterns during this migration.
+- For Postgres on Azure Flexible Server, use `postgresql+asyncpg://` (or sync `psycopg`/`psycopg2` if the existing codebase is sync) — do not mix drivers without updating the engine URL scheme.
+- Keep the pgvector `Vector(768)` column type and HNSW index definition exactly as in GCP (per acceptance criterion 6); only the connection/engine wiring should change for Azure.
+- If async session usage is introduced, give each concurrent WhatsApp request handler its own `AsyncSession` instance and set `expire_on_commit=False` to avoid implicit-IO errors.
+- Do not adopt `lazy='dynamic'` relationships if any are added; use `lazy='write_only'` per current 2.0 guidance.
+- Call `await engine.dispose()` on shutdown in Container Apps to avoid connection leaks/errors on scale-down, consistent with SQLAlchemy's async engine lifecycle guidance.
+
+**current version:** 2.0.57 (2.0 maintenance line, ~Nov 3, 2026); overall latest SQLAlchemy release is 2.1.8 (Nov 4, 2026) per PyPI — this build should target the pinned 2.0.x line per its stated constraint
+
+**api surface**
+- sqlalchemy.orm.DeclarativeBase / Mapped[] / mapped_column() for model definitions
+- sqlalchemy.select() combined with Session.execute() (sync) or AsyncSession.execute() (async)
+- sqlalchemy.ext.asyncio.create_async_engine('postgresql+asyncpg://...') and async_sessionmaker(engine, expire_on_commit=False)
+- pgvector.sqlalchemy.Vector(768) column type for the embedding column
+- sqlalchemy.Index(..., postgresql_using='hnsw', postgresql_with={'m':16,'ef_construction':64}, postgresql_ops={'col':'vector_cosine_ops'}) for the HNSW index
+- engine.dispose() / await engine.dispose() for connection lifecycle cleanup in Container Apps
+
+**pitfalls**
+- 2.0 docs are now marked 'legacy' with 2.1 as current — pin exact version in requirements to avoid accidentally picking up 2.1 behavior changes during dependency resolution
+- Declarative mapping requires DeclarativeBase + Mapped[] typing; mixing old Column()-only style with new Mapped[] style is allowed but loses type-checking benefits
+- lazy='dynamic' relationship loading is legacy; use lazy='write_only' with explicit .select() calls instead
+- AsyncSession instances must not be shared across concurrent tasks/requests — each request needs its own session
+- Implicit lazy-load I/O is disallowed in async context by default; must eager-load (e.g. selectinload()) or it raises at runtime
+- expire_on_commit=False recommended for async sessions to prevent unexpected re-query on attribute access after commit
+- Old SQLAlchemy type-stub packages must be uninstalled when adopting 2.0's native typing, or type inference breaks [uncertain]
+
+*As of: 2026-11-11 (page content observed dated up to Nov 4, 2026 release notes)*
+
+**Sources**
+- [SQLAlchemy 2.0 Documentation (en/20/)](https://docs.sqlalchemy.org/en/20/) (official-docs) -- "Release: 2.0.57 legacy version ... Version 2.1 is the Current Documentation"
+- [SQLAlchemy 2.0 Changelog: What's New in SQLAlchemy 2.0?](https://docs.sqlalchemy.org/en/20/changelog/whatsnew_20.html) (official-docs) -- "Session raises proactively when illegal concurrent or reentrant access is detected"
+- [SQLAlchemy asyncio extension docs](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html) (official-docs) -- "AsyncSession object is a standard Python object which ... is not safe for use in multiple, concurrent tasks"
+- [SQLAlchemy 2.0 Intro / Installation](https://docs.sqlalchemy.org/en/20/intro.html#installation) (official-docs) -- "pip install SQLAlchemy ... SQLAlchemy now targets Python 3.7 and above"
+- [SQLAlchemy on PyPI](https://pypi.org/project/SQLAlchemy/) (official-docs) -- "Version: 2.1.8 ... Development Status :: 5 - Production/Stable"
+- [pgvector/pgvector-python GitHub repo](https://github.com/pgvector/pgvector-python) (repo) -- "class Item(Base): embedding: Mapped[list[float]] = mapped_column(VECTOR(3))"
+- [azure-postgres-pgvector-python example (sqlalchemy_movies.py)](https://github.com/Azure-Samples/azure-postgres-pgvector-python/blob/main/examples/sqlalchemy_movies.py) (repo) -- "postgresql_using="hnsw", postgresql_with={"m": 16, "ef_construction": 64}, postgresql_ops={"title_vector": "vector_cosine_ops"}"
+
+
 ### Official documentation: pydantic-settings
 *Find the OFFICIAL documentation for "pydantic-settings": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 2 years (prioritise 2025-2026 current Azure offerings).*
 
@@ -1368,6 +1425,42 @@ Azure AI Document Intelligence's Read model (prebuilt-read, API version 2024-11-
 - [Lost in OCR Translation? Vision-Based Approaches to Robust Document Retrieval](https://arxiv.org/abs/2505.05666) (paper) -- "Traditional RAG systems rely on Optical Character Recognition (OCR) to first process scanned documents into text. However, even state-of-the-art OCRs can introduce errors, especially in degraded or complex documents."
 
 
+### Azure Postgres Flexible Server pgvector+pg_trgm
+*Enabling pgvector/pg_trgm, HNSW support, connection via managed identity, and backup/restore drill mechanics?*
+
+Azure Database for PostgreSQL Flexible Server supports pgvector (vector extension) and pg_trgm, but both must first be added to the server-level `azure.extensions` allow-list parameter before `CREATE EXTENSION` will succeed. HNSW indexing is supported with dimension limit of 2000 (fine for 768-dim embeddings) and tunable `m`/`ef_construction`/`ef_search` params; DiskANN is Azure's recommended alternative if HNSW hits CPU-instruction compatibility issues on some hardware with pgvector 0.8.0. Managed-identity/Entra ID auth works by acquiring an OAuth token scoped to `https://ossrdbms-aad.database.windows.net/.default` (token valid 5-60 min, must be refreshed, used as the Postgres password) rather than a static password. Backup/restore drills use built-in point-in-time restore (default 7-day retention, up to 35 days) or geo-restore (if geo-redundant backup enabled at creation, ~1hr RPO, no PITR on the geo copy); a restore always creates a new server, never overwrites in place, so the drill procedure is: trigger a PITR/geo-restore to a new server name, verify data/extensions, then tear it down.
+
+**Key findings**
+- pgvector extension is named `vector` on Azure (not `pgvector`); enabling requires: 1) add `vector` and `pg_trgm` to server parameter `azure.extensions` (Portal > Server parameters, or `az postgres flexible-server parameter set --name azure.extensions --value vector,pg_trgm`), then 2) run `CREATE EXTENSION vector;` / `CREATE EXTENSION pg_trgm;` in the DB.
+- Index column dimension limit is 2000 for both ivfflat and hnsw; attempting to index >2000 dims throws 'column cannot have more than 2000 dimensions for INDEX_TYPE index'. 768 dims is well within this limit.
+- HNSW CREATE INDEX syntax: `CREATE INDEX ... USING hnsw (embedding vector_l2_ops) WITH (m = 16, ef_construction = 64);` defaults m=16, ef_construction=64, ef_search=40 (settable via `SET hnsw.ef_search`).
+- Microsoft Q&A/docs report pgvector 0.8.0 can hit an 'illegal instruction' crash on Flexible Server due to CPU-instruction mismatches; Microsoft's documented mitigation is to use DiskANN (Azure-specific index type, only available on Flexible Server) instead of HNSW if this is encountered. [uncertain]
+- Entra ID / managed-identity auth: get a token via `az account get-access-token --resource-type oss-rdbms` (or equivalent SDK call scoped to `https://ossrdbms-aad.database.windows.net/.default`), then pass it as the PostgreSQL password (e.g. `PGPASSWORD` env var); token is valid only 5-60 minutes and must be re-acquired, so app code needs refresh logic rather than a cached static credential.
+- Both system-assigned and user-assigned managed identities are supported as Entra principals/admins on Flexible Server; a managed identity can also be a member of an Entra group role for scoped DB permissions.
+- Default backup retention is 7 days, configurable up to 35 days; first backup is a full snapshot, subsequent ones are daily differential snapshots, WAL backed up continuously (RPO up to ~5 min).
+- Restore always provisions a brand-new server (never in-place); options are latest restore point, custom (any point within retention window), fast-restore (snapshot only, no WAL replay), and geo-restore (to paired region, only if geo-redundant backup was enabled at server creation time, ~1hr RPO, no PITR on the geo copy).
+- Geo-redundant backup storage can only be enabled at server creation time and cannot be toggled on afterward; must wait at least 1 hour post-creation before the first geo-restore is possible.
+- Post-restore, firewall rules, VNet/private-endpoint config, server parameters (including `azure.extensions`), and HA config are NOT automatically copied to the restored server and must be reapplied manually — relevant for scripting a restore drill.
+
+**Recommendations**
+- Add both `vector` and `pg_trgm` to the `azure.extensions` allow-list in the Bicep template's server parameters resource (not just via post-deploy SQL), so `CREATE EXTENSION` doesn't fail on a fresh subscription.
+- Keep `Vector(768)` column type and HNSW index DDL as-is (`vector_cosine_ops` or current distance op); 768 dims is within Azure's 2000-dim index limit, so no column/index redesign is needed.
+- Build the Postgres connection string/engine to support Entra managed-identity auth with token refresh (acquire token scoped to `https://ossrdbms-aad.database.windows.net/.default`, refresh before each connection or on expiry) as the secrets adapter's default for Azure, falling back to password auth only for local/dev.
+- If HNSW build/query throws an illegal-instruction error on the chosen Flexible Server SKU, fall back to DiskANN as Azure's documented stable alternative rather than debugging CPU-flag issues — flag this as a contingency in the migration runbook, not a default assumption.
+- For the required restore drill: set backup retention explicitly in Bicep (7-35 days) and geo-redundant backup only if enabling at creation; script the drill as PITR-to-new-server-name, verify pgvector extension + HNSW index + row counts exist, then delete the drill server — document that firewall/VNet/parameters must be reapplied post-restore.
+- Do not assume PITR works on a geo-redundant backup copy — only geo-restore (to the paired region, latest backup only) is available there; keep this distinction explicit in the RUNBOOK's DR section.
+
+*As of: Docs pages dated/updated 2026-07 to 2026-09 (Microsoft Learn ms.date fields); pgvector 0.8.0 release referenced as May 2025*
+
+**Sources**
+- [Optimize Performance when Using pgvector in Azure Database for PostgreSQL Flexible Server](https://learn.microsoft.com/en-us/azure/postgresql/extensions/how-to-optimize-performance-pgvector) (official-docs) -- "You can only index a column that has up to 2000 dimensions... ERROR: column cannot have more than 2000 dimensions for INDEX_TYPE index"
+- [Use Microsoft Entra ID Authentication in Azure Database for PostgreSQL Flexible Server](https://learn.microsoft.com/en-us/azure/postgresql/security/security-entra-configure) (official-docs) -- "az account get-access-token --resource-type oss-rdbms ... The access token is valid for 5 to 60 minutes. Get the access token before initiating the sign-in to Azure Database for PostgreSQL."
+- [Backup and Restore in Azure Database for PostgreSQL Flexible Server](https://learn.microsoft.com/en-us/azure/postgresql/backup-restore/concepts-backup-restore) (official-docs) -- "A restore operation in your Azure Database for PostgreSQL flexible server instance always creates a new database server with the name that you provide. It doesn't overwrite the existing database server."
+- [pg_trgm Extension Not Allowed on Azure Database for PostgreSQL Flexible Server (search summary of Microsoft docs/Q&A)](https://learn.microsoft.com/en-us/answers/questions/5537068/pg-trgm-extension-not-allowed-on-azure-database-fo) (forum) -- "azure.extensions is the server parameter that holds Azure's per-server allow-list of extensions."
+- [Azure Database for PostgreSQL flexible server - Illegal instruction with pgvector 0.8.0](https://learn.microsoft.com/en-us/answers/questions/5544878/azure-database-for-postgresql-flexible-server-ille) (forum) -- "The vector extension (version 0.8.0) may use CPU instructions that aren't supported on specific hardware behind the PostgreSQL Flexible Server. DiskANN is recommended as a stable alternative to HNSW."
+- [Tutorial: Access Azure databases with managed identity - Azure App Service](https://learn.microsoft.com/en-us/azure/app-service/tutorial-connect-msi-azure-database) (official-docs) -- "Secure database connectivity (Azure SQL Database, Database for MySQL, and Database for PostgreSQL) with managed identity from .NET, Node.js, Python, and Java apps."
+
+
 ### Container Apps + Jobs + ACR via Bicep
 *Parameterized Bicep for web apps and jobs, ingress on 8080, managed identity, ACR pull; replacing Cloud Run scripts?*
 
@@ -1554,6 +1647,11 @@ Microsoft Graph's driveItem API supports listing (children/delta endpoints) and 
 - [FastAPI - Events: startup and shutdown](https://fastapi.tiangolo.com/advanced/events/)
 - [FastAPI - About FastAPI versions / Deployments - Concepts](https://fastapi.tiangolo.com/deployment/concepts/)
 - [FastAPI CLI](https://fastapi.tiangolo.com/fastapi-cli/)
+- [SQLAlchemy 2.0 Documentation (en/20/)](https://docs.sqlalchemy.org/en/20/)
+- [SQLAlchemy 2.0 Changelog: What's New in SQLAlchemy 2.0?](https://docs.sqlalchemy.org/en/20/changelog/whatsnew_20.html)
+- [SQLAlchemy asyncio extension docs](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html)
+- [SQLAlchemy 2.0 Intro / Installation](https://docs.sqlalchemy.org/en/20/intro.html#installation)
+- [SQLAlchemy on PyPI](https://pypi.org/project/SQLAlchemy/)
 - [pydantic-settings · PyPI](https://pypi.org/project/pydantic-settings/)
 - [Settings Management - Pydantic](https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/)
 - [Gunicorn homepage](https://gunicorn.org/)
@@ -1572,6 +1670,8 @@ Microsoft Graph's driveItem API supports listing (children/delta endpoints) and 
 - [Azure OpenAI Service Pricing](https://azure.microsoft.com/en-us/pricing/details/cognitive-services/openai-service/)
 - [How to use vision-enabled chat models - Microsoft Foundry](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/gpt-with-vision)
 - [Azure AI Document Intelligence Pricing](https://azure.microsoft.com/en-us/pricing/details/ai-document-intelligence/)
+- [Backup and Restore in Azure Database for PostgreSQL Flexible Server](https://learn.microsoft.com/en-us/azure/postgresql/backup-restore/concepts-backup-restore)
+- [Tutorial: Access Azure databases with managed identity - Azure App Service](https://learn.microsoft.com/en-us/azure/app-service/tutorial-connect-msi-azure-database)
 - [Azure Container Apps image pull from Azure Container Registry with managed identity](https://learn.microsoft.com/en-us/azure/container-apps/managed-identity-image-pull)
 - [Jobs in Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/jobs?tabs=azure-cli)
 - [Azure built-in roles - AcrPull](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles#acrpull)
@@ -1580,13 +1680,10 @@ Microsoft Graph's driveItem API supports listing (children/delta endpoints) and 
 - [Use delta query to track changes in Microsoft Graph data](https://learn.microsoft.com/en-us/graph/delta-query-overview)
 - [Build Python apps with Microsoft Graph and app-only authentication](https://learn.microsoft.com/en-us/graph/tutorials/python-app-only)
 
-Documentation items with no official source: Official documentation: SQLAlchemy.
-
 ## Academic literature
 
-- **OCRVerse: Towards Holistic OCR in End-to-End Vision-Language Models** (2026), cited 0x -- [link](https://doi.org/10.48550/arxiv.2601.21639) / [PDF](https://arxiv.org/pdf/2601.21639) _(via openalex)_
-- **Automated Handwriting Recognition and Digital Document Transformation Using Vision Transformers and TrOCR** (2026), cited 0x -- [link](https://doi.org/10.22214/ijraset.2026.79652) / [PDF](https://doi.org/10.22214/ijraset.2026.79652) _(via openalex)_
-- **SABER-Math: Automated Benchmark for Information Retrieval Evaluation in Mathematics** (2026), cited 0x -- [link](https://doi.org/10.48550/arxiv.2606.29894) / [PDF](https://arxiv.org/pdf/2606.29894) _(via openalex)_
+- **OCRVerse: Towards Holistic OCR in End-to-End Vision-Language Models** (2026), cited 18x -- [link](https://doi.org/10.48550/arxiv.2601.21639) / [PDF](https://arxiv.org/pdf/2601.21639) _(via openalex)_
+- **Field Order Should Not Matter: Permutation-Invariant Embedding Model Fine-Tuning for Structured Metadata Retrieval** (2026), cited 0x -- [link](https://doi.org/10.48550/arxiv.2606.30473) / [PDF](https://arxiv.org/pdf/2606.30473) _(via openalex)_
 - **Algebraic Retrieval: Composable Search for Agents** (2026) -- [link](https://arxiv.org/abs/2609.19482) / [PDF](https://arxiv.org/pdf/2609.19482v1) _(via arxiv)_
 - **Digitization of Document and Information Extraction using OCR** (2025) -- [link](https://arxiv.org/abs/2506.11156) / [PDF](https://arxiv.org/pdf/2506.11156v1) _(via arxiv)_
 - **Lost in OCR Translation? Vision-Based Approaches to Robust Document Retrieval** (2025) -- [link](https://arxiv.org/abs/2505.05666) / [PDF](https://arxiv.org/pdf/2505.05666v1) _(via arxiv)_
@@ -1595,29 +1692,9 @@ Documentation items with no official source: Official documentation: SQLAlchemy.
 
 ## Prior art
 
-- [pulumi/examples](https://github.com/pulumi/examples) -- 2582 stars, TypeScript, licence Apache-2.0. Infrastructure, containers, and serverless apps to AWS, Azure, GCP, and Kubernetes... all deployed with Pulumi
-- [O365/python-o365](https://github.com/O365/python-o365) -- 1927 stars, Python, licence Apache-2.0. A simple python library to interact with Microsoft Graph and Office 365 API
-- [vgrem/office365-rest-python-client](https://github.com/vgrem/office365-rest-python-client) -- 1728 stars, Python, licence MIT. Microsoft 365 & Microsoft Graph Library for Python
+_No public repositories matched._
 
-**Patterns worth reusing**
-
-**Patterns worth reusing**
-
-- **pulumi/examples** — Naming convention `<cloud>-<language>` per example folder maps well to our planned `adapters/gcp/` vs `adapters/azure/` split for storage/AI/secrets/DB. Its `pr_preview` Makefile target (preview-only checks against a changed-files diff before a real deploy) is a pattern worth mirroring for Bicep: run `az deployment group what-if` on the fixed param set in CI before any real `az deployment` apply, catching regressions without provisioning. The `setup_python`/Black-format-check target is a clean template for enforcing formatting pre-test.
-- **vgrem/office365-rest-python-client** — MSAL-based auth table (certificate, interactive, device-code, client-secret) is a clean reference for the secrets/auth adapter when the Teams bot or Azure services need app-only auth; the explicit note that *SharePoint REST requires certificate, not secret* is a concrete pitfall if any Graph/SharePoint calls are ever added. Typed, fluent query model (`.select().filter().execute_query()`) is a reasonable idea for a thin typed wrapper over any Graph calls, but is overkill for simple Bot Framework/Blob/Postgres use — don't adopt the whole library just for MSAL.
-- **O365/python-o365** — Simpler `Account(credentials)` abstraction + automatic refresh-token handling; useful shape for a minimal MSAL wrapper if we avoid pulling in Graph entity models we don't need.
-
-**What NOT to copy**
-
-- Don't adopt Pulumi itself — PRD mandates Bicep (`az deployment`); Pulumi's TypeScript/Go toolchain is a different IaC stack and pulling it in would violate the acceptance criteria.
-- Don't pull in either Graph/O365 client library wholesale — our scope is Bot Framework + Blob/Postgres/Key Vault, not SharePoint/Outlook; adding these as dependencies would be scope creep and extra attack surface.
-
-**Licences:** pulumi/examples (Apache-2.0), office365-rest-python-client (MIT), python-o365 (Apache-2.0) — all permissive enough to reuse ideas/patterns freely; no code should be copied verbatim regardless, per build constraints.
-
-_No repositories matched "FastAPI pgvector Azure PostgreSQL Flexible Server HNSW retrieval example"; retried as "fastapi pgvector azure"._
-_No repositories matched "Azure Container Apps Bicep FastAPI gunicorn deployment template"; retried as "azure container apps"._
-_No repositories matched "Microsoft Graph SharePoint drive download Python sha256 dedupe"; retried as "microsoft graph sharepoint"._
-_No repositories matched "storage abstraction interface GCS Azure Blob Python adapter"; retried as "storage abstraction interface"._
+_No public repositories matched the prior-art queries._
 
 ## Open uncertainties
 
@@ -1643,6 +1720,9 @@ _No repositories matched "storage abstraction interface GCS Azure Blob Python ad
 - Official documentation: SharePoint: `key_findings`
 - Official documentation: SharePoint: `as_of`
 - Official documentation: FastAPI: `pitfalls`
+- Official documentation: SQLAlchemy: `key_findings`
+- Official documentation: SQLAlchemy: `pitfalls`
+- Official documentation: SQLAlchemy: `current_version`
 - Official documentation: pydantic-settings: `current_version`
 - Official documentation: pydantic-settings: `as_of`
 - Official documentation: pydantic-settings: `key_findings`
@@ -1658,24 +1738,12 @@ _No repositories matched "storage abstraction interface GCS Azure Blob Python ad
 - Azure embeddings shortened to 768 dims: `summary`
 - Azure AI Document Intelligence vs LLM vision OCR: `key_findings`
 - Azure AI Document Intelligence vs LLM vision OCR: `recommendations`
-
-## Not researched
-
-- docs-sqlalchemy: Field "key_findings" contains [uncertain] but is not listed in the "uncertain" array.
-- postgres-flexible-pgvector: "uncertain" names "key_findings[6]", which is not a field of this result. Field "key_findings" contains [uncertain] but is not listed in the "uncertain" array. Field "recommendations" contains [uncertain] but is not listed in the "uncertain" array. Field "as_of" contains [uncertain] but is not listed in the "uncertain" array.
+- Azure Postgres Flexible Server pgvector+pg_trgm: `key_findings`
 
 ## Independent check
 
-Researched by claude-code; checked by claude-code (claude-code (opus) reviewed work written by claude-code (sonnet): the same model family but a different capability class.). Verdict: **issues**.
+Researched by claude-code; checked by claude-code (claude-code (opus) reviewed work written by claude-code (sonnet): the same model family but a different capability class.). Verdict: **pass**.
 
-I opened the cited Microsoft Learn, PyPI, and GitHub sources for a broad sample of the report's load-bearing claims (Azure OpenAI v1 API, embeddings dimensions, structured outputs, pgvector limits/naming, Document Intelligence, azure-identity, FastAPI, Graph hashes, AcrPull role ID) and every one matched its source exactly. The report is careful: it marks genuinely unconfirmable items [uncertain], distinguishes primary from secondary sources, and its recommendations are legitimate defensive build guidance (managed identity over keys, pin versions, no admin account). The single line that looked like an AI-targeted exfiltration instruction was already removed by OSA and does not survive as an active instruction, so no planted-instruction issue remains. OSA also removed 2 planted instruction(s) from the sources before the reviewer saw them.
+I opened the cited sources for the build's load-bearing claims (pgvector dimension limits, Graph file hashing, Container Apps Jobs constraints, embeddings limits/dimensions param, AcrPull role ID, and current SDK versions for azure-identity, azure-storage-blob, FastAPI) and all were confirmed against the primary sources. The report is accurate, well-scoped, and appropriately flags its own uncertainties. No planted instructions (commands to run, code to execute, secrets to exfiltrate, PRD edits, or test/review disabling) survived into the report text; the single exfiltration-style line was already removed by OSA. The only drift found is a trivial patch-level staleness in the FastAPI version, which does not affect the build since the report itself recommends pinning an exact version.
 
-Claims NOT confirmed (treat as uncertain downstream):
-- [unverifiable] Forward-dated environment facts (PostgreSQL 18.6 default, GPT-6 family, pgvector 0.8.7 upstream, gunicorn 26.2.x, uvicorn 0.54.0, Bicep 0.48.1) as of late 2026. -- These were not independently re-opened in this review; several are explicitly marked [uncertain] in the report itself. They are plausible for a Nov 2026 timeframe and the report flags the shakiest ones, but exact current values were not confirmed here. ()
-
-### Planted instructions found in sources (removed before use)
-
-2 line(s) of source text were aimed at an AI rather than at a reader. They were cut out before any model used the material, and nothing in this report relies on them.
-
-- remote-exec in README (github:vgrem/office365-rest-python-client)
-- exfiltration in research result (model output derived from web pages) (research:docs-azure-container-apps-jobs)
+Every checked claim was supported.
