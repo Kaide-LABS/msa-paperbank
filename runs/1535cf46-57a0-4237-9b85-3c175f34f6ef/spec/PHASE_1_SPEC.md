@@ -1,102 +1,116 @@
-# Phase 1 — Provider-neutral seams, channel-agnostic core, non-destructive rename
+# Phase 1 — Provider-neutral seams (GCP behind interfaces)
 
 ## Goal
-Introduce the provider-neutral interfaces and GCP adapters that every later phase plugs into, wire the storage seam through the live serve path, expose a WhatsApp-type-free handler core and retrieval callable, and land the non-destructive `gcs_*`→neutral rename — all with **zero behavior change** and the **existing pytest suite passing unchanged**.
+Introduce provider-neutral ports for storage, AI (LLM/vision + embeddings), secrets/config, and the database engine, with the existing GCP implementations moved behind them and selected by a factory. Reroute all runtime storage call sites through the `ObjectStore` port. This is a pure refactor: **no Azure code, no network calls, no behaviour change.** The existing pytest suite passes; new unit tests cover each abstraction.
 
 ## Scope
-In: `app/ports.py`, `app/providers/` (gcp only), `cloud_provider` config, storage-seam wiring in `app/main.py`+`app/retrieval.py`+`app/pdfgen.py`, neutral `InboundMessage`/`handle_inbound`, migration `007` + ORM synonyms, and new tests for the storage/secrets/AI abstractions and the channel-agnostic core.
-Out: any `azure-*` code or dependency; rewriting `serve_v1` internals; migrating every storage call site; touching `apply_migrations.py`, deploy scripts, or GCP prod.
+- In: `app/ports.py`, `app/providers/` (adapters + factory), rerouting storage in `app/`, `admin/`, `review/`, `cloud_ingest/`; secrets-loader and DB-engine seams; new tests; a README "Provider seams" section.
+- Out: see "Out of scope" below.
+- A new setting `cloud_provider: str = "gcp"` is added to `app/config.py` and read by the factory.
 
 ## Part A (first agent)
-Delivers the interfaces, the GCP adapters, the factory + config switch, the storage-seam wiring into the serve path, and the storage/secrets abstraction tests.
+Delivers the two most pervasive/core seams — **storage (fully rerouted)** and **AI (ports + thin GCP adapters)** — plus the ports module and factory skeleton.
 
 ### Files
-- **`app/ports.py` (new).** `Protocol`s:
-  - `ObjectStore`: `download_bytes(key: str) -> bytes`; `upload_bytes(key: str, data: bytes, content_type: str, *, timeout: int | None = None) -> None`; `exists(key: str) -> bool`. (The store owns its bucket/container name; keys are bare object keys.)
-  - `StructuredLLM`: `generate_json(contents, system_instruction: str, response_schema: type, *, model: str, max_output_tokens: int, temperature: float) -> str` (returns raw JSON text; caller validates).
-  - `VisionOCR`: `read_paper(image_bytes_list: list[bytes]) -> "OcrPaperExtraction"`.
-  - `Embedder`: `embed(text: str, *, query: bool) -> list[float]`; `embed_batch(texts: list[str]) -> list[list[float]]`.
-  - `SecretsProvider`: `get_secret(ref: str) -> str`.
-  - `EngineFactory`: `build_engine() -> "sqlalchemy.Engine"`.
-- **`app/providers/__init__.py` (new).** Factories `build_object_store(settings)`, `build_structured_llm(settings)`, `build_vision_ocr(settings)`, `build_embedder(settings)`, `build_secrets_provider(settings)`, `build_engine_factory(settings)`. Each dispatches on `settings.cloud_provider`: `"gcp"` → import from `app.providers.gcp` (lazy, inside the function); `"azure"` → `raise NotImplementedError("azure provider lands in a later phase")`; anything else → `raise ValueError`. No module-level `azure`/`google` imports here.
-- **`app/providers/gcp.py` (new).** GCP adapters, each conforming to its Protocol:
-  - `GcsObjectStore(client, bucket_name)` wrapping `google.cloud.storage`: `download_bytes` → `bucket.blob(key).download_as_bytes()`; `upload_bytes` → `blob.upload_from_string(data, content_type=..., timeout=...)`; `exists` → `blob.exists()`. A classmethod `from_settings(settings)` builds the `storage.Client(project=settings.gcp_project)` and resolves the bucket from `settings.object_store_bucket`.
-  - `GeminiStructuredLLM`, `GeminiVisionOCR`, `GeminiEmbedder`: thin wrappers delegating to the existing `app.llm.call_pro_vision`/`app.llm.route`-style calls, `app.ocr.ocr_paper`, and `app.embeddings.embed_query`/`embed_one`/`embed_many` (import lazily; do not duplicate logic).
-  - `SecretManagerSecrets`: wraps the existing Secret Manager access pattern in `app.config`.
-  - `gcp_engine_factory`: returns the existing `app.db` engine (reuse, don't rebuild).
-- **`app/config.py` (edit).** Add `cloud_provider: Literal["gcp","azure"] = "gcp"`. Add `object_store_bucket: str` using `AliasChoices("object_store_bucket","gcs_bucket")` so the existing `GCS_BUCKET` env keeps working; keep `gcs_bucket` readable as a property/alias for untouched call sites.
-- **`app/main.py` (edit).** In `lifespan`, set `app.state.store = build_object_store(settings)`. Keep `app.state.gcs` as the underlying client for not-yet-migrated call sites. Update the serve-path `paper_loader` lambdas to call the refactored loaders with `app.state.store`.
-- **`app/retrieval.py` (edit).** Change `load_pdf_bytes`, `load_served_bytes_v1`, `precompute_served_pdf`, `load_served_cached` to take `store: ObjectStore` instead of `(gcs_client, bucket_name)`; replace `gcs_client.bucket(bucket_name).blob(obj).download_as_bytes()`/`upload_from_string(...)` with `store.download_bytes(obj)`/`store.upload_bytes(...)`. Behavior identical (same retry/timeout semantics in `precompute_served_pdf`).
-- **`app/pdfgen.py` (edit).** Change `upload_pdf` to take `store: ObjectStore` and call `store.upload_bytes(gcs_object, pdf_bytes, "application/pdf")`.
+- `app/ports.py` (new) — all Protocols and neutral types (shared by both parts):
+  - `@dataclass(frozen=True) class LlmPart` with fields `text: str | None = None`, `image_bytes: bytes | None = None`, `mime_type: str | None = None`; helpers `LlmPart.of_text(s)` and `LlmPart.of_image(b, mime)`.
+  - `@dataclass class JsonCompletion` with `text: str`, `input_tokens: int = 0`, `output_tokens: int = 0`.
+  - `class ObjectStore(Protocol)`: `download_bytes(self, key: str) -> bytes`; `upload_bytes(self, key: str, data: bytes, content_type: str | None = None) -> None`; `exists(self, key: str) -> bool`.
+  - `class StructuredLLM(Protocol)`: `generate_json(self, *, model: str, system: str, parts: list[LlmPart], schema: type, max_output_tokens: int, temperature: float = 0.0, thinking_budget: int = 0) -> JsonCompletion`.
+  - `class Embedder(Protocol)`: `embed(self, text: str, *, kind: str) -> list[float]` (kind in `{"document","query"}`); `embed_many(self, texts: list[str], *, kind: str, concurrency: int | None = None) -> list[list[float]]`.
+  - Declare `SecretsProvider` and `make_engine` contracts too (implemented in Part B) so the module is complete.
+- `app/providers/__init__.py` (new) — factory: `get_object_store(settings) -> ObjectStore`, `get_structured_llm(settings) -> StructuredLLM`, `get_embedder(settings) -> Embedder` (Part B adds `get_secrets_provider`, `get_engine`). Each dispatches on `settings.cloud_provider`; only the `"gcp"` branch exists now, and an unknown value raises `ValueError`.
+- `app/providers/gcp_storage.py` (new) — `GcsObjectStore`: constructor `(client, bucket_name)`; classmethod `from_settings(settings)` builds `storage.Client(project=settings.gcp_project)` and uses `settings.gcs_bucket`; methods map to `bucket.blob(key).download_as_bytes()` / `.upload_from_string(data, content_type=content_type)` / `.exists()`.
+- `app/providers/gcp_ai.py` (new) — `GeminiStructuredLLM` and `GeminiEmbedder`, thin wrappers that **lazily import and delegate** to existing `app.llm` / `app.embeddings` logic (no logic duplication). `GeminiStructuredLLM.generate_json` translates `list[LlmPart]` → `list[google.genai.types.Part]` and calls the existing Gemini `client`, returning `JsonCompletion(text, input_tokens, output_tokens)` from `usage_metadata` (0 if absent). `GeminiEmbedder` delegates to `app.embeddings.embed_one`/`embed_query`/`embed_many` mapping `kind`→task type.
+- Refactor `app/llm.py`: change `call_pro_vision(parts: list[LlmPart], system_instruction, response_schema)` to accept neutral parts (translate internally); keep `route`, `validate_contribution_image`, `read_masthead`, `probe_page_boundary` behaviour identical. Preserve all prompts, temperatures, `max_output_tokens`, and `thinking_budget=0`.
+- Refactor `app/ocr.py`: build `list[LlmPart]` (via `LlmPart.of_image(b, "image/png")`) instead of `types.Part`, and call `call_pro_vision` with them.
+- Reroute storage in `app/`: `app/main.py` lifespan sets `app.state.store = get_object_store(settings)` (remove `app.state.gcs`); `app/retrieval.py`, `app/pdfgen.py`, `app/intake.py`, `app/build_served_pdfs.py` change signatures from `(gcs_client: storage.Client, bucket_name: str)` to `(store: ObjectStore)` and use `store.download_bytes`/`upload_bytes`/`exists`. Update their callers within `app/`.
+- Add `cloud_provider: str = "gcp"` to `app/config.py` `Settings`.
 
 ### Interfaces and behaviour
-- Factories are pure functions of `settings`; no global state. `cloud_provider="gcp"` yields today's behavior exactly.
-- `GcsObjectStore` must raise nothing new relative to current code paths (let SDK exceptions propagate as before).
-- The serve path (`webhook_inbound` → `serve_v1.handle_message_v1` → `paper_loader`) must download/serve the same bytes it does today.
+- Behaviour is byte-for-byte unchanged: the Gemini adapter produces the same requests as today; the storage adapter performs the same blob operations. Only the plumbing (how objects are obtained and passed) changes.
+- Call sites receive a port, never a concrete SDK client. `app.state.store` is the single app-scoped `ObjectStore`.
 
 ### Tests
-- **`tests/test_ports_storage.py`:** a `FakeStorageClient` (in-memory dict) satisfies the GCS wrapper; assert `GcsObjectStore.upload_bytes`/`download_bytes`/`exists` round-trip; assert `build_object_store(settings)` returns a `GcsObjectStore` for `cloud_provider="gcp"`, raises `NotImplementedError` for `"azure"`, `ValueError` for `"bogus"`; assert `isinstance`-by-Protocol via `typing.runtime_checkable` or duck-method presence.
-- **`tests/test_ports_secrets.py`:** assert `build_secrets_provider(settings)` returns the GCP `SecretsProvider` for `"gcp"`, and that `get_secret` is callable (patch the Secret Manager client); assert the azure branch raises `NotImplementedError`.
-- Full suite stays green (`pytest`).
+- `tests/test_ports_storage.py` (new): an in-memory fake implementing `ObjectStore` round-trips `upload_bytes`→`download_bytes`→`exists`; `GcsObjectStore` with a mocked `storage.Client` asserts `download_bytes`/`upload_bytes(content_type=...)`/`exists` translate to the expected blob calls, and that a retrieval loader (`app.retrieval.load_pdf_bytes`) works against the fake store.
+- `tests/test_ai_seam.py` (new): `get_structured_llm(settings)` returns a `StructuredLLM`; with `app.llm`'s Gemini `client` monkeypatched to a stub returning canned JSON + usage, `generate_json` returns a `JsonCompletion` carrying the stub's token counts, and `thinking_budget`/`temperature`/`max_output_tokens` reach the stub unchanged; `GeminiEmbedder.embed` delegates and returns a 768-length vector (embedder monkeypatched).
+- Keep `tests/test_embeddings.py` green by pointing its monkeypatch at the embedder seam.
 
 ## Part B (second agent)
-Builds on Part A: adds the channel-agnostic core, the LLM/vision/embedding abstraction tests, and the non-destructive `gcs_*`→neutral rename with its own tests.
+Delivers the **dependent** seams (secrets/config, DB engine), reroutes the remaining storage call sites, and adds edge/error tests, an integration test, and docs. Builds on Part A's commits.
 
 ### Files
-- **`app/channel.py` (new).** Neutral models: `MediaRef(media_id: str, mime_type: str, sha256: str | None)` and `InboundMessage(phone: str, message_id: str, text: str | None, media: MediaRef | None)`. A translator `to_inbound(wa_message) -> InboundMessage` (imports `WAMessage` only here — the WhatsApp adapter boundary).
-- **`app/handler_core.py` (new).** `handle_inbound(session, inbound: InboundMessage, http_client, store) -> Reply`. For Phase 1 it bridges to the existing live handler (reconstruct the minimal WhatsApp-shaped object the current handler needs, or pass neutral fields through) and returns the same `Reply` the webhook path returns today. The module imports `app.retrieval` and reply types but **not** `app.whatsapp`. Document the WAMessage bridge as a temporary shim.
-- **`migrations/007_neutral_names.sql` (new).** Guarded, reversible rename of the storage-key column to `object_key` on `papers`, `pending_papers`, `image_batch_items`, using the idempotent pattern already used in the repo (e.g. `DO $$ ... IF EXISTS column gcs_object THEN ALTER TABLE ... RENAME COLUMN gcs_object TO object_key; END IF; $$;`). No data copied or dropped. Add a header comment stating it is non-destructive and how to reverse it.
-- **`app/db.py` (edit).** On `Paper`, `PendingPaper`, `ImageBatchItem`: rename the mapped attribute to `object_key` (physical column `object_key`) and add `gcs_object = synonym("object_key")` so existing code/tests using `gcs_object=`/`.gcs_object` keep working. Do not change other columns.
-- **`app/config.py` (edit).** Add neutral prefix aliases (`media_object_prefix`, `contribution_object_prefix`, `serve_precompute_prefix` already neutral) via `AliasChoices` that keep the existing `*_gcs_prefix` env names working.
+- `app/providers/gcp_secrets.py` (new) — `GcpSecretsProvider` wrapping `google.cloud.secretmanager`: `resolve(self, ref: str) -> str` (accesses the secret version named by `ref`); classmethod `from_env()`.
+- `app/providers/gcp_db.py` (new) — move the Cloud SQL `getconn()` (connector + `pg8000`) here; expose `make_engine(settings)` returning a SQLAlchemy `Engine` (connector-creator path), and a `dispose()` that closes the connector. Preserve pool settings (`pool_size=2, max_overflow=2, pool_pre_ping=True, pool_recycle=1800`).
+- `app/ports.py` — ensure `SecretsProvider(Protocol)` (`resolve(ref) -> str`) is present (declared in Part A, finalised here).
+- `app/providers/__init__.py` — add `get_secrets_provider(settings_or_env) -> SecretsProvider` and `get_engine(settings) -> Engine`, gated on `cloud_provider`.
+- Refactor `app/config.py`: `load_settings_with_secret_manager()` resolves each `*_FROM_SECRET` via `get_secrets_provider(...)` instead of importing `secretmanager` directly (the GCP import now lives only in `gcp_secrets.py`).
+- Refactor `app/db.py`: build the engine via `get_engine(settings)` when `DATABASE_URL_TEST` is unset (otherwise keep the sqlite/`DATABASE_URL_TEST` path); `dispose()` delegates to the provider. ORM models and `Vector(768)` are unchanged.
+- Reroute remaining storage call sites to the `ObjectStore` port: `review/main.py`, `cloud_ingest/main.py`, `admin/curate.py`, `admin/upload.py`, `admin/batches.py`, `admin/health.py`.
 
 ### Interfaces and behaviour
-- `handle_inbound` returns byte-for-byte the same `Reply` for the same input as the current webhook path; it is invokable in a test by constructing an `InboundMessage` directly (no WhatsApp type needed by the caller).
-- Reading or writing `paper.object_key` and `paper.gcs_object` must refer to the same underlying column/value.
+- Config loading and DB engine creation are behaviourally identical; only the construction path is seamed. No secret values are logged or committed.
+- After this phase, direct `google.cloud.storage` / `secretmanager` / Cloud SQL connector usage exists **only** inside `app/providers/gcp_*.py` (Gemini genai internals still live in `app/llm.py`/`app/embeddings.py`, to be removed in Phase 8).
 
 ### Tests
-- **`tests/test_ports_ai.py`:** with the google-genai client patched (as in `tests/test_embeddings.py`), assert `build_structured_llm`/`build_vision_ocr`/`build_embedder` return the GCP adapters for `"gcp"`, that `Embedder.embed` returns a 768-length vector and `embed_batch` preserves order, and that the azure branch raises `NotImplementedError`.
-- **`tests/test_channel_agnostic.py`:** assert `app.retrieval` and `app.handler_core` module source contain no `import app.whatsapp` / `from app.schemas import WA...`; construct an `InboundMessage` (not a `WAMessage`) and call `handle_inbound` with a `FakeStorageClient`-backed `ObjectStore` and a stubbed LLM/retrieval, asserting a `Reply` comes back — proving the core is invokable without WhatsApp types.
-- **`tests/test_neutral_names.py`:** create a `Paper`/`PendingPaper`/`ImageBatchItem` via `object_key=...`, read back `.gcs_object`; create via `gcs_object=...`, read back `.object_key`; assert equality both directions (synonym bridge). Verify migration `007` applies idempotently on a fresh sqlite/pg test DB without error.
-- Full suite stays green (`pytest`).
+- `tests/test_secrets_provider.py` (new): a fake `SecretsProvider` resolves a `*_FROM_SECRET` env mapping through the loader; importing `app.config` does not require `google.cloud.secretmanager` (patched/absent) when `GCP_LOAD_FROM_SECRETS` is unset.
+- `tests/test_db_factory.py` (new): `make_engine`/`get_engine` returns an `Engine` for the `DATABASE_URL_TEST` path; the Cloud SQL connector path is constructed lazily (not at import) and is selected only when `DATABASE_URL_TEST` is unset.
+- `tests/test_storage_edges.py` (new): `ObjectStore` error semantics — `exists` returns `False` for a missing key, `download_bytes` on a missing key propagates the adapter error; an upload with an explicit `content_type` is forwarded.
+- Integration: an existing retrieval/pipeline test passes end-to-end through the store seam (add/adjust one test to assert the serve path uses `app.state.store`); update `tests/test_curate_promote.py` to patch the store seam instead of `admin.curate.storage.Client`.
+- Full-suite check: `pytest` is green (sqlite fallback, offline).
 
-## Acceptance-criteria mapping (Phase 1)
-- **AC2** (tests cover storage, LLM/vision/embedding, secrets/config abstractions) → `tests/test_ports_storage.py`, `tests/test_ports_secrets.py` (Part A) + `tests/test_ports_ai.py` (Part B). Check: `pytest tests/test_ports_*.py` passes.
-- **AC5** (handler core + retrieval callable invokable without WhatsApp types) → `tests/test_channel_agnostic.py` (Part B). Check: that test passes; `handle_inbound` runs from a neutral `InboundMessage`.
-- **AC1** (existing suite passes unchanged) → verified both parts. Check: full `pytest` green with no edits to existing test files.
-- **AC4** (no new hardcoded project ids / plaintext secrets) → provider selection lives in `cloud_provider` config; new files add no literals. Check: `grep -rniE "(ummah|gen-lang-client|password\\s*=\\s*['\"])" app/ports.py app/providers app/channel.py app/handler_core.py` finds nothing. (Full AC4 is Phase 6.)
-- **PRD item 1** (rename `gcs_*` via non-destructive migration) → `migrations/007_neutral_names.sql` + ORM synonyms (Part B). Check: `tests/test_neutral_names.py` passes and migration re-runs cleanly.
+### Docs
+- Add a "Provider seams" section to `README.md`: the ports in `app/ports.py`, the adapters in `app/providers/`, the `cloud_provider` setting and factory, and how an Azure provider plugs in later by implementing the same Protocols. No secrets, no cloud commands, no instructions to run anything against a live cloud.
+
+## Acceptance-criteria mapping
+| AC | Phase | Phase-1 concrete check |
+|----|-------|------------------------|
+| 1 — existing pytest passes against the seamed config | **1** | `pytest` green (sqlite fallback) after the refactor, incl. re-pointed internal-patch tests. |
+| 2 — tests cover storage, LLM/vision/embedding, secrets/config abstractions | **1** | `test_ports_storage.py`, `test_ai_seam.py`, `test_secrets_provider.py` (+ `test_db_factory.py`, `test_storage_edges.py`) pass. |
+| 5 — handler core/retrieval callable invocable without WhatsApp types | 2 | n/a (Phase 2). |
+| 6 — 768-dim Azure embedding; column/HNSW unchanged | 3 | n/a. |
+| 10 — cost-cap breaker triggers under new pricing | 3 | n/a. |
+| 4 — no hardcoded project ids / plaintext secrets | 4 | n/a. |
+| 7 — before/after top-k parity recorded | 5 | n/a. |
+| 8 — OCR A/B gate report with per-sample verdict | 6 | n/a. |
+| 9 — `az deployment` Bicep provisions ACA/Jobs/ACR/Postgres | 7 | n/a. |
+| 11 — README/RUNBOOK/LAUNCH Azure + restore drill | 7 | n/a. |
+| 3 — no google/vertex/cloud-sql imports in final codebase | 8 | n/a. |
 
 ## Documentation sources
-- https://fastapi.tiangolo.com/advanced/events/
-- https://fastapi.tiangolo.com/deployment/concepts/
-- https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/
-- https://pypi.org/project/pydantic-settings/
-- https://learn.microsoft.com/en-us/python/api/overview/azure/storage-blob-readme?view=azure-python
-- https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme
+- Azure Storage Blobs client library for Python (shapes the `ObjectStore` surface): https://learn.microsoft.com/en-us/python/api/overview/azure/storage-blob-readme?view=azure-python
+- Azure Identity client library for Python (DefaultAzureCredential, for later adapters): https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme
+- Settings Management — Pydantic (settings_customise_sources / AzureKeyVaultSettingsSource, shapes the secrets seam): https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/
+- How to use structured outputs with Azure OpenAI (shapes the `StructuredLLM` port): https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/structured-outputs
+- Generate embeddings with Azure OpenAI — `dimensions` param (shapes the `Embedder` port): https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/embeddings
+- SQLAlchemy 2.0 Intro / Installation (engine factory, sync 2.0 style): https://docs.sqlalchemy.org/en/20/intro.html#installation
+- FastAPI — Events: startup and shutdown (lifespan wiring of `app.state.store`): https://fastapi.tiangolo.com/advanced/events/
 
 ## Out of scope for this phase
-- Any `azure-*` adapter or dependency (Phases 2–5).
-- Azure OpenAI/embeddings/OCR, pricing changes, re-embed or top-k harness (Phases 3–4).
-- Bicep, deploy-script replacement, Graph importer (Phase 5).
-- Migration/cutover plan, restore drill, docs rewrite, GCP code deletion (Phase 6).
-- Rewriting `serve_v1` internals, migrating non-serve storage call sites, and remediating `apply_migrations.py`.
+- Any Azure SDK code or configuration; adding `azure-*` dependencies.
+- The channel-agnostic handler core / retrieval callable refactor (Phase 2).
+- Renaming `gcs_*` identifiers/columns to neutral names (Phase 4); the column/setting names stay as-is.
+- Updating `pricing.py`/config for new models and the cost-cap test (Phase 3).
+- Bicep/hosting, deploy-script replacement, Graph importer, re-embed/parity, OCR A/B gate, migration/cutover plan, restore drill (Phases 5–7).
+- Removing Google imports / deps (Phase 8).
+- Editing the stale `msa-paperbank/` mirror, `scripts/*` one-offs, or touching any GCP prod resource (project `ummah`).
 
 ## Spec assumptions
 
 Gaps found while writing this spec were resolved as follows (nobody was asked):
 
-- The repository contains both a root-level tree (`app/`, `admin/`, `tests/`, `migrations/`, `scripts/`, `review/`, `cloud_ingest/`) and a `msa-paperbank/` mirror; the root-level tree is treated as canonical and all Phase 1 work targets it. Keeping the mirror in sync is out of scope.
-- A new setting `cloud_provider: Literal["gcp","azure"] = "gcp"` selects adapters. Phase 1 implements only the GCP adapters; the factory raises `NotImplementedError("azure provider lands in a later phase")` for `"azure"` and must not import any `azure-*` package.
-- The provider-neutral seams use `typing.Protocol` (structural, not ABCs) to match the "plain Python" constraint and let the existing concrete objects satisfy them without inheritance churn.
-- Neutral names: the storage key column/attribute becomes `object_key` (was `gcs_object`); the bucket/container setting becomes `object_store_bucket` (was `gcs_bucket`); neutral prefix settings mirror `*_gcs_prefix` as `*_object_prefix`.
-- To satisfy "existing pytest passes unchanged", the rename keeps the old Python names working as SQLAlchemy `synonym()`s (`gcs_object` → `object_key`) and keeps old env var names working via pydantic `AliasChoices`; the SQL migration renames the physical column with a guarded, reversible `ALTER ... RENAME COLUMN` (data-preserving = non-destructive).
-- Phase 1 migrates only the serve-path and composition-root storage call sites (`app/main.py`, the four `retrieval.load_*`/`precompute_*` loaders, `pdfgen.upload_pdf`) to the `ObjectStore` seam. Call sites exercised directly by existing tests with a mock `gcs_client` (e.g. `intake`, `contributions`, `admin/*`) keep their current signatures and are migrated in the Azure-storage phase, so the suite stays green.
-- The channel-agnostic core is established as a neutral `InboundMessage` model plus a `handle_inbound(...)` entrypoint. In Phase 1 it bridges internally to the existing live WhatsApp handler (behavior preserved); fully rewriting `serve_v1` to consume `InboundMessage` is out of scope for this run.
-- The live path remains `serve_v1` (`serve_v1_enabled=True` by default); Phase 1 does not change routing behavior or copy.
-- Python 3.12 (current Dockerfile base) is retained; it satisfies the 3.10+ floor every Azure SDK requires.
-- `apply_migrations.py` currently contains a hardcoded Cloud SQL instance and a plaintext DB password (a pre-existing AC4 violation). Phase 1 does not touch it; its remediation is owned by the DB-connection-factory/secrets phase. Phase 1 must introduce no new hardcoded project ids or secrets.
-- Model-tier naming (`model_flash`/`model_pro`) is kept as-is in Phase 1; mapping to Azure "deployment name" chat tiers is deferred to the AI-adapter phase.
-- `cloud_provider` is passed through the config object; factory functions take `settings` and perform lazy, provider-scoped imports so GCP and Azure runtimes never need each other's SDKs installed.
+- The authoritative codebase is the root-level tree (`app/`, `admin/`, `review/`, `cloud_ingest/`, `scripts/`, `migrations/001–006`, `tests/`, `deploy.ps1`, `Makefile`). The nested `msa-paperbank/` directory is a stale partial mirror and is NOT edited this phase.
+- Provider seams are defined as structural `typing.Protocol` classes (not ABCs), to match the "plain Python" constraint and avoid inheritance coupling.
+- Ports live in a new `app/ports.py`; provider adapters live in a new `app/providers/` package; a factory in `app/providers/__init__.py` selects the implementation by a new setting `cloud_provider: str = "gcp"` (default `gcp`).
+- Phase 1 is a pure refactor with GCP implementations only; no Azure SDK code, no network calls, no behavior change. Azure adapters arrive in Phase 3.
+- The GCP AI adapter is a thin wrapper that delegates to the existing `app.llm.*` and `app.embeddings.*` functions (lazy import, no logic duplication), preserving `thinking_budget=0`, temperatures, token caps, and token-count returns exactly.
+- The storage port IS fully rerouted this phase (it is the broadest coupling and Blob parity needs it later); the AI/secrets/DB ports are introduced with GCP adapters and factory, and existing internal Gemini/Cloud-SQL calls remain in place behind them until the final deletion phase.
+- The `gcs_object` DB column and the `gcs_bucket` setting keep their names this phase; the non-destructive rename to neutral identifiers is deferred to Phase 4. The storage port is provider-neutral regardless of these names.
+- Existing tests that patch now-wrapped provider internals (e.g. `@patch('admin.curate.storage.Client')`) may be minimally re-pointed at the new seam; no behavioral assertion is changed. This is treated as satisfying "existing pytest passes."
+- SQLAlchemy stays synchronous (current `pg8000`/Cloud SQL connector engine); no async migration this phase. The `DATABASE_URL_TEST` sqlite fallback and `tests/conftest.py` env bootstrap are preserved.
+- `LlmPart` (neutral) supports a text variant and an inline-image variant (`bytes` + `mime_type`) to cover both the text router and the vision/OCR paths; the GCP adapter translates `LlmPart` into `google.genai.types.Part`.
+- `call_pro_vision`'s parameter type changes from `list[google.genai.types.Part]` to `list[LlmPart]`; its one runtime caller (`app/ocr.py`) and relevant tests are updated to build neutral parts.
+- All Phase 1 tests run offline against fakes/mocks; no cloud credentials, Key Vault, or live model calls are required to pass the suite.
 
 ## Implications
 
@@ -104,13 +118,9 @@ Second-order consequences found by an independent review of this spec. This sect
 
 ### Additional acceptance criteria
 
-S1. Running migration 007 twice in a row on a fresh DB, and once on a DB where one target table already has object_key, both complete without error and leave all three tables with exactly one of object_key/gcs_object as the physical column. _(data: Migration 007's guarded ALTER TABLE RENAME COLUMN can leave schema inconsistent if it partially applies against a pre-existing object_key column on only some tables)_
-
-### Explicitly out of scope
-
-- Removing the gcs_object/gcs_bucket synonyms and AliasChoices fallbacks is deferred to Phase 6 cutover; Phase 1 does not schedule their removal. _(maintenance)_
+S1. ObjectStore.download_bytes() raises one provider-neutral exception type (e.g. a module-level ObjectNotFoundError in app.ports) on a missing key, not a raw SDK exception; test_storage_edges.py asserts this same type from both the fake store and GcsObjectStore. _(maintenance: The ObjectStore error contract is left as 'the adapter error propagates' with no single exception type specified. GCP raises google.api_core-style exceptions; the Azure adapter arriving in Phase 3 will raise a different azure.core exception for the same missing-key case, so any later caller that catches one type silently breaks on the other provider.)_
+S2. Each repointed test (incl. test_curate_promote.py) asserts the ObjectStore mock was actually called with expected args/call-count, not just that no exception was raised, so it fails if the call site reverts to direct SDK use. _(maintenance: Part B repoints tests like test_curate_promote.py from patching admin.curate.storage.Client to patching the new ObjectStore seam. If the repointed test only checks that the call completes without error, it will keep passing even if a future edit reverts the call site to direct SDK usage, silently losing the regression guard the original patch provided.)_
 
 ### Noted, no action
 
-- Azure-branch behavior is verified only via the NotImplementedError path in Phase 1; no azure code exists yet to misconfigure. _(security)_
-- The WAMessage shim in handler_core.py is a Phase 1 stopgap; its removal is not scheduled by any acceptance criterion in this run. _(maintenance)_
+- Lazy per-call imports in gcp_ai.py add negligible overhead (module already cached); acceptable for this phase. _(performance)_
