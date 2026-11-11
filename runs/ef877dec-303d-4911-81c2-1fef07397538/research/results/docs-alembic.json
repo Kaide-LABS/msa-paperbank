@@ -1,0 +1,59 @@
+{
+  "summary": "Alembic is the official SQLAlchemy migration tool; the current stable release is 1.20.1, which requires SQLAlchemy >= 2.0.0 and Python >= 3.10, matching this build's stack. Installation is via `pip install alembic` into the project's virtualenv/Docker image, with migration scripts driven by `alembic.ini` + `env.py` and the `op.*` directives. For this build, the relevant surface is `op.alter_column(..., new_column_name=...)` and `op.execute()` for the reversible gcs_* rename, paired with SQLAlchemy ORM `synonym()` (a SQLAlchemy, not Alembic, feature) so old env var/attribute names keep resolving during the transition. No breaking changes in the last 3 years block this use case, but version pinning matters because Alembic does not follow SemVer.",
+  "key_findings": [
+    "Current stable version is Alembic 1.20.1 per the official docs site (alembic.sqlalchemy.org), confirmed by direct fetch of the front matter page.",
+    "Alembic 1.20.0 dropped support for SQLAlchemy versions older than 2.0.0, making 2.0.0+ the hard minimum -- aligns with this build's pinned SQLAlchemy 2.0.",
+    "Alembic 1.17.0 raised the minimum Python version to 3.10; this build targets Python 3.12, so no compatibility gap.",
+    "Alembic explicitly states it does NOT use SemVer -- the middle version digit marks a 'Significant Minor Release' that can include API changes/deprecations, so the docs recommend pinning to major.minor.",
+    "`op.alter_column()` supports a `new_column_name` kwarg for plain column renames on backends (like Postgres) that support ALTER TABLE ... RENAME COLUMN directly, without needing SQLite's batch_alter_table workaround.",
+    "`op.execute()` accepts raw SQL strings or SQLAlchemy Core constructs for custom migration logic (e.g., backfilling or dual-writing during the gcs_* rename), but the docs warn against parameterized statements in offline mode.",
+    "Alembic 1.11.0 made most `op.*` operation parameters keyword-only (with a couple of legacy positional exceptions for `drop_index`/`drop_constraint`), relevant if copying older migration snippets from pre-2023 tutorials.",
+    "Alembic has no native async API; for an async SQLAlchemy engine it runs migrations by wrapping the async engine's sync-style connection via `run_sync`, per the official docs summary -- relevant if the FastAPI app's engine is async."
+  ],
+  "recommendations": [
+    "Pin Alembic to a specific major.minor (e.g. 1.20.x) in requirements, not just a floor, since Alembic does not use SemVer and minor releases can carry API changes.",
+    "Implement the gcs_* rename as a single Alembic revision using `op.alter_column(table_name, 'gcs_bucket', new_column_name='object_store_bucket', ...)` (and equivalent for other renamed columns), with a symmetrical `downgrade()` that renames back -- this gives the reversible migration required by AC 5.",
+    "Keep the SQLAlchemy-side compatibility shim as ORM `synonym()` attributes (a SQLAlchemy feature, not Alembic) mapping old attribute/env-var names to the new columns, so old env var names still resolve per AC 5 -- do not try to do this inside the Alembic migration itself.",
+    "Since this project is on Postgres (not SQLite), plain `op.alter_column(new_column_name=...)` is sufficient; no need for `op.batch_alter_table()`, which exists mainly for SQLite's lack of native ALTER support.",
+    "If the app's SQLAlchemy engine is async (per FastAPI), confirm the Alembic `env.py` uses the documented async-to-sync bridging pattern rather than hand-rolling connection handling, to avoid event-loop pitfalls.",
+    "Avoid copying `op.*` call signatures from Alembic tutorials predating 1.11.0, since many parameters are now keyword-only."
+  ],
+  "as_of": "Alembic 1.20.1 (current stable per alembic.sqlalchemy.org, checked 2026-11-11)",
+  "sources": [
+    {
+      "title": "Front Matter - Alembic's documentation! - SQLAlchemy",
+      "url": "https://alembic.sqlalchemy.org/en/latest/front.html",
+      "type": "official-docs",
+      "quote": "Support for SQLAlchemy older than 2.0.0 was dropped ... Alembic does not use SemVer"
+    },
+    {
+      "title": "Changelog — Alembic 1.20.1 documentation",
+      "url": "https://alembic.sqlalchemy.org/en/latest/changelog.html",
+      "type": "official-docs",
+      "quote": "Alembic 1.20.0 dropped support for SQLAlchemy 1.4, requiring version 2.0.0 minimum"
+    },
+    {
+      "title": "Operation Reference — Alembic 1.20.1 documentation",
+      "url": "https://alembic.sqlalchemy.org/en/latest/ops.html",
+      "type": "official-docs",
+      "quote": "alter_column(table_name, column_name, *, ... new_column_name=None, ...)"
+    }
+  ],
+  "current_version": "1.20.1",
+  "api_surface": [
+    "op.alter_column(table_name, column_name, new_column_name=..., existing_type=..., ...) -- for the reversible gcs_* column rename",
+    "op.rename_table(old_table_name, new_table_name, schema=None) -- if any table-level renames are needed",
+    "op.execute(sqltext) -- for custom SQL during migration (e.g. data backfill alongside rename)",
+    "alembic.ini + env.py -- standard project configuration and migration environment wiring",
+    "command.upgrade() / command.downgrade() -- programmatic or CLI-driven application of migrations",
+    "--autogenerate revision generation -- to diff ORM metadata against the live schema when adding new columns"
+  ],
+  "pitfalls": [
+    "Alembic does not use SemVer; minor version bumps (e.g. 1.19 -> 1.20) can include API/deprecation changes, so pin major.minor rather than using a loose floor.",
+    "Alembic 1.20.0 requires SQLAlchemy >= 2.0.0 -- confirm no transitive dependency pulls in SQLAlchemy 1.4 in the Docker image.",
+    "Alembic 1.17.0 requires Python >= 3.10 -- not an issue for this build's Python 3.12 target, but worth noting if base images are older.",
+    "Most op.* parameters became keyword-only starting at 1.11.0; older migration examples using positional args may fail on current Alembic.",
+    "Alembic has no first-class async API; async SQLAlchemy engines must be bridged to sync execution inside env.py, which is an easy source of event-loop bugs if copied incorrectly."
+  ],
+  "uncertain": []
+}

@@ -1,0 +1,74 @@
+{
+  "summary": "Hugging Face Transformers is officially at v5.22.2 (confirmed Nov 2026), requiring Python 3.11+ and PyTorch 2.6+; v5 made PyTorch the sole backend, dropping TensorFlow/Flax support entirely. For this build's local CPU embedder, the relevant surface is AutoTokenizer/AutoModel.from_pretrained plus the feature-extraction pipeline, both of which support explicit device='cpu' placement and offline/local-cache loading via HF_HUB_OFFLINE=1 or local_files_only=True — exactly what's needed to keep unit tests network-free and run on no-GPU school servers. The main migration risk for a team coming from any v4-era code is the TF/Flax removal and the torch_dtype→dtype rename with a new 'auto' precision default, neither of which was documented at the time most existing embedding example code was written.",
+  "key_findings": [
+    "Current stable release is transformers 5.22.2, released 2026-11-06, per the official PyPI project page and the version-pinned docs URLs (/docs/transformers/v5.22.2/...).",
+    "[removed by OSA: this line looked like an instruction aimed at an AI (remote-exec)]",
+    "Transformers v5 sunsets TensorFlow and Flax support, making PyTorch the sole backend going forward (official v5 blog post, huggingface.co/blog/transformers-v5).",
+    "v5 also removes the Fast/Slow tokenizer distinction, standardizing on the `tokenizers` backend; image processors now ship only torchvision-accelerated variants (same blog post).",
+    "The official feature-extraction pipeline docs (main_classes/pipelines) show `device` (e.g. device='cpu' or device=-1 to force CPU) and `dtype` (default 'auto', meaning it loads in whatever precision the model checkpoint was saved in rather than defaulting to float32) as the relevant runtime parameters.",
+    "Official installation docs describe offline/no-network operation: set HF_HUB_OFFLINE=1 or pass local_files_only=True to from_pretrained() to prevent any HTTP calls to the Hub once a model is cached — the documented mechanism for satisfying a 'no network calls in tests' requirement.",
+    "Default cache location is ~/.cache/huggingface/hub (or C:\\Users\\<user>\\.cache\\huggingface\\hub on Windows), configurable via HF_HUB_CACHE / HF_HOME env vars — relevant for baking a model into a Docker image layer.",
+    "[uncertain] Community/secondary sources (not opened directly as primary docs) report that `torch_dtype=` in from_pretrained is deprecated in favor of `dtype=` as of transformers >=4.56/5.x; this specific rename was not independently confirmed by directly reading the from_pretrained parameter docs in this session due to page size, so it carries the uncertain marker even though the related 'dtype defaults to auto, not float32' behavior itself was confirmed directly from the official pipelines doc."
+  ],
+  "recommendations": [
+    "[removed by OSA: this line looked like an instruction aimed at an AI (remote-exec)]",
+    "Use AutoTokenizer + AutoModel.from_pretrained with explicit device='cpu' (and, if pooling embeddings yourself, explicit dtype=torch.float32) rather than relying on the pipeline's 'auto' dtype default, so precision is deterministic across runs for the before/after parity report.",
+    "Pre-download the chosen 768-dim embedding model into the Docker image at build time, then set HF_HUB_OFFLINE=1 (or local_files_only=True) at runtime — this is the documented way to guarantee zero network calls during pytest and in production, satisfying acceptance criterion 2.",
+    "Pin the transformers version exactly in requirements (e.g. transformers==5.22.2) rather than a loose range, given how recent and disruptive the v4→v5 TF/Flax removal and tokenizer changes are — avoids an unplanned major-version jump breaking the Docker build later.",
+    "Avoid any torch_dtype= keyword if copying older example code from pre-v5 tutorials; use dtype= instead and verify against the installed version's own `from_pretrained.__doc__` rather than trusting older blog posts, since this rename is only secondarily confirmed here.",
+    "Confirm the specific 768-dim embedding model checkpoint chosen for this build has been re-tested or re-uploaded compatible with transformers 5.x (not just an older 4.x-era checkpoint), since the config/model-loading internals changed significantly in v5."
+  ],
+  "as_of": "transformers v5.22.2, released 2026-11-06 (per PyPI and version-pinned docs URLs)",
+  "sources": [
+    {
+      "title": "Installation — Hugging Face Transformers docs",
+      "url": "https://huggingface.co/docs/transformers/installation",
+      "type": "official-docs",
+      "quote": "Transformers works with PyTorch. It has been tested on Python 3.11+ and PyTorch 2.6+."
+    },
+    {
+      "title": "transformers · PyPI",
+      "url": "https://pypi.org/project/transformers/",
+      "type": "official-docs",
+      "quote": "Current Stable Version: 5.22.2, released on November 6, 2026"
+    },
+    {
+      "title": "Transformers — index page",
+      "url": "https://huggingface.co/docs/transformers/en/index",
+      "type": "official-docs",
+      "quote": "Transformers acts as the model-definition framework for state-of-the-art machine learning models ... pivot across frameworks ... (v5.22.2 docs)"
+    },
+    {
+      "title": "Pipelines — main classes",
+      "url": "https://huggingface.co/docs/transformers/main_classes/pipelines",
+      "type": "official-docs",
+      "quote": "device (int, str, or torch.device, optional) ... Pass device=\"cpu\" or device=-1 to force CPU execution. dtype ... defaults to 'auto' ... defaults to the dtype the model was saved in."
+    },
+    {
+      "title": "Transformers v5: Simple model definitions powering the AI ecosystem",
+      "url": "https://huggingface.co/blog/transformers-v5",
+      "type": "article",
+      "quote": "we're sunsetting our Flax/TensorFlow support in favor of focusing on PyTorch as the sole backend"
+    }
+  ],
+  "current_version": "5.22.2 (released 2026-11-06)",
+  "api_surface": [
+    "from transformers import AutoTokenizer, AutoModel",
+    "AutoTokenizer.from_pretrained(model_id, local_files_only=True)",
+    "AutoModel.from_pretrained(model_id, dtype=torch.float32, local_files_only=True) — for custom mean-pooling to produce 768-dim sentence embeddings",
+    "transformers.pipeline('feature-extraction', model=model_id, device='cpu')",
+    "Environment variables HF_HUB_OFFLINE=1 / HF_HOME / HF_HUB_CACHE for offline, Docker-baked model caching"
+  ],
+  "pitfalls": [
+    "v5 removes TensorFlow and Flax backend support entirely; any legacy code or tutorials assuming TF compatibility will fail on install/import.",
+    "v5 removes the Fast/Slow tokenizer distinction in favor of the tokenizers backend only — code branching on tokenizer type should be removed.",
+    "pipeline/from_pretrained dtype now defaults to 'auto' (whatever precision the checkpoint was saved in) rather than always float32 — pin dtype=torch.float32 explicitly for predictable CPU behavior.",
+    "[uncertain] torch_dtype= kwarg is reportedly deprecated in favor of dtype= as of 4.56+/5.x per secondary sources — not independently confirmed from the primary from_pretrained docs in this session.",
+    "Requires Python 3.11+ and PyTorch 2.6+; older pinned PyTorch versions in an existing Dockerfile may need bumping.",
+    "Without HF_HUB_OFFLINE=1 or local_files_only=True, from_pretrained will attempt a Hub network call even when a model is cached (e.g. on branch/tag resolution), which would violate the 'no network calls in unit tests' acceptance criterion if left unset."
+  ],
+  "uncertain": [
+    "key_findings",
+    "pitfalls"
+  ]
+}

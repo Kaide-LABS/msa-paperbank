@@ -1,0 +1,90 @@
+{
+  "summary": "The Model Context Protocol (MCP) is an open, JSON-RPC 2.0-based standard (maintained at modelcontextprotocol.io and github.com/modelcontextprotocol) for connecting AI applications to external tools/data. The spec has had four stable dated revisions in under two years (2024-11-05, 2025-03-26, 2025-06-18, 2025-11-25), with the official docs site now also publishing a dated general-docs tree (2026-07-28) layered on top of the 2025-11-25 protocol spec. For this OSA build, the relevant surface is: the official Python SDK (`mcp` package, install via `pip install \"mcp[cli]\"`), the `@mcp.tool()` decorator pattern (FastMCP) to expose the single retrieval callable as one MCP tool, and the Streamable HTTP transport (not stdio) since the backend must be reachable over public HTTPS. The protocol has gone through real breaking changes (transport replaced, JSON-RPC batching added then removed, auth model substantially reworked) so the build should pin an explicit revision rather than track \"latest.\"",
+  "key_findings": [
+    "Protocol revisions (dated, each with its own changelog page): 2024-11-05 (baseline), 2025-03-26, 2025-06-18, 2025-11-25 (current stable spec as of this research) [modelcontextprotocol.io/specification/*].",
+    "2025-03-26 replaced the original HTTP+SSE transport with 'Streamable HTTP' and added JSON-RPC batching and an OAuth 2.1-based authorization framework.",
+    "2025-06-18 then REMOVED JSON-RPC batching support entirely, classified MCP servers as OAuth Resource Servers, required clients to implement RFC 8707 Resource Indicators, added structured tool output, elicitation, resource links, and required the `MCP-Protocol-Version` HTTP header on requests after initialization.",
+    "2025-11-25 added OpenID Connect Discovery 1.0 support, icon metadata on tools/resources/prompts, incremental OAuth scope consent, tool-name guidance, reworked ElicitResult/EnumSchema, URL-mode elicitation, tool-calling via sampling, OAuth Client ID Metadata Documents, and experimental 'tasks' for durable/polled requests.",
+    "Core primitives (stable across revisions): Resources, Tools, Prompts offered by servers; Sampling, Roots, Elicitation offered by clients; all over JSON-RPC 2.0 with stateful connections and capability negotiation [modelcontextprotocol.io/specification/2025-06-18].",
+    "Official Python SDK install: `pip install \"mcp[cli]\"` (plain `mcp` for SDK-only, no CLI); SDK uses `@mcp.tool()` / `@mcp.resource()` decorators, deriving JSON Schema from type hints/docstrings, eliminating manual request parsing [github.com/modelcontextprotocol/python-sdk].",
+    "Supported transports in the Python SDK: stdio (local subprocess), Streamable HTTP (the deployment/network transport), and legacy SSE — stdio is not viable for a publicly reachable HTTPS backend.",
+    "PyPI shows `mcp` package at version 2.3.0 (released 2026-10-02), confirming active, fast-moving releases well within the last 3 years [pypi.org/project/mcp]."
+  ],
+  "recommendations": [
+    "Do not implement MCP wiring in this migration phase per the locked PRD (Copilot Studio/agent tool integration is explicitly a later run) — only keep the retrieval callable channel-neutral, dependency-free of WhatsApp types, and import-clean so an MCP tool wrapper can be bolted on later.",
+    "When that later work happens, target the Streamable HTTP transport (not stdio, not the deprecated HTTP+SSE) since the backend is reachable over public HTTPS and must serve a remote agent.",
+    "Pin an explicit protocol revision (e.g. 2025-06-18 or 2025-11-25) in any future MCP server config rather than tracking 'latest' — this spec has broken transport and batching compatibility twice in its history.",
+    "If/when an MCP tool is added, wrap the existing single retrieval callable as exactly one `@mcp.tool()` — this maps directly onto the constraint 'one tool call per request (MCP or REST) for the future agent' and avoids exposing multiple fine-grained tools.",
+    "Do not rely on JSON-RPC batching (removed in 2025-06-18) or on the 'experimental' tasks feature (introduced 2025-11-25) for anything production-critical.",
+    "Any future MCP server must send/require the `MCP-Protocol-Version` header per spec (2025-06-18+) and treat the OAuth 2.1 / Resource Server authorization model as the default, since MCP's own security principles require explicit user consent before tool invocation and data exposure."
+  ],
+  "as_of": "2025-11-25 is the latest dated protocol specification revision found on the official site; the official docs site itself is also publishing a 2026-07-28-dated general documentation tree built on that spec; Python SDK (`mcp`) package version 2.3.0 released 2026-10-02 per PyPI.",
+  "sources": [
+    {
+      "title": "Key Changes (2025-11-25 changelog) - Model Context Protocol",
+      "url": "https://modelcontextprotocol.io/specification/2025-11-25/changelog",
+      "type": "official-docs",
+      "quote": "This document lists changes made to the Model Context Protocol (MCP) specification since the previous revision, 2025-06-18."
+    },
+    {
+      "title": "Introduction - Model Context Protocol",
+      "url": "https://modelcontextprotocol.io/introduction",
+      "type": "official-docs",
+      "quote": "MCP (Model Context Protocol) is an open-source standard for connecting AI applications to external systems."
+    },
+    {
+      "title": "Build an MCP server - Model Context Protocol",
+      "url": "https://modelcontextprotocol.io/docs/2026-07-28/develop/build-server.md",
+      "type": "official-docs",
+      "quote": "MCP servers can provide three main types of capabilities: Resources ... Tools ... Prompts"
+    },
+    {
+      "title": "Specification (2025-06-18) - Model Context Protocol",
+      "url": "https://modelcontextprotocol.io/specification/2025-06-18",
+      "type": "official-docs",
+      "quote": "The protocol uses JSON-RPC 2.0 messages to establish communication between: Hosts ... Clients ... Servers"
+    },
+    {
+      "title": "Key Changes (2025-06-18 changelog) - Model Context Protocol",
+      "url": "https://modelcontextprotocol.io/specification/2025-06-18/changelog",
+      "type": "official-docs",
+      "quote": "Remove support for JSON-RPC batching (PR #416) ... Require negotiated protocol version to be specified via MCP-Protocol-Version header"
+    },
+    {
+      "title": "Key Changes (2025-03-26 changelog) - Model Context Protocol",
+      "url": "https://modelcontextprotocol.io/specification/2025-03-26/changelog",
+      "type": "official-docs",
+      "quote": "Replaced the previous HTTP+SSE transport with a more flexible Streamable HTTP transport ... Added support for JSON-RPC batching"
+    },
+    {
+      "title": "modelcontextprotocol/python-sdk",
+      "url": "https://github.com/modelcontextprotocol/python-sdk",
+      "type": "repo",
+      "quote": "pip install \"mcp[cli]\" ... @mcp.tool() and @mcp.resource() decorators ... stdio ... Streamable HTTP ... SSE"
+    },
+    {
+      "title": "mcp · PyPI",
+      "url": "https://pypi.org/project/mcp/",
+      "type": "official-docs",
+      "quote": "Version: 2.3.0, Release Date: Oct 2, 2026"
+    }
+  ],
+  "current_version": "Protocol spec: 2025-11-25 revision (latest dated changelog found on modelcontextprotocol.io); Python SDK package `mcp`: 2.3.0 (PyPI, 2026-10-02)",
+  "api_surface": [
+    "pip install \"mcp[cli]\" (official Python SDK; plain `pip install mcp` if CLI tooling not needed)",
+    "@mcp.tool() decorator to expose the existing retrieval callable as a single MCP tool (FastMCP-style, schema derived from type hints/docstring)",
+    "Streamable HTTP transport for the MCP server (required for public-HTTPS reachability; stdio is local-subprocess only)",
+    "JSON-RPC 2.0 base protocol methods: initialize/capability negotiation, tools/list, tools/call",
+    "MCP-Protocol-Version HTTP header on requests after initialization (mandatory since 2025-06-18)",
+    "OAuth 2.1 / Resource Server authorization flow if/when the MCP endpoint needs to be secured for the future agent"
+  ],
+  "pitfalls": [
+    "Transport breaking change: original HTTP+SSE transport was replaced by Streamable HTTP in 2025-03-26 — building against the old SSE-only transport is a dead end.",
+    "JSON-RPC batching was added in 2025-03-26 then fully removed again in 2025-06-18 — do not design the retrieval callable's MCP wrapper around batched calls.",
+    "Authorization model changed substantially across revisions (OAuth 2.1 framework added 2025-03-26; servers reclassified as OAuth Resource Servers plus RFC 8707 Resource Indicators required for clients in 2025-06-18; OIDC Discovery and OAuth Client ID Metadata Documents added 2025-11-25) — don't hardcode an auth approach tied to one revision.",
+    "MCP-Protocol-Version header became mandatory on HTTP transport starting 2025-06-18 — omitting it will break against spec-compliant servers/clients going forward.",
+    "The 'tasks' feature (durable/polled requests) introduced in 2025-11-25 is explicitly marked experimental — avoid depending on it for production behavior.",
+    "stdio transport is local-subprocess-only and cannot satisfy this build's 'reachable over public HTTPS' requirement; only Streamable HTTP fits."
+  ],
+  "uncertain": []
+}

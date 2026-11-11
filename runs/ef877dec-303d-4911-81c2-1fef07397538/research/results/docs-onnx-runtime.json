@@ -1,0 +1,80 @@
+{
+  "summary": "ONNX Runtime (Microsoft) is the correct, actively maintained inference engine for running a local CPU embedder in this migration: current stable is 1.31.1 (Oct 26, 2026), installed via `pip install onnxruntime` for CPU-only inference, officially supports Python 3.11-3.14 (covers the build's Python 3.12 requirement), and exposes a small, stable Python API (InferenceSession, SessionOptions, get_available_providers, run()) sufficient to load an ONNX embedding model and produce 768-dim vectors with no GPU and no external API dependency. The last 3 years brought no breaking changes to the core CPU inference path used here; the only relevant deprecation is the unrelated ARM Compute Library execution provider.",
+  "key_findings": [
+    "Current stable release: onnxruntime 1.31.1, released 2026-10-26 (PyPI); 1.31.0 released 2026-10-09 (GitHub Releases) — both are the latest-of-record as of this research.",
+    "PyPI package 'onnxruntime' (CPU build) requires Python >=3.11 and ships wheels for Python 3.11, 3.12, 3.13, 3.14 on Linux/Windows/macOS — Python 3.12 is fully supported.",
+    "Official install for CPU-only (non-GPU, non-Arm-specific) is `pip install onnxruntime`; docs note the same package is recommended for Arm-based CPUs and macOS too.",
+    "Core API: `onnxruntime.InferenceSession(path_or_bytes, sess_options=None, providers=None, provider_options=None)`, `.run(output_names, input_feed, run_options=None) -> list[ndarray]`, `onnxruntime.get_available_providers()`, and `SessionOptions` (graph_optimization_level, intra_op_num_threads, inter_op_num_threads, execution_mode, enable_profiling).",
+    "On a machine with only CPU hardware, `providers=['CPUExecutionProvider']` is used explicitly or implicitly (CPUExecutionProvider is always the fallback/default when no accelerator is present).",
+    "ONNX Runtime maintains broad backward opset compatibility: 'All versions of ONNX Runtime support ONNX opsets from ONNX v1.2.1+ (opset version 7 and higher)' — no action needed for model conversion compatibility.",
+    "v1.31.0 breaking/notable change: GatherBlockQuantized now returns zero output slices for out-of-range indices (CPU/CUDA/WebGPU) instead of erroring — only relevant if using quantized Gather ops, not typical for a plain embedding model.",
+    "v1.31.0 deprecation: the ARM Compute Library (ACL) execution provider is deprecated and will be removed in a future release; irrelevant to a standard CPUExecutionProvider deployment.",
+    "v1.31.0 stabilized the previously-experimental model-package and EPContext data APIs (promoted to stable C/C++/Python/etc. APIs) — not needed for a simple embedding InferenceSession, but confirms the API surface this build will touch (InferenceSession/run) has been stable, not experimental, throughout."
+  ],
+  "recommendations": [
+    "Pin `onnxruntime` (CPU package, not `onnxruntime-gpu`) in requirements, e.g. `onnxruntime>=1.31,<2`, and verify the Docker base image's glibc/Linux distro matches ONNX Runtime's supported platform matrix before building the image.",
+    "Load the embedding model once at process startup as a module-level `InferenceSession(model_path, providers=['CPUExecutionProvider'])` and reuse it per request — do not recreate the session per call.",
+    "Explicitly pass `providers=['CPUExecutionProvider']` rather than relying on default provider ordering, to guarantee no CUDA/other EP is probed on the school's no-GPU servers and to keep startup fast and deterministic.",
+    "Do not use the ARM Compute Library execution provider (deprecated) even if deploying on ARM servers; stick with the default CPU provider.",
+    "Since Python 3.12 is a fully supported, non-edge version, no special wheel-building or source compilation is needed — a plain `pip install onnxruntime` in the Dockerfile will fetch a prebuilt wheel.",
+    "Treat GatherBlockQuantized's altered out-of-range behavior as a non-issue unless the chosen embedding model uses block-quantized Gather ops internally; verify by inspecting the exported ONNX graph if quantization is used."
+  ],
+  "as_of": "2026-10-26 (onnxruntime 1.31.1 per PyPI; 1.31.0 per GitHub Releases, 2026-10-09)",
+  "sources": [
+    {
+      "title": "onnxruntime · PyPI",
+      "url": "https://pypi.org/project/onnxruntime/",
+      "type": "official-docs",
+      "quote": "Current Version: 1.31.1 ... Release Date: October 26, 2026 ... Python >=3.11"
+    },
+    {
+      "title": "Install ONNX Runtime | onnxruntime.ai",
+      "url": "https://onnxruntime.ai/docs/get-started/with-python.html",
+      "type": "official-docs",
+      "quote": "pip install onnxruntime ... Use the CPU package if you are running on Arm®-based CPUs and/or macOS."
+    },
+    {
+      "title": "API - Python API documentation",
+      "url": "https://onnxruntime.ai/docs/api/python/api_summary.html",
+      "type": "official-docs",
+      "quote": "class onnxruntime.InferenceSession(path_or_bytes, sess_options=None, providers=None, provider_options=None, **kwargs) ... onnxruntime.get_available_providers()"
+    },
+    {
+      "title": "ONNX Runtime compatibility",
+      "url": "https://onnxruntime.ai/docs/reference/compatibility.html",
+      "type": "official-docs",
+      "quote": "All versions of ONNX Runtime support ONNX opsets from ONNX v1.2.1+ (opset version 7 and higher)."
+    },
+    {
+      "title": "Release ONNX Runtime v1.31.0 · microsoft/onnxruntime",
+      "url": "https://github.com/microsoft/onnxruntime/releases/tag/v1.31.0",
+      "type": "repo",
+      "quote": "The ACL EP is deprecated and will be removed in a future release. ... GatherBlockQuantized ... produce zero output slices across CPU, CUDA, and WebGPU"
+    },
+    {
+      "title": "Releases · microsoft/onnxruntime",
+      "url": "https://github.com/microsoft/onnxruntime/releases",
+      "type": "repo",
+      "quote": "ONNX Runtime v1.31.1 ... Latest patch release; v1.31.0 ... stabilizes model-package and EPContext data APIs"
+    }
+  ],
+  "current_version": "1.31.1 (per PyPI, 2026-10-26); 1.31.0 (per GitHub Releases, 2026-10-09)",
+  "api_surface": [
+    "onnxruntime.InferenceSession(path_or_bytes, sess_options=None, providers=None, provider_options=None)",
+    "InferenceSession.run(output_names, input_feed, run_options=None) -> list[ndarray]",
+    "onnxruntime.SessionOptions (intra_op_num_threads, inter_op_num_threads, graph_optimization_level, execution_mode)",
+    "onnxruntime.get_available_providers() / get_all_providers()",
+    "providers=['CPUExecutionProvider'] (explicit CPU-only execution for no-GPU school servers)"
+  ],
+  "pitfalls": [
+    "Exact release-date source conflict: GitHub release page text itself showed 'October 9, 2024' for v1.31.0 while PyPI and web search both independently corroborate 2026 — this is a likely date-extraction artifact on the GitHub page render; treat the 2026 date as correct but flagged.",
+    "ACL (ARM Compute Library) execution provider deprecated in v1.31.0, scheduled for removal — avoid depending on `--use_acl` builds.",
+    "GatherBlockQuantized semantics changed in v1.31.0 (out-of-range indices now silently zero instead of erroring) — audit any quantized models for reliance on old error behavior.",
+    "onnxruntime (CPU) package on PyPI requires Python >=3.11, dropping support for older Python 3.x versions — ensure Docker base image uses Python 3.12 as planned, not an older interpreter.",
+    "Must install the plain `onnxruntime` package, not `onnxruntime-gpu`, to avoid pulling unnecessary CUDA dependencies on GPU-less school servers."
+  ],
+  "uncertain": [
+    "current_version",
+    "as_of"
+  ]
+}

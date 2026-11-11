@@ -1,0 +1,66 @@
+{
+  "summary": "For this build, the cleanest pattern is a custom HMAC-SHA256 signed URL (not raw S3/MinIO presigned URLs) issued by the ObjectStore port, because the backend must work identically over local filesystem and MinIO/S3, and MinIO/S3 presigned URLs only cover S3-protocol objects, not plain disk files. The standard shape is: sign a payload of (object key/path, expiry timestamp) with HMAC-SHA256 and a server-held secret, append the expiry and signature as query params, and on each download request recompute the HMAC over the same canonical string and reject on mismatch (tamper) or on expiry timestamp in the past. Python's itsdangerous.URLSafeTimedSerializer implements exactly this pattern (HMAC-based TimestampSigner, loads(token, max_age=900) raising SignatureExpired vs BadSignature) and is commonly used for exactly this purpose in FastAPI download-link endpoints. If/when the MinIO backend is used directly, MinIO's own presigned_get_object/get_presigned_url already produce AWS SigV4 (HMAC-SHA256) signed URLs with configurable expiry (1 second to 7 days, default 7 days) and built-in tamper/expiry rejection, so the ObjectStore adapter can either wrap those natively for MinIO/S3 or apply its own HMAC layer uniformly across both backends for one consistent 15-minute contract.",
+  "key_findings": [
+    "itsdangerous.TimestampSigner/URLSafeTimedSerializer uses HMAC (HMACAlgorithm) with hashlib.sha1 as the default digest method, per the itsdangerous signer.py source; digest_method and algorithm are both overridable (e.g. to sha256).",
+    "itsdangerous loads(token, max_age=N) raises SignatureExpired when signature age exceeds max_age (docs example: 'Signature age 15 > 5 seconds') and raises BadSignature when the signature/content is tampered with; both are distinct exception types that should be caught separately per itsdangerous's timed-signing docs.",
+    "A documented FastAPI pattern (mephisto.cc) signs a payload (e.g. recipient/user identifier) with URLSafeTimedSerializer, embeds the token in the download URL path, and on request calls loads(token, max_age=600) to enforce a 10-minute expiry while returning FileResponse only on success -- directly analogous to a 15-minute filesystem download link.",
+    "boto3 S3 generate_presigned_url signs with AWS Signature Version 4; ExpiresIn is in seconds, commonly defaulting to 3600 (1 hour) with AWS enforcing presigned URLs cannot exceed 7 days, and the effective expiry is the minimum of the signing credentials' expiry and the requested ExpiresIn, per AWS's boto3 presigned-URL guide.",
+    "AWS's presigned-URL mechanism embeds X-Amz-Algorithm, X-Amz-Credential, X-Amz-Date, and X-Amz-Signature in the URL; any change to bucket, key, method, or query parameters invalidates the SigV4 signature and the request is rejected -- confirmed on docs.aws.amazon.com/boto3/latest/guide/s3-presigned-urls.html.",
+    "MinIO's Python SDK (presigned_get_object, get_presigned_url) signs with AWS4-HMAC-SHA256 (SigV4), takes `expires` as a datetime.timedelta between 1 second and 7 days (default 7 days), and binds expiry into the canonical request via X-Amz-Expires so the duration is cryptographically part of the signature -- confirmed from minio-py's signer.py source and the official Python Client API reference.",
+    "Because MinIO/S3 presigned URLs are protocol-specific to object storage, they cannot be issued for a local filesystem path; any filesystem-backed ObjectStore implementation must implement its own HMAC-signed URL scheme (e.g. itsdangerous-style) to meet the uniform 15-minute signed-URL contract required across both backends."
+  ],
+  "recommendations": [
+    "Implement the ObjectStore port's signed-URL contract as a backend-agnostic HMAC-SHA256 signer (e.g. itsdangerous URLSafeTimedSerializer with digest_method=hashlib.sha256, or a hand-rolled HMAC over 'object_key|expiry_ts') so filesystem and MinIO/S3 backends behave identically to callers.",
+    "Set max_age/expiry to ~900 seconds (15 minutes) explicitly per the PRD; do not rely on itsdangerous's SHA-1 default without upgrading digest_method to SHA-256 for a stronger tamper guarantee.",
+    "Catch SignatureExpired and BadSignature (or their HMAC-recompute equivalents) as distinct error paths and return 403/410 rather than a generic 404, so expired vs tampered links are distinguishable in logs for ops/runbook purposes.",
+    "If a MinIO backend is used, consider delegating directly to MinIO's native presigned_get_object with expires=timedelta(minutes=15) for that backend, but keep the filesystem backend's custom HMAC signer behaviorally equivalent (same expiry window, same rejection semantics) so the port abstraction holds.",
+    "Never embed the raw storage path or secret key material in the token payload beyond what's needed to resolve the object; sign only an opaque object identifier plus expiry, and keep the HMAC secret in the Secrets port, not hardcoded, consistent with acceptance criterion 7.",
+    "Add unit tests (no network calls, acceptance criterion 2) that directly exercise the signer: valid token within window, expired token past ~15 min, and a tampered token (flipped byte / modified expiry) to assert rejection -- this maps directly to acceptance criterion 6."
+  ],
+  "as_of": "boto3/AWS S3 presigned URL docs and MinIO Python SDK API reference as fetched 2026-11-11; itsdangerous docs are for the 2.2.x 'stable' release line as fetched 2026-11-11; dated web articles referenced were published 2026",
+  "sources": [
+    {
+      "title": "Presigned URLs - Boto3 documentation (redirected to docs.aws.amazon.com)",
+      "url": "https://docs.aws.amazon.com/boto3/latest/guide/s3-presigned-urls.html",
+      "type": "official-docs",
+      "quote": "Any modification to the URL (bucket name, object key, parameters) invalidates the signature ... AWS limits presigned URLs to a maximum of 7 days (604,800 seconds)"
+    },
+    {
+      "title": "Python Client API Reference - MinIO",
+      "url": "https://docs.min.io/aistor/developers/sdk/python/api/",
+      "type": "official-docs",
+      "quote": "presigned_get_object(bucket_name, object_name, expires=timedelta(days=7), ...)"
+    },
+    {
+      "title": "minio-py signer.py (GitHub source)",
+      "url": "https://github.com/minio/minio-py/blob/master/minio/signer.py",
+      "type": "repo",
+      "quote": "X-Amz-Algorithm=AWS4-HMAC-SHA256 ... X-Amz-Expires={expires}"
+    },
+    {
+      "title": "URL Safe Serialization — ItsDangerous Documentation (2.2.x)",
+      "url": "https://itsdangerous.palletsprojects.com/en/stable/url_safe/",
+      "type": "official-docs",
+      "quote": "Works like TimedSerializer but dumps and loads into a URL safe string"
+    },
+    {
+      "title": "Timed Signature Verification — ItsDangerous Documentation",
+      "url": "https://itsdangerous.palletsprojects.com/en/stable/timed/",
+      "type": "official-docs",
+      "quote": "raises SignatureExpired ... Signature age 15 > 5 seconds"
+    },
+    {
+      "title": "itsdangerous signer.py (GitHub source)",
+      "url": "https://github.com/pallets/itsdangerous/blob/main/src/itsdangerous/__init__.py",
+      "type": "repo",
+      "quote": "The default is hashlib.sha1, but can be changed to any hashlib compatible object ... if algorithm is None: algorithm = HMACAlgorithm(self.digest_method)"
+    },
+    {
+      "title": "Fastapi simply implements temporary download links | mephisto.cc",
+      "url": "https://mephisto.cc/en/tech/temporary-download/",
+      "type": "article",
+      "quote": "s.loads(token, max_age=60 * 10) ... SignatureExpired ... BadSignature"
+    }
+  ],
+  "uncertain": []
+}

@@ -1,0 +1,51 @@
+{
+  "summary": "For a SQLAlchemy 2.0 Declarative model, rename the physical column with a reversible Alembic migration using `op.alter_column(table, 'gcs_key', new_column_name='object_key')` (and the mirrored rename in `downgrade()`), then update the ORM model so the new name (`object_key`) is the real `mapped_column` and add `gcs_key = synonym('object_key')` so old code/tests reading `.gcs_key` keep working. `synonym()` works out-of-the-box with Declarative/`mapped_column` for this simple aliasing case; the `map_column=True` flag some tutorials mention is only for classical mappings against an explicit `Table` object and is unnecessary here. For env vars, keep both old and new names resolving by setting `validation_alias=AliasChoices('OBJECT_STORE_KEY', 'GCS_KEY')` (new name first) on the pydantic-settings field, so either env var populates the same setting.",
+  "key_findings": [
+    "SQLAlchemy 2.0 `synonym(name, *, map_column=None, descriptor=None, ...)` creates an attribute that mirrors another mapped attribute; for plain Declarative classes you just write `old_attr = synonym('new_attr')` after defining `new_attr` as the real `mapped_column`.",
+    "`map_column=True` is documented as applying 'for classical mappings and mappings against an existing Table object only' — it is not the mechanism needed for a `Mapped`/`mapped_column` Declarative model.",
+    "Official SQLAlchemy example for Declarative: `job_status = mapped_column(String(50)); status = synonym('job_status')` — confirms the simple rename-with-alias pattern works directly on Declarative Base classes.",
+    "Alembic's `alter_column()` takes an explicit `new_column_name` kwarg specifically for rename operations; autogenerate does NOT detect renames on its own (it sees a drop+add and would lose data), so the rename migration must be written/edited by hand.",
+    "Alembic docs do not mandate `existing_type` for a pure rename on PostgreSQL (it's required on MySQL to avoid losing the default, and for SQLAlchemy 'schema' types like Boolean/Enum); supplying it anyway is harmless and safer across backends.",
+    "A rename migration is trivially reversible: `downgrade()` just calls `alter_column` again with the old/new names swapped.",
+    "pydantic-settings `AliasChoices('new_env_name', 'old_env_name')` passed to `validation_alias` lets a field be populated by either env var name; 'the first environment variable that is found will be used', so order choices to prefer the new name but still fall back to the old one.",
+    "`alias=` (vs `validation_alias=`) affects both validation and serialization; for a one-directional backward-compat read (old env var still works, but new docs/compose files use the new name) `validation_alias` alone is the right tool."
+  ],
+  "recommendations": [
+    "Write the Alembic migration as `op.alter_column('objects', 'gcs_key', new_column_name='object_key', existing_type=sa.String())` in `upgrade()`, and the exact inverse in `downgrade()` — this satisfies the 'reversible' acceptance criterion directly.",
+    "In the ORM model, make `object_key` the real `mapped_column` and add `gcs_key = synonym('object_key')` (and similarly for any other `gcs_*` attributes) so existing code/tests that still reference `.gcs_key` need zero changes.",
+    "Do not use `map_column=True` — it's for classical/Table-based mappings; plain `synonym('object_key')` is sufficient and is the pattern shown in SQLAlchemy's own Declarative docs.",
+    "For every renamed env var, declare `validation_alias=AliasChoices('OBJECT_STORE_KEY', 'GCS_KEY')` (new name first) on the pydantic-settings field so the pre-existing GCS-named env vars in deployment configs keep resolving without edits, satisfying the acceptance criterion that old env variable names still resolve.",
+    "Grep the codebase/tests for raw SQL or `.c.gcs_key`/`text()` references to the physical column name after the Alembic rename — the ORM synonym fixes Python attribute access but not raw SQL strings, which must be updated to `object_key`.",
+    "Keep the rename migration and the synonym addition in the same PR/commit so the reversible-migration and backward-compatible-attribute requirements are verifiably tied together."
+  ],
+  "as_of": "SQLAlchemy 2.0 docs and Alembic latest docs as fetched 2026-11-11; pydantic-settings docs page fetched 2026-11-11 did not display an explicit version number for the AliasChoices example [uncertain].",
+  "sources": [
+    {
+      "title": "Changing Attribute Behavior — SQLAlchemy 2.0 Documentation",
+      "url": "https://docs.sqlalchemy.org/en/20/orm/mapped_attributes.html",
+      "type": "official-docs",
+      "quote": "For classical mappings and mappings against an existing Table object only. if True, the synonym() construct will locate the Column object..."
+    },
+    {
+      "title": "Changing Attribute Behavior — SQLAlchemy 2.0 Documentation (synonyms section)",
+      "url": "https://docs.sqlalchemy.org/en/20/orm/mapped_attributes.html#synonyms",
+      "type": "official-docs",
+      "quote": "class MyClass(Base): __tablename__ = \"my_table\"; id = mapped_column(Integer, primary_key=True); job_status = mapped_column(String(50)); status = synonym(\"job_status\")"
+    },
+    {
+      "title": "Alembic Operation Reference — alter_column",
+      "url": "https://alembic.sqlalchemy.org/en/latest/ops.html#alembic.operations.Operations.alter_column",
+      "type": "official-docs",
+      "quote": "Optional; specify a string name here to indicate the new name within a column rename operation."
+    },
+    {
+      "title": "Pydantic Settings Management",
+      "url": "https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/",
+      "type": "official-docs",
+      "quote": "The AliasChoices class allows you to have multiple environment variable names for a single field. The first environment variable that is found will be used."
+    }
+  ],
+  "uncertain": [
+    "as_of"
+  ]
+}

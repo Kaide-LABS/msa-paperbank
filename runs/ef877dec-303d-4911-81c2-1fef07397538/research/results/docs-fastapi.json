@@ -1,0 +1,73 @@
+{
+  "summary": "FastAPI is a modern async Python web framework built on Starlette and Pydantic, installed via `pip install \"fastapi[standard]\"`, currently at stable version 0.162.4 (released 2026-11-10 per PyPI) requiring Python >=3.10. This build will use its core routing decorators, Pydantic-model request/response validation, the `Depends()` dependency-injection system to wire swappable provider ports (ObjectStore/Embedder/Secrets/DB engine), and the `lifespan` async-context-manager pattern for startup/shutdown of DB engine and embedder resources. The main historical pitfall relevant here is the Pydantic v1→v2 migration at FastAPI 0.100.0 (2023-07-07) and a 0.106.0 (2023-12-25) change affecting dependencies-with-yield/HTTPException/BackgroundTasks interaction, both of which predate and are compatible with this build's target of FastAPI + Pydantic v2 + SQLAlchemy 2.0.",
+  "key_findings": [
+    "Current stable FastAPI version is 0.162.4, released 2026-11-10 (PyPI), requiring Python >=3.10 and supporting up through Python 3.15.",
+    "Official install command is `pip install \"fastapi[standard]\"` (or `uv add \"fastapi[standard]\"`), which bundles Uvicorn, Pydantic, Jinja2, and python-multipart.",
+    "Dependency injection uses `Depends()` with plain or `Annotated[...]` type aliases; dependencies can be sync or async functions or classes and can be nested (sub-dependencies), making them suitable for swappable provider ports.",
+    "Startup/shutdown resource management is done via the `lifespan` async-context-manager parameter passed to `FastAPI(lifespan=...)`; code before `yield` runs at startup, code after `yield` runs at shutdown.",
+    "The older `@app.on_event(\"startup\"/\"shutdown\")` decorators are explicitly deprecated in official docs in favor of `lifespan`, and the docs warn the two mechanisms must not be mixed on the same app.",
+    "FastAPI 0.100.0 (2023-07-07) was the major release moving to full Pydantic v2 support, with an official migration guide noted in the release notes.",
+    "FastAPI 0.106.0 (2023-12-25) made a breaking change titled \"Dependencies with yield, HTTPException and Background Tasks\"; the release-notes page confirms this heading but the fetched excerpt did not render the full technical description [uncertain].",
+    "FastAPI 0.115.0 (2024-09-17) added Query/Header/Cookie Parameter Models and the ability to forbid extra query/cookie/header parameters.",
+    "Lifespan events only execute for the main ASGI app, not for mounted sub-applications, per the official advanced/events docs."
+  ],
+  "recommendations": [
+    "Use `Depends()` with class-based dependencies (one class per port: ObjectStore, Embedder, SecretsProvider, DB engine/session) so the GCP and local implementations can be swapped via a provider setting without touching route or callable signatures.",
+    "Manage the DB engine, embedder model load, and any object-store client via the `lifespan` async-context-manager on the FastAPI app instance, not the deprecated `on_event` hooks, to guarantee clean startup/shutdown ordering for Docker health checks.",
+    "Keep provider classes free of request/response or WhatsApp-specific types so `handle_inbound` and the retrieval callable only depend on the port interfaces, satisfying the channel-neutral handler requirement.",
+    "Pin an exact FastAPI version in requirements rather than a loose range, since the project releases frequently (multiple versions per month) and breaking-change clusters have occurred; re-run the pytest suite after any FastAPI bump.",
+    "Verify the exact technical detail of the FastAPI 0.106.0 yield/HTTPException/BackgroundTasks change directly against the target pinned version's release notes before relying on dependency-with-yield error handling in the ObjectStore or DB session ports."
+  ],
+  "as_of": "2026-11-10 (PyPI release date for FastAPI 0.162.4); FastAPI official docs and release notes as currently published",
+  "sources": [
+    {
+      "title": "FastAPI (official docs homepage)",
+      "url": "https://fastapi.tiangolo.com/",
+      "type": "official-docs",
+      "quote": "pip install \"fastapi[standard]\" ... FastAPI framework, high performance, easy to learn, fast to code, ready for production"
+    },
+    {
+      "title": "FastAPI Release Notes",
+      "url": "https://fastapi.tiangolo.com/release-notes/",
+      "type": "official-docs",
+      "quote": "0.106.0 ... Breaking Changes ... Dependencies with yield, HTTPException and Background Tasks"
+    },
+    {
+      "title": "fastapi · PyPI",
+      "url": "https://pypi.org/project/fastapi/",
+      "type": "official-docs",
+      "quote": "0.162.4 ... Requires: Python >=3.10"
+    },
+    {
+      "title": "FastAPI Tutorial - Dependencies",
+      "url": "https://fastapi.tiangolo.com/tutorial/dependencies/",
+      "type": "official-docs",
+      "quote": "async def common_parameters(q: str | None = None, skip: int = 0, limit: int = 100): return {\"q\": q, \"skip\": skip, \"limit\": limit}"
+    },
+    {
+      "title": "FastAPI Advanced - Lifespan Events",
+      "url": "https://fastapi.tiangolo.com/advanced/events/",
+      "type": "official-docs",
+      "quote": "If you use lifespan, startup and shutdown event handlers won't be called. Use one approach or the other, not both."
+    }
+  ],
+  "current_version": "0.162.4 (released 2026-11-10 per PyPI)",
+  "api_surface": [
+    "FastAPI(lifespan=...) app instantiation for managed DB engine/embedder/object-store client startup and shutdown",
+    "@app.get/post/put/delete path operation decorators with Pydantic BaseModel request/response bodies",
+    "Depends() dependency injection, including Annotated[...] type aliases and class-based dependencies for provider ports",
+    "APIRouter for modular route organization (e.g., separating channel adapters from core handler)",
+    "Automatic OpenAPI/Swagger UI generation for the single REST tool call surface needed by a future agent"
+  ],
+  "pitfalls": [
+    "FastAPI 0.100.0 (2023-07-07) required migrating fully to Pydantic v2; mixed v1/v2 model usage from older code must be checked.",
+    "FastAPI 0.106.0 (2023-12-25) changed behavior of dependencies-with-yield combined with HTTPException and BackgroundTasks; exact mechanics were not directly confirmed from the fetched excerpt [uncertain].",
+    "The on_event(\"startup\"/\"shutdown\") decorators are deprecated in favor of lifespan context managers and the two must not be combined on one app.",
+    "Lifespan context managers do not run for mounted sub-applications, which matters if a future Teams/MCP adapter is mounted as a sub-app rather than routed through the main app.",
+    "Frequent, rapid point releases (multiple per month, several marked 'breaking changes' through 2026) mean unpinned FastAPI versions risk silent behavior changes between CI runs."
+  ],
+  "uncertain": [
+    "key_findings",
+    "pitfalls"
+  ]
+}

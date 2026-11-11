@@ -1,0 +1,50 @@
+{
+  "summary": "Define a single ObjectStore protocol with put(key, data) -> None, get(key) -> bytes/stream, and signed_url(key, expires_in, method='GET') -> str, then implement it twice: a LocalFileSystemObjectStore that writes under a root directory and signs URLs with HMAC-SHA256 over path+expiry+method (verified by a FastAPI route), and a MinioObjectStore (or boto3 S3 client pointed at the MinIO endpoint via endpoint_url) that calls the native presigned_get_object/presigned_put_object methods. Both backends are selected behind the existing provider-setting port, so GCS stays available as a third implementation without changing call sites. MinIO's Python SDK and boto3 both cap presigned URLs at a 7-day SigV4 maximum with no built-in equivalent for plain filesystem storage, so the local backend needs its own expiry-enforcing signer to produce comparable ~15-minute, tamper-rejecting URLs for acceptance criterion 6.",
+  "key_findings": [
+    "AWS S3 presigned URLs created via SDK/CLI (SigV4) support expiry up to 7 days (604800s); console UI caps at 12 hours; boto3 generate_presigned_url defaults to 3600s via ExpiresIn.",
+    "S3 checks presigned URL expiry at request time, not at download start, and a SignatureDoesNotMatch error is returned for any tampered or re-signed query string parameter.",
+    "If temporary/STS credentials were used to sign, the URL expires when those credentials expire even if ExpiresIn specifies longer -- relevant if the ObjectStore ever uses role-based creds instead of static keys.",
+    "minio-py presigned_get_object, presigned_put_object, and the generic get_presigned_url all default expires to timedelta(days=7); the fetched SDK reference page did not state an enforced maximum, so MinIO-side enforcement of the 7-day SigV4 cap is [uncertain].",
+    "boto3's generate_presigned_url works unmodified against MinIO by passing endpoint_url to the S3 client, so a single boto3-based implementation can serve both AWS S3 and MinIO without a MinIO-specific SDK.",
+    "obstore (Rust-backed Python lib) exposes one interface (LocalStore, S3Store, GCSStore, AzureStore, MemoryStore) with uniform put/get/copy/delete/list/rename plus a sign() function, confirming the cross-backend interface pattern is an established design, though its LocalStore signing behavior was not independently verified from the fetched page.",
+    "A documented FastAPI pattern for local-filesystem signed URLs: encode path+expiry as an int Unix timestamp query param, compute HMAC-SHA256 over a canonical string (e.g. 'v1\\n{file_id}\\n{exp}') with a server-held secret, and verify with hmac.compare_digest to prevent timing attacks and reject tampering; expiry is checked with a simple int(time.time()) > expires comparison."
+  ],
+  "recommendations": [
+    "Define the ObjectStore port as a small Python Protocol (put, get, delete, signed_url) with signed_url returning a plain https URL string so callers never branch on backend type.",
+    "Implement the MinIO backend with boto3's S3 client (endpoint_url=minio_url, addressing_style if needed) rather than minio-py, so the same code path also works unmodified against real S3/GCS-interop later; use generate_presigned_url(ClientMethod='get_object', ExpiresIn=~900) to hit the ~15-minute target in acceptance criterion 6.",
+    "Implement the filesystem backend's signed_url with HMAC-SHA256 over a canonical string containing object key, expiry, and (recommended) HTTP method, verified via hmac.compare_digest in a dedicated FastAPI download route that 403s on bad signature and 410/403 on expiry -- do not invent a filesystem-native signing scheme.",
+    "Keep expiry comparison server-side and based on wall-clock Unix timestamp in both backends so '~15 minutes' and 'rejected after expiry' behave identically regardless of provider, satisfying the before/after parity requirement.",
+    "Do not rely on STS/temporary credentials for the MinIO/S3 backend unless the expiry contract is re-verified, since those presigned URLs expire early when the underlying credential session ends, independent of ExpiresIn.",
+    "Treat MinIO's enforcement of the SigV4 7-day cap as unverified; since the target expiry (~15 min) is far below that cap, this gap doesn't block the build, but don't assume MinIO silently extends expiry beyond 7 days if that assumption is ever needed elsewhere."
+  ],
+  "as_of": "2026-11 (AWS S3 docs undated page, retrieved 2026-11-11; MinIO Python SDK reference page, retrieved 2026-11-11)",
+  "sources": [
+    {
+      "title": "Download and upload objects with presigned URLs - Amazon Simple Storage Service",
+      "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html",
+      "type": "official-docs",
+      "quote": "If you use the AWS CLI or AWS SDKs, the expiration time can be set as high as 7 days... Amazon S3 checks the expiration date and time of a signed URL at the time of the HTTP request."
+    },
+    {
+      "title": "MinIO Python Client API Reference",
+      "url": "https://docs.min.io/aistor/developers/sdk/python/api/",
+      "type": "official-docs",
+      "quote": "presigned_get_object(bucket_name, object_name, expires=timedelta(days=7), ...)"
+    },
+    {
+      "title": "Getting Started - obstore",
+      "url": "https://developmentseed.org/obstore/latest/getting-started/",
+      "type": "official-docs",
+      "quote": "All operations for interacting with a store are exported as top-level functions (not methods on the store object)."
+    },
+    {
+      "title": "Build A Signed Download URL Generator In FastAPI",
+      "url": "https://web.learnmodernpython.com/build-a-signed-download-url-generator-in-fastapi/",
+      "type": "article",
+      "quote": "Create an HMAC object using SHA256... if int(time.time()) > expires: return False... uses hashlib.compare_digest() rather than simple equality checks"
+    }
+  ],
+  "uncertain": [
+    "key_findings"
+  ]
+}
