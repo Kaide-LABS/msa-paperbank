@@ -1,6 +1,6 @@
 # Research report -- Migrate a FastAPI retrieval bot from GCP/Vertex to Azure: OpenAI/Foundry models, Postgres+pgvector, Container Apps, Graph import
 
-Generated 2026-11-11T06:15:25.069Z by OSA. Researched by claude-code using its built-in web search. Time range: last 2 years (prioritise 2025-2026 current Azure offerings).
+Generated 2026-11-11T06:27:50.926Z by OSA. Researched by claude-code using its built-in web search. Time range: last 2 years (prioritise 2025-2026 current Azure offerings).
 Values marked [uncertain] could not be verified from a source the agent opened; they are repeated under *Open uncertainties*.
 
 ## Findings
@@ -1744,6 +1744,7 @@ _No public repositories matched the prior-art queries._
 
 Researched by claude-code; checked by claude-code (claude-code (opus) reviewed work written by claude-code (sonnet): the same model family but a different capability class.). Verdict: **pass**.
 
-I opened the cited sources for the build's load-bearing claims (pgvector dimension limits, Graph file hashing, Container Apps Jobs constraints, embeddings limits/dimensions param, AcrPull role ID, and current SDK versions for azure-identity, azure-storage-blob, FastAPI) and all were confirmed against the primary sources. The report is accurate, well-scoped, and appropriately flags its own uncertainties. No planted instructions (commands to run, code to execute, secrets to exfiltrate, PRD edits, or test/review disabling) survived into the report text; the single exfiltration-style line was already removed by OSA. The only drift found is a trivial patch-level staleness in the FastAPI version, which does not affect the build since the report itself recommends pinning an exact version.
+I opened a representative cross-section of the cited primary sources (pgvector README, Microsoft Graph hashes/tempauth/SharePoint docs, Azure OpenAI embeddings REST ref, Azure Postgres pgvector doc, Container Apps manage-secrets, and PyPI for azure-storage-blob/azure-identity/FastAPI). Every build-critical claim I checked — dimension limits, the 'dimensions' embeddings parameter, the 'vector' extension/allow-list mechanics, sha256 unsupported in Graph hashes, retirement dates, Key Vault reference syntax, and SDK versions/Python floors — matched its source exactly. The report's genuinely speculative items (GPT-6 model families, reasoning_effort matrix, Global/Standard pricing) are flagged as uncertain and sourced from secondary/proxy pages; I could not independently confirm them, so they are unverifiable rather than wrong. The one instruction-looking line in the Container Apps Jobs section was already stripped by the pipeline ('[removed by OSA...]'), so no planted instruction survives into the usable report.
 
-Every checked claim was supported.
+Claims NOT confirmed (treat as uncertain downstream):
+- [unverifiable] GPT-6 (Astra/Sol/Luna) and GPT-5.6/5.5/5.4 reasoning models exist with reasoning_effort/mode params, and Global Standard pricing figures (e.g. GPT-6 Astra $10/$50, GPT-5 $1.25/$10). -- The report itself flags these as uncertain and sourced from a text-rendering proxy of the pricing page plus third-party trackers (official pricing page renders JS-only). I could not independently confirm the model lineup or prices; the report hedges appropriately and tells the build to re-check the live calculator. (https://azure.microsoft.com/en-us/pricing/details/cognitive-services/openai-service/)
