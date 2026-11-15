@@ -18,6 +18,7 @@ from app.ocr import ocr_paper
 from app.paper_splitter import split_pdf_pages, rasterize_pdf_to_pngs
 from app.embeddings import embed_many
 from app.pdfgen import stitch_images_to_pdf, upload_pdf
+from app.providers import get_object_store
 from app.errors import PreprocessError, EmbeddingError
 
 
@@ -200,8 +201,7 @@ def main():
                 vectors = embed_many(unit["chunk_texts"])
                 gcs_object = f"papers/{course_code}/{year}-{semester}-{unit['exam_session']}-pending-{unit['sha'][:8]}.pdf"
 
-                gcs_client = storage.Client(project=settings.gcp_project)
-                upload_pdf(gcs_client, settings.gcs_bucket, gcs_object, unit["pdf_bytes"])
+                upload_pdf(get_object_store(settings), gcs_object, unit["pdf_bytes"])
 
                 with SessionLocal.begin() as session:
                     pending = PendingPaper(

@@ -1,0 +1,86 @@
+{
+  "summary": "Microsoft Foundry (rebranded from Azure AI Foundry) is Microsoft's unified AI platform combining model deployment, agents, and an OpenAI-compatible Responses API; the current Python surface is the `azure-ai-projects` SDK (>=2.3.0, the 'Foundry projects (new) API') talking to an `AIProjectClient` at `https://<resource>.services.ai.azure.com/api/projects/<project>`. For this build's OCR/vision needs, the relevant official surface is either Azure OpenAI vision via `openai.responses.create()` through the Foundry project's OpenAI-compatible client, or Azure AI Document Intelligence (now 'Foundry Tools') REST API 2024-11-30 (v4.0 GA) using the `prebuilt-layout`/`prebuilt-read` models. Both are authenticated with Entra ID (`DefaultAzureCredential`), avoiding static API keys in the repo. The platform underwent a late-2025/2026 rebrand that split documentation into a 'classic' (1.x SDK) tree and a current tree (2.x SDK, incompatible with 1.x) — the build must target the current 2.x docs and 2024-11-30 Document Intelligence API, not the classic/legacy versions.",
+  "key_findings": [
+    "Official quickstart (learn.microsoft.com/azure/foundry/quickstarts/get-started-code, updated 2026-10-19) specifies Python install: `pip install \"azure-ai-projects>=2.3.0\"`, authenticated via `DefaultAzureCredential` from `azure-identity`.",
+    "Project endpoint format is `https://<resource-name>.services.ai.azure.com/api/projects/<project-name>`.",
+    "Core client pattern: `AIProjectClient(endpoint=..., credential=DefaultAzureCredential())`, then `project.get_openai_client()` returns an OpenAI-compatible client used as `openai.responses.create(model=..., input=...)`.",
+    "The docs explicitly state: 'Code uses Azure AI Projects 2.x and is incompatible with Azure AI Projects 1.x' — 1.x lives under the separate 'foundry-classic' documentation tree.",
+    "Agents are created via `project.agents.create_version(agent_name=..., definition=PromptAgentDefinition(model=..., instructions=...))`; multi-turn chat uses `openai.conversations.create()` plus `responses.create(conversation=conversation.id, input=...)`.",
+    "Document Intelligence (official 'what's new' page, learn.microsoft.com/.../document-intelligence/whats-new, dated 2026-06-11, last updated 2026-10-19): current stable/GA REST API is 2024-11-30 (v4.0); v2.1 reaches end of support 2027-09-15, v3.0 (2022-08-31) reaches end of support 2029-03-30 — new development should target 2024-11-30.",
+    "The general-purpose `prebuilt-document` model was deprecated as of the 2023-10-31-preview API; key-value extraction should instead use `prebuilt-layout` with `features=keyValuePairs`.",
+    "Document Intelligence v4.0 Layout and Read container images became available April 2025 and June 2025 respectively, per the official changelog.",
+    "Analyze responses from Document Intelligence are retained only 24 hours by default after completion unless explicitly deleted/persisted — relevant if the OCR A/B gate needs to re-check raw outputs later.",
+    "Azure AI Foundry was renamed 'Microsoft Foundry' around Microsoft Ignite in November 2025, with product-terms/doc-URL changes formalized into early 2026; I could not open an official Microsoft Learn page that itself announces/dates this rename, so the exact effective date comes from secondary industry-analyst coverage, not a primary source I opened. [uncertain]",
+    "Document Intelligence per-page pricing (e.g. ~$1.50/1,000 pages for Read/OCR cited by third-party aggregators) could not be confirmed on the official azure.microsoft.com pricing page, which renders prices dynamically per region/currency and showed only placeholder dashes when fetched. [uncertain]"
+  ],
+  "recommendations": [
+    "Pin the OCR/vision abstraction's Azure implementation to `azure-ai-projects>=2.3.0` and the current (non-classic) Foundry docs/SDK; do not mix in 1.x ('classic') samples or package versions, since the two are documented as incompatible.",
+    "For the OCR A/B gate, implement the Azure side as two swappable backends behind the same interface: (a) Azure OpenAI vision via `AIProjectClient.get_openai_client().responses.create()` with multimodal image input, and (b) Azure AI Document Intelligence `prebuilt-layout`/`prebuilt-read` via REST API version 2024-11-30 — let the gate pick whichever meets the accuracy bar vs Gemini.",
+    "Use `prebuilt-layout` (with `features=keyValuePairs` if structured fields are needed) rather than the deprecated `prebuilt-document` model.",
+    "Authenticate via Entra ID / `DefaultAzureCredential` (managed identity in Container Apps) rather than embedding Foundry or Document Intelligence keys, consistent with the 'no secrets in repo' constraint.",
+    "When populating pricing.py with Azure model/OCR costs, pull exact per-unit prices from the Azure Pricing Calculator or the Azure portal rather than scraping the static pricing page, since that page is JS-rendered with placeholders.",
+    "If retention of raw OCR analyze responses beyond 24 hours is needed for audit/parity comparisons, persist results to Blob storage immediately after each `analyze` call rather than relying on the service's own 24-hour retention.",
+    "Treat the Nov 2025/2026 Azure AI Foundry → Microsoft Foundry rebrand as a documentation/terminology shift only — verify any cached or memory-based references to 'Azure AI Foundry' package names or URLs against the current docs tree before reuse, since classic vs current paths diverge."
+  ],
+  "as_of": "2026-11-02; primary pages dated/updated 2026-10-19 (Foundry quickstart), 2026-08-05/2026-08-07 (Foundry classic SDK overview), 2026-06-11/2026-10-19 (Document Intelligence what's new)",
+  "sources": [
+    {
+      "title": "Quickstart: Get started with Microsoft Foundry SDK - Microsoft Foundry | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/quickstarts/get-started-code",
+      "type": "official-docs",
+      "quote": "Install the current version of `azure-ai-projects`. This version uses the Foundry projects (new) API... pip install \"azure-ai-projects>=2.3.0\"... Code uses Azure AI Projects 2.x and is incompatible with Azure AI Projects 1.x."
+    },
+    {
+      "title": "Get started with Microsoft Foundry SDKs and endpoints (classic) - Microsoft Foundry (classic) portal | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry-classic/how-to/develop/sdk-overview?pivots=programming-language-python",
+      "type": "official-docs",
+      "quote": "ms.service: microsoft-foundry ... Learn how to choose Microsoft Foundry SDKs and endpoints, configure a project endpoint, and start building AI applications in the classic experience."
+    },
+    {
+      "title": "What's new in Document Intelligence - Foundry Tools | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/whats-new?view=doc-intel-4.0.0",
+      "type": "official-docs",
+      "quote": "Document Intelligence REST API v2.1 reaches end of support on September 15, 2027... use Azure Document Intelligence 2024-11-30 v4.0 for all new development... the general document model (prebuilt-document) is deprecated."
+    },
+    {
+      "title": "Azure Document Intelligence Pricing (vendor pricing page, dynamically rendered)",
+      "url": "https://azure.microsoft.com/en-us/pricing/details/ai-document-intelligence/",
+      "type": "official-docs",
+      "quote": "pricing tables contain placeholder values indicated by dashes... now called 'Azure Document Intelligence in Foundry Tools'"
+    },
+    {
+      "title": "Foundry Gets New Name, Anthropic Models - Directions on Microsoft",
+      "url": "https://www.directionsonmicrosoft.com/reports/foundry-gets-new-name-anthropic-models/",
+      "type": "article",
+      "quote": "Foundry Gets New Name... (Microsoft Ignite rebrand coverage)"
+    },
+    {
+      "title": "Azure AI Document Intelligence Pricing 2026: From $1.50",
+      "url": "https://www.erpresearch.com/erp-add-ons/ocr/azure-document-intelligence/pricing",
+      "type": "article",
+      "quote": "Azure AI Document Intelligence starts at $1.50 per 1,000 pages (Read/OCR); $10 per 1,000 prebuilt; $30 per 1,000 custom."
+    }
+  ],
+  "current_version": "Python SDK: azure-ai-projects >=2.3.0 (Foundry projects 'new'/2.x API); Azure AI Document Intelligence REST API: 2024-11-30 (v4.0, GA)",
+  "api_surface": [
+    "azure.ai.projects.AIProjectClient(endpoint, credential=DefaultAzureCredential())",
+    "AIProjectClient.get_openai_client() -> OpenAI-compatible client; openai.responses.create(model=..., input=...) for text/vision chat completions",
+    "AIProjectClient.agents.create_version(agent_name, definition=PromptAgentDefinition(model, instructions)) (only if agent framing is used)",
+    "Document Intelligence REST API 2024-11-30: POST {endpoint}/documentintelligence/documentModels/prebuilt-layout:analyze?api-version=2024-11-30 (and prebuilt-read for plain OCR)",
+    "azure-identity DefaultAzureCredential for Entra ID auth (managed identity in Container Apps, az login locally)",
+    "Endpoint format: https://<resource-name>.services.ai.azure.com/api/projects/<project-name>"
+  ],
+  "pitfalls": [
+    "azure-ai-projects 2.x is explicitly documented as incompatible with 1.x ('classic') — mixing samples/packages across the two will break at runtime.",
+    "Document Intelligence v2.1 and v3.0 REST APIs are legacy/retiring (Sept 2027 and Mar 2029 respectively); any new integration must target the 2024-11-30 v4.0 API.",
+    "prebuilt-document model is deprecated since the 2023-10-31-preview API; use prebuilt-layout with features=keyValuePairs instead.",
+    "Document Intelligence analyze results are only retained 24 hours by default — persist results elsewhere if needed for later OCR parity auditing.",
+    "Instant/preview models (e.g. gpt-5-mini 'instant access') were, per the official quickstart, only available in the West US 3 region during preview — region choice in Bicep parameters matters.",
+    "The late-2025 rename from 'Azure AI Foundry' to 'Microsoft Foundry' split documentation into a 'classic' tree and a current tree with different URLs and SDK versions; stale bookmarks/snippets referencing the old name may point at the classic (1.x) docs. [uncertain]",
+    "Document Intelligence pricing is not available as static text on the official pricing page (JS-rendered placeholders); relying on scraped/third-party numbers for pricing.py risks drift from actual billed rates. [uncertain]"
+  ],
+  "uncertain": [
+    "key_findings",
+    "pitfalls"
+  ]
+}

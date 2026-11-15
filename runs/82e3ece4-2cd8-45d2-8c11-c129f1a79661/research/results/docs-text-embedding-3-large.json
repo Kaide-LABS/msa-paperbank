@@ -1,0 +1,80 @@
+{
+  "summary": "text-embedding-3-large is OpenAI's current top-tier embedding model, default output 3072 dimensions, max input 8192 tokens, and natively supports a `dimensions` request parameter to shorten output (down to a minimum of 1) without needing a separate model, which is exactly how this build can produce 768-dim vectors for the existing Vector(768)/HNSW schema. It is available on both OpenAI's API and Azure OpenAI (via Microsoft Foundry) under the same `/embeddings` endpoint shape, with Azure's current docs (dated 2026-07-22) recommending Microsoft Entra ID auth over API keys and exposing it at `{endpoint}/openai/v1/embeddings`. No deprecation notice exists for this model as of Nov 2026; only legacy first-generation embedding models (pre-ada-002) were retired, back in January 2024.",
+  "key_findings": [
+    "text-embedding-3-large: default output 3072 dimensions, max input 8192 tokens per input, max 2048 inputs per array in one request, 300,000-token aggregate limit across all inputs in a single request (HTTP 400 if exceeded) — confirmed on both the OpenAI embeddings guide and the Azure OpenAI REST reference.",
+    "The `dimensions` request parameter is officially documented as 'Only supported in text-embedding-3 and later models', min 1, no fixed minimum like 256 enforced by the API itself — confirmed on the Azure/Microsoft Foundry REST reference for the embeddings endpoint.",
+    "A shortened text-embedding-3-large embedding at 256 dims was shown by OpenAI to outperform the unshortened text-embedding-ada-002 at 1536 dims on MTEB — from OpenAI's own embeddings guide, supporting that truncating to 768 dims for this build is a supported, sanctioned pattern, not a hack.",
+    "Azure's current (2026-07-22-dated) how-to page uses the new unified `{endpoint}/openai/v1/embeddings` endpoint and recommends Microsoft Entra ID (DefaultAzureCredential / managed identity) authentication over long-lived API keys; API-key auth is still supported but secondary in the docs.",
+    "On Azure, the request body's `model` field is the deployment name, not necessarily the underlying model id — relevant for mapping config in a provider-neutral seam.",
+    "No deprecation entry exists for text-embedding-3-large, text-embedding-3-small, or text-embedding-ada-002 as of the current OpenAI deprecations page; only first-generation (pre-ada-002) embedding models were shut down, on 2024-01-04, well outside the 18-month research window.",
+    "Azure AI Foundry model catalog lists the model's context window as 8191 tokens (effectively the same 8192-token limit, off-by-one in labeling) and confirms it is hosted on Azure with pay-as-you-go or reserved PTU options [uncertain] (deployment-type/region detail was truncated on the catalog page)."
+  ],
+  "recommendations": [
+    "Explicitly pass `dimensions=768` on every embed call (OpenAI and Azure OpenAI alike) rather than relying on the 3072 default, to satisfy the Vector(768)/HNSW schema requirement and stay well under pgvector's 2000-dim HNSW cap.",
+    "In the provider-neutral embedding seam, keep a separate config field for the Azure deployment name vs. the model id string, since Azure's `model` request field is the deployment name.",
+    "Prefer Microsoft Entra ID / managed identity for Azure OpenAI auth in the secrets/config seam over a stored API key, matching current Microsoft guidance and the 'no secrets in repo' constraint.",
+    "When scripting the re-embed/backfill job, chunk batches to respect the 2048-inputs-per-array and 300,000-aggregate-token-per-request limits (per-paper-chunk batches should be well under this, but verify at scale).",
+    "Before approving the OCR/embedding re-ingest, confirm text-embedding-3-large is actually deployed and available in the chosen Azure region/resource — region availability is not consolidated in one static table and should be checked directly in the target Azure AI Foundry resource at deploy time [uncertain].",
+    "Treat exact per-token pricing as a value to re-verify against the live OpenAI/Azure pricing pages when writing pricing.py, rather than trusting any single cached snapshot."
+  ],
+  "as_of": "Nov 2026 snapshot; Azure OpenAI 'Generate embeddings' how-to page dated 2026-07-22, Azure/Microsoft Foundry embeddings REST reference dated 2026-05-27 (updated 2026-07-09), OpenAI embeddings guide and deprecations page undated but reflect current live state as fetched",
+  "sources": [
+    {
+      "title": "OpenAI API docs — Embeddings guide",
+      "url": "https://developers.openai.com/api/docs/guides/embeddings",
+      "type": "official-docs",
+      "quote": "Both of our new embedding models were trained with a technique that allows developers to trade-off performance and cost... a shortened text-embedding-3-large embedding can outperform an unshortened text-embedding-ada-002 embedding"
+    },
+    {
+      "title": "OpenAI API docs — text-embedding-3-large model page",
+      "url": "https://developers.openai.com/api/docs/models/text-embedding-3-large",
+      "type": "official-docs",
+      "quote": "our most capable embedding model for both english and non-english tasks ... supports the embeddings endpoint (v1/embeddings) and batch processing"
+    },
+    {
+      "title": "OpenAI API docs — Deprecations",
+      "url": "https://developers.openai.com/api/docs/deprecations",
+      "type": "official-docs",
+      "quote": "we announced the upcoming retirement of our first-generation text embedding models. They will be shut down on January 04, 2024."
+    },
+    {
+      "title": "Generate embeddings with Azure OpenAI - Microsoft Foundry | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/embeddings",
+      "type": "official-docs",
+      "quote": "The v1 embeddings API supports Microsoft Entra ID and API key authentication. Microsoft Entra ID is recommended because it avoids storing long-lived credentials."
+    },
+    {
+      "title": "Microsoft Foundry REST Reference - Azure OpenAI - Embeddings",
+      "url": "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/embeddings",
+      "type": "official-docs",
+      "quote": "dimensions | integer | The number of dimensions the resulting output embeddings should have. Only supported in text-embedding-3 and later models. Constraints: min: 1"
+    },
+    {
+      "title": "Azure AI Foundry model catalog — text-embedding-3-large",
+      "url": "https://ai.azure.com/catalog/models/text-embedding-3-large",
+      "type": "official-docs",
+      "quote": "8191 [listed as context window in technical specs]"
+    }
+  ],
+  "current_version": "text-embedding-3-large (OpenAI embedding models are not versioned with semantic version numbers; this is the current, non-deprecated top-tier embedding model as of Nov 2026, default output 3072 dimensions)",
+  "api_surface": [
+    "POST https://api.openai.com/v1/embeddings (OpenAI direct) or POST {endpoint}/openai/v1/embeddings?api-version=v1 (Azure OpenAI) — body: {model, input, dimensions, encoding_format}",
+    "Request field `dimensions` (integer, min 1) — set to 768 to match this build's Vector(768) column",
+    "Request field `encoding_format` — 'float' (default) or 'base64'",
+    "Request field `input` — string, array of strings, or token arrays; max 8192 tokens per input, max 2048 inputs per array, 300,000-token aggregate cap per request",
+    "Azure auth: Microsoft Entra ID via DefaultAzureCredential/managed identity (recommended) or API key in `api-key`/`authorization` header"
+  ],
+  "pitfalls": [
+    "Default output is 3072 dimensions, not 768 — every call must explicitly pass `dimensions=768` or the stored vectors will not fit the existing Vector(768)/HNSW schema.",
+    "Azure enforces a 300,000-token aggregate limit summed across all inputs in a single request (separate from the 8192-token per-input cap) — batch the re-embed job accordingly.",
+    "Max 2048 inputs per array per request on both OpenAI and Azure — relevant for bulk backfill scripting.",
+    "On Azure, the `model` field in the request body is the deployment name, which can differ from the underlying model id — a provider-neutral seam must map these separately.",
+    "Azure's current docs push the newer unified `/openai/v1/embeddings` endpoint and Entra ID auth; older Azure examples used `/openai/deployments/{deployment-id}/embeddings?api-version=...` with API keys — confirm which surface the SDK/pin in use actually targets to avoid mixing API shapes.",
+    "Region/deployment-type availability for text-embedding-3-large on Azure was not confirmed from a single authoritative table in this research — verify directly against the target Azure resource before scripting deployment [uncertain]."
+  ],
+  "uncertain": [
+    "key_findings",
+    "recommendations",
+    "pitfalls"
+  ]
+}

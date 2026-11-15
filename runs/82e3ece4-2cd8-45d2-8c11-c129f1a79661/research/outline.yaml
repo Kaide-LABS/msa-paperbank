@@ -1,0 +1,215 @@
+# OSA research outline -- generated from the locked baby PRD. Do not hand-edit mid-run.
+topic: "Migrate a FastAPI WhatsApp retrieval bot from GCP/Vertex to Azure with provider-neutral seams, reversibly"
+items:
+  - slug: "docs-azure-openai-service"
+    title: "Official documentation: Azure OpenAI Service"
+    question: "Find the OFFICIAL documentation for \"Azure OpenAI Service\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-microsoft-foundry-azure-ai-foundry"
+    title: "Official documentation: Microsoft Foundry (Azure AI Foundry)"
+    question: "Find the OFFICIAL documentation for \"Microsoft Foundry (Azure AI Foundry)\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-ai-document-intelligence"
+    title: "Official documentation: Azure AI Document Intelligence"
+    question: "Find the OFFICIAL documentation for \"Azure AI Document Intelligence\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-text-embedding-3-large"
+    title: "Official documentation: text-embedding-3-large"
+    question: "Find the OFFICIAL documentation for \"text-embedding-3-large\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-database-for-postgresql-flexible-server"
+    title: "Official documentation: Azure Database for PostgreSQL Flexible Server"
+    question: "Find the OFFICIAL documentation for \"Azure Database for PostgreSQL Flexible Server\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-pgvector"
+    title: "Official documentation: pgvector"
+    question: "Find the OFFICIAL documentation for \"pgvector\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-pg-trgm"
+    title: "Official documentation: pg_trgm"
+    question: "Find the OFFICIAL documentation for \"pg_trgm\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-container-apps"
+    title: "Official documentation: Azure Container Apps"
+    question: "Find the OFFICIAL documentation for \"Azure Container Apps\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-container-apps-jobs"
+    title: "Official documentation: Azure Container Apps Jobs"
+    question: "Find the OFFICIAL documentation for \"Azure Container Apps Jobs\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-container-registry"
+    title: "Official documentation: Azure Container Registry"
+    question: "Find the OFFICIAL documentation for \"Azure Container Registry\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-key-vault"
+    title: "Official documentation: Azure Key Vault"
+    question: "Find the OFFICIAL documentation for \"Azure Key Vault\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-managed-identity"
+    title: "Official documentation: Azure Managed Identity"
+    question: "Find the OFFICIAL documentation for \"Azure Managed Identity\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-bicep"
+    title: "Official documentation: Bicep"
+    question: "Find the OFFICIAL documentation for \"Bicep\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-microsoft-graph-api"
+    title: "Official documentation: Microsoft Graph API"
+    question: "Find the OFFICIAL documentation for \"Microsoft Graph API\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-sharepoint"
+    title: "Official documentation: SharePoint"
+    question: "Find the OFFICIAL documentation for \"SharePoint\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-onedrive"
+    title: "Official documentation: OneDrive"
+    question: "Find the OFFICIAL documentation for \"OneDrive\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-azure-blob-storage"
+    title: "Official documentation: Azure Blob Storage"
+    question: "Find the OFFICIAL documentation for \"Azure Blob Storage\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-fastapi"
+    title: "Official documentation: FastAPI"
+    question: "Find the OFFICIAL documentation for \"FastAPI\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-sqlalchemy-2-0"
+    title: "Official documentation: SQLAlchemy 2.0"
+    question: "Find the OFFICIAL documentation for \"SQLAlchemy 2.0\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-pydantic-settings"
+    title: "Official documentation: pydantic-settings"
+    question: "Find the OFFICIAL documentation for \"pydantic-settings\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-whatsapp-business-platform-cloud-api"
+    title: "Official documentation: WhatsApp Business Platform / Cloud API"
+    question: "Find the OFFICIAL documentation for \"WhatsApp Business Platform / Cloud API\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-gunicorn"
+    title: "Official documentation: gunicorn"
+    question: "Find the OFFICIAL documentation for \"gunicorn\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-uvicorn"
+    title: "Official documentation: uvicorn"
+    question: "Find the OFFICIAL documentation for \"uvicorn\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 18 months, prioritising current state as of Nov 2026."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "azure-openai-foundry-models"
+    title: "Current Azure OpenAI / Foundry models"
+    question: "Which current chat and vision models with structured JSON output replace the Gemini flash/pro router, OCR, and probe roles?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "github-debug"
+  - slug: "azure-embeddings-768"
+    title: "Shortened Azure embeddings to 768 dims"
+    question: "How to use text-embedding-3-large with dimensions=768 and confirm HNSW/Vector(768) compatibility and retrieval parity?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "stackoverflow"
+  - slug: "azure-document-intelligence-ocr"
+    title: "OCR options for scanned papers"
+    question: "How does Azure AI Document Intelligence vs Azure OpenAI vision compare for OCR of scanned exam papers, and how to A/B gate it?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "academic-papers"
+  - slug: "azure-postgres-pgvector"
+    title: "Azure Postgres Flexible Server pgvector/pg_trgm"
+    question: "How to enable pgvector HNSW and pg_trgm on Flexible Server and connect via managed identity/connection factory?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "stackoverflow"
+  - slug: "container-apps-jobs-acr-bicep"
+    title: "Container Apps, Jobs, ACR via Bicep"
+    question: "How to parameterize Bicep for two Container Apps, two Jobs, ACR, Key Vault and managed identity in another subscription?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "github-debug"
+  - slug: "keyvault-managed-identity-config"
+    title: "Key Vault + managed identity secrets loader"
+    question: "How to load secrets/config from Key Vault with managed identity in a pydantic-settings style without secrets in repo?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "stackoverflow"
+  - slug: "graph-sharepoint-importer"
+    title: "Microsoft Graph SharePoint/OneDrive import"
+    question: "How to list and download files from SharePoint/OneDrive via Graph with app auth, preserving sha256 dedupe?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "github-debug"
+  - slug: "gcs-sql-to-azure-migration"
+    title: "Data migration GCS->Blob, Cloud SQL->Azure PG"
+    question: "How to script Cloud SQL dump to Azure Postgres and GCS-to-Blob copy, plus Azure backup/restore drill, for a reversible cutover?"
+    kind: "research"
+    modules:
+      - "general-web"
+      - "stackoverflow"
+execution:
+  timeRange: "last 18 months, prioritising current state as of Nov 2026"
+  batchSize: 4
+  resume: true
+  docsRequired: true
+  academic:
+    enabled: true
+    queries:
+      - "OCR accuracy large vision-language models scanned exam documents evaluation"
+      - "dimensionality reduction text embeddings Matryoshka retrieval quality tradeoff"
+  githubLookup:
+    enabled: true
+    queries:
+      - "FastAPI Azure OpenAI structured output JSON response_schema example repo"
+      - "pgvector HNSW Azure PostgreSQL Flexible Server sample"
+      - "Azure Container Apps Jobs Bicep deployment example"
+      - "Microsoft Graph SharePoint download files python sha256 dedupe"
+      - "storage provider abstraction interface google cloud storage azure blob python"

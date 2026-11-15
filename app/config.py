@@ -1,11 +1,13 @@
 import os
 from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from google.cloud import secretmanager
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
-    
+
+    # Provider seam (Phase 1): selects which adapters the factory returns. Only "gcp"
+    # is valid this phase; "local"/"minio" arrive in later phases. Env: PROVIDER.
+    provider: str = "gcp"
     gcp_project: str
     gcp_location: str = "global"
     cloud_sql_instance: str
@@ -112,15 +114,15 @@ class Settings(BaseSettings):
 def load_settings_with_secret_manager() -> Settings:
     if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":
         return Settings()
-    
-    client = secretmanager.SecretManagerServiceClient()
+
+    from app.providers import get_secrets_provider
+
+    secrets = get_secrets_provider()
     for key, value in os.environ.items():
         if key.endswith("_FROM_SECRET"):
             actual_key = key.replace("_FROM_SECRET", "")
-            response = client.access_secret_version(name=value)
-            payload = response.payload.data.decode("UTF-8")
-            os.environ[actual_key] = payload
-            
+            os.environ[actual_key] = secrets.get(value)
+
     return Settings()
 
 settings = load_settings_with_secret_manager()

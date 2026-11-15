@@ -3,7 +3,7 @@ from PIL import Image
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
-from google.cloud import storage
+from app.ports import ObjectStore
 
 def stitch_images_to_pdf(image_bytes_list: list[bytes]) -> bytes:
     out = BytesIO()
@@ -31,6 +31,5 @@ def stitch_images_to_pdf(image_bytes_list: list[bytes]) -> bytes:
     c.save()
     return out.getvalue()
 
-def upload_pdf(gcs_client: storage.Client, bucket_name: str, gcs_object: str, pdf_bytes: bytes) -> None:
-    bucket = gcs_client.bucket(bucket_name)
-    bucket.blob(gcs_object).upload_from_string(pdf_bytes, content_type="application/pdf")
+def upload_pdf(store: ObjectStore, gcs_object: str, pdf_bytes: bytes) -> None:
+    store.upload_bytes(gcs_object, pdf_bytes, content_type="application/pdf")

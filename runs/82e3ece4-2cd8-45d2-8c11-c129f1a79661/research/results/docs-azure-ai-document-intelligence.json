@@ -1,0 +1,91 @@
+{
+  "summary": "Azure AI Document Intelligence (formerly Form Recognizer, now also branded under 'Azure AI Foundry Tools') is GA at API version 2024-11-30 (v4.0), the current stable version for all new development as of Nov 2026. It is provisioned as a Cognitive Services resource (single-service 'Document Intelligence' or multi-service Foundry resource) via the Azure Portal, authenticated with an API key (AzureKeyCredential) or Azure AD/managed identity (DefaultAzureCredential), and accessed via the Python package azure-ai-documentintelligence using DocumentIntelligenceClient.begin_analyze_document('prebuilt-read', ...). For this build's OCR A/B gate, the relevant surface is the prebuilt-read model (text/line/word/paragraph extraction with confidence scores, handwriting detection, optional searchable-PDF output), which this build will compare against Gemini on a real-paper sample. Older preview API versions (2023-10-31-preview through 2024-07-31-preview) lost support on 30 June 2026, and v3.0 GA (2022-08-31) is still supported but scheduled for end-of-support on 30 March 2029, so the build should target 2024-11-30 directly and avoid any preview version.",
+  "key_findings": [
+    "Current GA/stable API version is 2024-11-30 (v4.0), per Microsoft Learn overview and Read-model pages (ms.date 2026-09-08 / 2026-08-15, updated_at 2026-10-19) [docs opened directly].",
+    "Python SDK package is azure-ai-documentintelligence; PyPI shows latest release 1.0.2, published 2025-03-27, supporting REST API version 2024-11-30 [opened PyPI page directly].",
+    "Client class is DocumentIntelligenceClient (replacing the older azure-ai-formrecognizer DocumentAnalysisClient); core calls are begin_analyze_document(model_id, body) / begin_analyze_document_from_url(model_id, url), returning a poller whose .result() yields an AnalyzeResult with pages, paragraphs, lines, words, confidence, and styles (handwriting detection).",
+    "Model ID for OCR is 'prebuilt-read'; it is the underlying OCR engine for all other prebuilt/custom models (layout, invoice, receipt, etc.).",
+    "prebuilt-read in v4.0 supports PDF, JPEG/PNG/BMP/TIFF/HEIF images, and (new in v3.1+) Word/Excel/PowerPoint/HTML; for Office/HTML inputs there is NO angle/width/height/unit, NO bounding polygon/region, NO 'pages' query parameter support, and NO 'lines' object -- only words/paragraphs are returned for those formats.",
+    "Input limits: paid (S0) tier allows up to 2,000 pages per PDF/TIFF and 500 MB file size; free (F0) tier processes only the first 2 pages and caps at 4 MB; image dimensions must be between 50x50 and 10,000x10,000 px; minimum extractable text height ~12 px at 1024x768 (~8pt at 150 DPI).",
+    "F0 free tier gives 500 pages/month at no cost (confirmed on both the Read-model doc and the pricing page); exact S0 per-1,000-page $ pricing was not rendered on the public pricing page (JS-driven, region/program dependent) [uncertain].",
+    "Searchable-PDF output (embedded-text PDF from a scanned PDF) is a v4.0 GA feature exclusive to prebuilt-read, requested via `?output=pdf` on the analyze call, at no added cost over the base GA Read price.",
+    "End-of-support schedule as of Nov 2026: preview API versions (2023-10-31-preview, 2024-02-29-preview, 2024-07-31-preview) ended support 2026-06-30 (already past -- must not target these); REST v2.1 ends support 2027-09-15; REST v3.0 (2022-08-31) ends support 2029-03-30.",
+    "Historical breaking change (pre-window but still load-bearing for anyone on old code): the 2023-07-31 REST release renamed `boundingBox` to `polygon` throughout analyze responses -- relevant only if migrating legacy v2.x/early v3.x code, not for new 2024-11-30 integrations.",
+    "Docs are now served under the 'Foundry Tools' / Azure AI Foundry branding umbrella (ms.service: azure-document-intelligence-foundry-tools) as of the 2026 doc refresh, though the service, resource type (Microsoft.CognitiveServicesFormRecognizer), and SDK package names are unchanged.",
+    "Resource provisioning is via Azure Portal 'Document Intelligence' (single-service) or the multi-service Azure AI Foundry resource create blade; keys/endpoint retrieved from the resource's Keys and Endpoint blade, same pattern as other Cognitive Services resources."
+  ],
+  "recommendations": [
+    "Pin the SDK to azure-ai-documentintelligence>=1.0.2 and target REST api-version=2024-11-30 explicitly; do not use any *-preview api-version string.",
+    "Use DocumentIntelligenceClient with DefaultAzureCredential (managed identity) in Azure Container Apps rather than a static API key, consistent with the repo's secrets-abstraction goal (no secrets in repo).",
+    "For the OCR A/B gate, call begin_analyze_document('prebuilt-read', file_bytes) on the scanned-paper sample and compare extracted text/line confidence against the existing Gemini pipeline; prebuilt-layout can be kept as a fallback option if table/selection-mark structure in papers matters, but prebuilt-read is the right model for plain text OCR.",
+    "If papers ever arrive as DOCX/PPTX/HTML (unlikely for scanned past papers but possible for source masters), be aware v4.0 drops bounding boxes/lines for those formats -- do not rely on polygon/line data for non-image/PDF inputs.",
+    "Provision via the single-purpose 'Document Intelligence' Cognitive Services resource (not bundled multi-service) to keep IAM/cost scoping clean and simple to parameterize in Bicep without hardcoding region/project IDs.",
+    "Get exact S0 per-page pricing from the Azure Pricing Calculator (region-specific, not shown on the public static page) before finalizing pricing.py cost-cap thresholds for the OCR gate.",
+    "Do not attempt to resurrect any 2023/2024 preview API version for new work -- they are unsupported as of mid-2026; if any sample code found online still references a preview api-version, treat it as stale."
+  ],
+  "as_of": "Docs pages fetched carry ms.date 2026-08-15 / 2026-09-08 and updated_at 2026-10-19; PyPI package version 1.0.2 dated 2025-03-27. Current stable API version as of Nov 2026: 2024-11-30 (v4.0 GA).",
+  "sources": [
+    {
+      "title": "What Is Azure Document Intelligence in Foundry Tools? - Foundry Tools | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/overview?view=doc-intel-4.0.0",
+      "type": "official-docs",
+      "quote": "defaultMoniker: doc-intel-4.0.0 ... ms.date: 2026-09-08T00:00:00.0000000Z ... ms.service: azure-document-intelligence-foundry-tools"
+    },
+    {
+      "title": "Read model OCR data extraction - Document Intelligence - Foundry Tools | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/prebuilt/read?view=doc-intel-4.0.0",
+      "type": "official-docs",
+      "quote": "Document Intelligence v4.0: 2024-11-30 (GA) ... Model ID: prebuilt-read ... Searchable PDF is included with the 2024-11-30 GA prebuilt-read model with no added cost"
+    },
+    {
+      "title": "Migrate to v4.0. - Foundry Tools | Microsoft Learn (Document Intelligence migration guide)",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/versioning/migration-guide-overview",
+      "type": "official-docs",
+      "quote": "Document Intelligence REST preview API versions (2024-07-31-preview, 2024-02-29-preview, 2023-10-31-preview) reach end of support on June 30, 2026 ... REST API 2022-08-31 v3.0 reaches end of support on March 30, 2029."
+    },
+    {
+      "title": "Use Document Intelligence client library or REST API - Foundry Tools | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/how-to-guides/use-sdk-rest-api?view=doc-intel-4.0.0",
+      "type": "official-docs",
+      "quote": "pip install azure-ai-documentintelligence ... client = DocumentIntelligenceClient(endpoint=endpoint, credential=AzureKeyCredential(key)) ... poller = client.begin_analyze_document(\"prebuilt-read\", f)"
+    },
+    {
+      "title": "azure-ai-documentintelligence · PyPI",
+      "url": "https://pypi.org/project/azure-ai-documentintelligence/",
+      "type": "official-docs",
+      "quote": "Latest Version: 1.0.2 (released March 27, 2025) ... Supported API Version: 2024-11-30 ... DocumentIntelligenceClient ... begin_analyze_document()"
+    },
+    {
+      "title": "Azure AI Document Intelligence pricing",
+      "url": "https://azure.microsoft.com/en-us/pricing/details/ai-document-intelligence/",
+      "type": "official-docs",
+      "quote": "0 - 500 pages free per month ... 0-1M pages - $- per 1,000 pages"
+    }
+  ],
+  "current_version": "API version 2024-11-30 (v4.0 GA); Python SDK azure-ai-documentintelligence 1.0.2",
+  "api_surface": [
+    "pip install azure-ai-documentintelligence",
+    "from azure.ai.documentintelligence import DocumentIntelligenceClient",
+    "DocumentIntelligenceClient(endpoint, credential=AzureKeyCredential(key) or DefaultAzureCredential())",
+    "client.begin_analyze_document('prebuilt-read', body=file_bytes).result()",
+    "client.begin_analyze_document_from_url('prebuilt-read', url).result()",
+    "result.pages[i].lines / .words (content, polygon, confidence)",
+    "result.paragraphs[i].content",
+    "result.styles[i].isHandwritten / confidence",
+    "api-version query param: 2024-11-30",
+    "optional output=pdf on analyze call for searchable-PDF retrieval"
+  ],
+  "pitfalls": [
+    "Preview API versions (2023-10-31-preview, 2024-02-29-preview, 2024-07-31-preview) are already end-of-support as of 2026-06-30 -- do not target or copy sample code using these.",
+    "v3.0 (2022-08-31) remains supported until 2029-03-30 but is not recommended for new development; v2.1 ends support 2027-09-15.",
+    "For Office/HTML inputs on v4.0, prebuilt-read returns no bounding polygon/region, no page angle/width/height/unit, no 'pages' parameter support, and no 'lines' object -- only words/paragraphs.",
+    "Old azure-ai-formrecognizer package and DocumentAnalysisClient are superseded by azure-ai-documentintelligence / DocumentIntelligenceClient; mixing the two SDKs in new code should be avoided.",
+    "Custom models trained against a preview API version expire when that preview retires and must be retrained on the GA (2024-11-30) base model.",
+    "Public pricing page does not render concrete per-page $ figures (dynamic/region-gated) -- actual S0 pricing must be pulled from the Azure Pricing Calculator for cost-cap config, not scraped from the static page.",
+    "Historical (pre-window) breaking change for anyone referencing very old samples: 2023-07-31 REST release renamed `boundingBox` to `polygon` in all analyze responses."
+  ],
+  "uncertain": [
+    "key_findings",
+    "pitfalls"
+  ]
+}

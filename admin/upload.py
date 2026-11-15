@@ -11,6 +11,7 @@ from app.preprocess import prepare_images_for_ocr
 from app.ocr import ocr_paper
 from app.embeddings import embed_many
 from app.pdfgen import stitch_images_to_pdf, upload_pdf
+from app.providers import get_object_store
 from app.errors import PreprocessError, EmbeddingError
 
 def _validate_course(session, code):
@@ -41,8 +42,7 @@ def upload_pdf_cmd(args):
         gcs_object = f"papers/{code}/{args.year}-{args.semester}-{args.session or 'exam'}.pdf"
         
         print(f"Uploading to gs://{settings.gcs_bucket}/{gcs_object} ...")
-        client = storage.Client(project=settings.gcp_project)
-        upload_pdf(client, settings.gcs_bucket, gcs_object, pdf_bytes)
+        upload_pdf(get_object_store(settings), gcs_object, pdf_bytes)
         
         new_paper = Paper(
             course_code=code,
@@ -114,8 +114,8 @@ def upload_images_cmd(args):
     if bucket.blob(gcs_object).exists():
         gcs_object = f"papers/{code}/{args.year}-{args.semester}-{args.session or 'exam'}-{sha256_combined[:8]}.pdf"
         
-    upload_pdf(client, settings.gcs_bucket, gcs_object, pdf_bytes)
-    
+    upload_pdf(get_object_store(settings), gcs_object, pdf_bytes)
+
     try:
         vectors = []
         if not args.no_ocr:

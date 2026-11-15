@@ -1,0 +1,73 @@
+{
+  "summary": "pg_trgm is a core PostgreSQL contrib extension (not a separate product) providing trigram-based text similarity and fast GiST/GIN index searching; its current bundled module version is 1.6 (unchanged since PostgreSQL 14) and it is installed with `CREATE EXTENSION pg_trgm;`. This build will use its `%` similarity operator and `gin_trgm_ops`/`gist_trgm_ops` operator classes alongside pgvector HNSW, and on the target platform (Azure Database for PostgreSQL Flexible Server) it must additionally be allow-listed via the `azure.extensions` server parameter before `CREATE EXTENSION` will succeed. The main recent pitfall is PostgreSQL 18 (Sep 2025): a non-libc-collation behavior change affecting pg_trgm (recommend reindex after major upgrade) and a since-patched CVE-2026-2007 buffer overrun in pg_trgm's lowercasing, fixed in 18.2 (Feb 2026) — both are PG18-only issues.",
+  "key_findings": [
+    "Official docs confirm: `CREATE EXTENSION pg_trgm;` — trusted extension, installable by non-superuser with CREATE privilege on the database.",
+    "Core functions: similarity(text,text)->real, show_trgm(text)->text[], word_similarity(text,text)->real, strict_word_similarity(text,text)->real.",
+    "Operators: `%` (similarity > pg_trgm.similarity_threshold, default 0.3), `<->` (distance), `<%`/`%>` (word similarity, default threshold 0.6), `<<%`/`%>>` (strict word similarity, default threshold 0.5), plus matching distance operators.",
+    "Index support: GIN (`gin_trgm_ops`) and GiST (`gist_trgm_ops`, optional siglen 1–2024) operator classes; both accelerate `%`, LIKE/ILIKE, and regex (~, ~*) queries; GiST additionally supports efficient nearest-neighbor ordering via `<->`.",
+    "Azure Database for PostgreSQL Flexible Server extension matrix (Microsoft Learn, updated 2026-07-10): pg_trgm module version 1.6 on PG14–18, 1.5 on PG13, 1.4 on PG11–12 — no shared_preload_libraries needed.",
+    "Azure-specific pitfall [uncertain, forum-sourced]: pg_trgm can be rejected with \"extension 'pg_trgm' is not allow-listed\" until the server parameter `azure.extensions` includes `pg_trgm`, set before running `CREATE EXTENSION IF NOT EXISTS pg_trgm;`.",
+    "PostgreSQL 18.0 (2025-09-25) release notes: full-text search/pg_trgm now use the cluster's default collation provider instead of always libc; clusters on non-libc providers (ICU/builtin) may see behavior changes and should reindex pg_trgm-related indexes after pg_upgrade.",
+    "PostgreSQL 18.2 (2026-02-12) fixed CVE-2026-2007: a pg_trgm buffer overrun from locale-dependent lowercasing producing more characters than the input — bug was introduced in v18, so only affects 18.0/18.1."
+  ],
+  "recommendations": [
+    "Install with the standard `CREATE EXTENSION IF NOT EXISTS pg_trgm;` in the migration/Bicep provisioning script, same as GCP.",
+    "On Azure Flexible Server, add `pg_trgm` to the `azure.extensions` allow-list server parameter (via Bicep/CLI) before the extension-create step runs, or CREATE EXTENSION will fail.",
+    "Use `gin_trgm_ops` (not GiST) for the trigram index backing fuzzy/typo-tolerant text search alongside the Vector(768) HNSW column, since GIN is the better fit for simple similarity/LIKE matching at this scale and keeps writes cheaper than GiST signatures.",
+    "If targeting PostgreSQL 18 specifically, pin to 18.2+ (or current patch) to pick up the CVE-2026-2007 fix; this is moot if Azure provisions PG14–17.",
+    "If the target server uses a non-libc collation provider (ICU/builtin) and is later major-upgraded, plan to reindex all pg_trgm indexes post-upgrade per the PG18 migration notes — not an immediate concern for a fresh Azure deployment but relevant for any future PG18 jump.",
+    "Do not assume default-provider parity with the old GCP Cloud SQL instance; verify the Azure Flexible Server's collation provider matches expectations before re-embedding/re-indexing to avoid silent trigram-matching drift."
+  ],
+  "as_of": "2026-11 (PostgreSQL docs 'current' = v18 branch incl. 18.6 released 2026-08-13; Azure extensions page dated 2026-07-10)",
+  "sources": [
+    {
+      "title": "PostgreSQL: Documentation: current: F.35. pg_trgm",
+      "url": "https://www.postgresql.org/docs/current/pgtrgm.html",
+      "type": "official-docs",
+      "quote": "The pg_trgm module provides functions and operators for determining the similarity of alphanumeric text based on trigram matching, as well as index operator classes that support fast searching for similar strings."
+    },
+    {
+      "title": "PostgreSQL 18.0 Release Notes",
+      "url": "https://www.postgresql.org/docs/release/18.0/",
+      "type": "official-docs",
+      "quote": "Change full text search to use the default collation provider of the cluster to read configuration files and dictionaries, rather than always using libc ... as well as the pg_trgm extension. When upgrading such clusters using pg_upgrade, it is recommended to reindex all indexes related to full-text search and pg_trgm after the upgrade."
+    },
+    {
+      "title": "PostgreSQL 18.2 Release Notes",
+      "url": "https://www.postgresql.org/docs/release/18.2/",
+      "type": "official-docs",
+      "quote": "Harden contrib/pg_trgm against changes in string lowercasing behavior ... Fix potential buffer overruns arising from the fact that in some locales lower-casing a string can produce more characters ... That behavior is new in version 18, and so is the bug. (CVE-2026-2007)"
+    },
+    {
+      "title": "List of Extensions and Modules by Name in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/concepts-extensions-versions",
+      "type": "official-docs",
+      "quote": "pg_trgm provides text similarity measurement and index searching based on trigrams. | PostgreSQL version 18/17/16/15/14 | 1.6 | 13 | 1.5 | 12/11 | 1.4"
+    },
+    {
+      "title": "pg_trgm Extension Not Allowed on Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/answers/questions/5537068/pg-trgm-extension-not-allowed-on-azure-database-fo",
+      "type": "forum",
+      "quote": "ERROR: extension 'pg_trgm' is not allow-listed for users in Azure Database for PostgreSQL ... add pg_trgm to the azure.extensions server parameter."
+    }
+  ],
+  "current_version": "pg_trgm module version 1.6 (bundled in PostgreSQL core contrib for PG 14–18; no independently versioned release outside PostgreSQL itself)",
+  "api_surface": [
+    "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
+    "similarity(text, text) -> real",
+    "% operator (similarity threshold match, controlled by pg_trgm.similarity_threshold)",
+    "CREATE INDEX ... USING GIN (column gin_trgm_ops);",
+    "CREATE INDEX ... USING GIST (column gist_trgm_ops);",
+    "SET pg_trgm.similarity_threshold = 0.3; (and word_similarity_threshold / strict_word_similarity_threshold if word-boundary matching is used)",
+    "LIKE/ILIKE and ~ / ~* pattern queries accelerated by the trigram index"
+  ],
+  "pitfalls": [
+    "PG18-only: full-text search/pg_trgm collation-provider change can alter trigram extraction on non-libc (ICU/builtin) clusters; reindex pg_trgm indexes after pg_upgrade to PG18.",
+    "PG18.0/18.1-only: CVE-2026-2007 buffer overrun in pg_trgm lowercasing logic, fixed in 18.2 (2026-02-12) — ensure provisioned version is 18.2+ if PG18 is used.",
+    "Azure Flexible Server requires pg_trgm to be added to the `azure.extensions` allow-list server parameter before CREATE EXTENSION will succeed [uncertain: sourced from a Microsoft Q&A forum post, not the official extensions page itself, though consistent with documented allow-list mechanism].",
+    "Trigram indexes degrade to full-index scans for patterns with no extractable trigrams (e.g., very short search terms) — relevant if query-set strings in the top-k parity test are short."
+  ],
+  "uncertain": [
+    "pitfalls"
+  ]
+}

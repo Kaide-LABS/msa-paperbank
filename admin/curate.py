@@ -3,12 +3,11 @@ import sys
 from datetime import datetime, timezone
 from sqlalchemy import select, func
 from app.db import SessionLocal, PendingPaper, PendingPaperChunk, Paper, PaperChunk
-from google.cloud import storage
 from app.config import settings
+from app.providers import get_object_store
 
 def main():
-    gcs_client = storage.Client(project=settings.gcp_project)
-    bucket = gcs_client.bucket(settings.gcs_bucket)
+    store = get_object_store(settings)
     user = os.environ.get("USER", "ibrahim")
     
     while True:
@@ -82,7 +81,7 @@ def main():
                 pending.review_notes = reason
                 session.commit()
                 try:
-                    bucket.blob(pending.gcs_object).delete()
+                    store.delete(pending.gcs_object)
                 except Exception as e:
                     print(f"Warning: failed to delete blob {pending.gcs_object}: {e}")
                     

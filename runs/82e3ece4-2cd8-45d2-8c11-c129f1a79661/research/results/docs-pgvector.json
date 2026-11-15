@@ -1,0 +1,77 @@
+{
+  "summary": "pgvector's official docs (GitHub README/CHANGELOG, Azure Database for PostgreSQL docs) confirm the extension is installed via CREATE EXTENSION vector (after allowlisting it as 'vector', not 'pgvector', on Azure Flexible Server), and that vector(768) with an HNSW index on vector_cosine_ops is well within limits since HNSW/vector type supports up to 2000 dimensions. Current stable is v0.8.7 (2026-10-01); a run of 0.8.x patches through 2026 fixed real buffer-overflow and HNSW index-corruption/vacuuming bugs, so the build should pin to >=0.8.4 (ideally 0.8.7), not an older 0.7.x/early 0.8.x build. An unreleased 0.9.0 (targeted late Nov/early Dec 2026) will drop Postgres 13/14 support, which is a future-compat watch item but not yet shipped.",
+  "key_findings": [
+    "Current stable release: v0.8.7, tagged 2026-10-01 per the pgvector GitHub tags page.",
+    "Install: compile from source (git clone --branch v0.8.7, make && make install) or via Docker/Homebrew/APT/Yum/pkg/APK/conda-forge per the README; on Azure it's a managed extension, not compiled by the user.",
+    "Enable on Azure Database for PostgreSQL Flexible Server: binary/extension name is literally 'vector' (not 'pgvector') -- must be added to the azure.extensions allowlist, then `CREATE EXTENSION vector;` per database (Microsoft Learn, ms.date 2026-07-10, updated 2026-07-13).",
+    "Dimension limits per type (README): vector up to 2,000 dims, halfvec up to 4,000, bit up to 64,000, sparsevec up to 1,000 non-zero elements -- vector(768) with HNSW is well inside the 2000-dim cap this build already relies on.",
+    "HNSW index syntax: CREATE INDEX ON items USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64); defaults m=16, ef_construction=64; search-time recall/speed tradeoff via SET hnsw.ef_search = <n> (default 40), settable per-session or SET LOCAL per-transaction.",
+    "Distance operators: <-> (L2), <#> (negative inner product), <=> (cosine), <+> (L1), plus <~> (Hamming) and <%> (Jaccard) for bit vectors; functions include cosine_distance(), l2_distance(), l1_distance(), inner_product(), vector_dims(), vector_norms(), and AVG/SUM aggregates.",
+    "0.7.0 (2024-04-29) added halfvec and sparsevec types, L1 distance with HNSW, binary quantization, Hamming/Jaccard distance, and CPU dispatching for Linux x86-64 -- all predate this build's needs but show the extension actively evolved in the research window.",
+    "0.8.0 (2024-10-30) added iterative index scans for filtered queries and dropped PostgreSQL 12 support.",
+    "0.8.1 (2025-09-04) added PostgreSQL 18 rc1 support.",
+    "Security/stability fixes in 2026: 0.8.2 (2026-02-25) fixed a buffer overflow with parallel HNSW index build; 0.8.3 (2026-06-17) fixed possible index corruption with HNSW vacuuming; 0.8.4 (2026-06-30) fixed an 'hnsw graph not repaired' error and a possible error with inserts during HNSW vacuuming; 0.8.6/0.8.7 fixed further buffer overflows (primarily IVFFlat index build, including a 32-bit-specific case).",
+    "Maintenance note from the README: HNSW vacuuming can be slow; consider REINDEX INDEX CONCURRENTLY before VACUUM on large HNSW indexes.",
+    "pgvector 0.9.0 is unreleased as of Nov 2026: GitHub issue #1042 (open, targeted late Nov/early Dec 2026) plans async I/O for HNSW and explicitly plans to drop Postgres 13 and 14 support. [uncertain]"
+  ],
+  "recommendations": [
+    "Target pgvector >=0.8.4 at minimum (fixes the HNSW vacuuming index-corruption bug); prefer the current 0.8.7 if/when Azure Flexible Server's managed extension catalog offers it, since it also carries later buffer-overflow fixes.",
+    "On Azure Database for PostgreSQL Flexible Server, remember the extension must be allowlisted and created as `vector`, not `pgvector` -- update Bicep/provisioning scripts and docs to use `azure.extensions` plus `CREATE EXTENSION vector;`, matching acceptance criterion 6 (Vector(768) column unchanged).",
+    "Keep HNSW index definition as `USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)` (or whatever the existing defaults are) since vector(768) is far under the 2000-dim cap -- no index-type change is needed for the Azure move.",
+    "Before running destructive vacuum/reindex operations on the HNSW index during the re-embed step, check the deployed pgvector version; if it predates 0.8.4, schedule REINDEX INDEX CONCURRENTLY before VACUUM to avoid known corruption/slowness issues.",
+    "Do not plan around pgvector 0.9.0 features (async I/O for HNSW) yet -- it is unreleased and will drop Postgres 13/14 support, which should be checked against the target Flexible Server Postgres version before any future upgrade."
+  ],
+  "as_of": "2026-11 (pgvector v0.8.7, released 2026-10-01; Azure pgvector doc updated 2026-07-13)",
+  "sources": [
+    {
+      "title": "pgvector/pgvector (GitHub README)",
+      "url": "https://github.com/pgvector/pgvector",
+      "type": "official-docs",
+      "quote": "Supported types are: vector - up to 2,000 dimensions ... CREATE INDEX ON items USING hnsw (embedding vector_cosine_ops);"
+    },
+    {
+      "title": "pgvector CHANGELOG.md",
+      "url": "https://raw.githubusercontent.com/pgvector/pgvector/master/CHANGELOG.md",
+      "type": "official-docs",
+      "quote": "0.8.3 (2026-06-17) - Fixed possible index corruption with HNSW vacuuming"
+    },
+    {
+      "title": "pgvector tags",
+      "url": "https://github.com/pgvector/pgvector/tags",
+      "type": "repo",
+      "quote": "v0.8.7 - October 1, 2026"
+    },
+    {
+      "title": "0.9.0 Plan · Issue #1042 · pgvector/pgvector",
+      "url": "https://github.com/pgvector/pgvector/issues/1042",
+      "type": "repo",
+      "quote": "drop support for Postgres 13 and 14 ... async I/O for HNSW ... targets late November or early December"
+    },
+    {
+      "title": "Vector Search in Azure Database for PostgreSQL Flexible Server - Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-use-pgvector",
+      "type": "official-docs",
+      "quote": "Although the PostgreSQL community refers to this extension as pgvector, the name of the binary and the extension itself is simply `vector`. ... CREATE EXTENSION vector;"
+    }
+  ],
+  "current_version": "v0.8.7 (released 2026-10-01)",
+  "api_surface": [
+    "CREATE EXTENSION vector; (Azure: must first allowlist via azure.extensions)",
+    "column type: vector(768)",
+    "CREATE INDEX ... USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)",
+    "operator <=> for cosine distance in ORDER BY for top-k retrieval",
+    "SET hnsw.ef_search = <n>; / SET LOCAL hnsw.ef_search = <n>; for recall/speed tuning",
+    "functions: cosine_distance(vector, vector), vector_dims(vector), l2_distance(vector, vector)"
+  ],
+  "pitfalls": [
+    "Azure Flexible Server requires the extension to be allowlisted and created under the name `vector`, not `pgvector` -- a common provisioning mistake.",
+    "pgvector 0.8.2 and earlier in this window had a buffer overflow with parallel HNSW index build (fixed 0.8.2); 0.8.3 fixed possible HNSW index corruption during vacuuming; pin to >=0.8.4 to avoid both.",
+    "HNSW vacuuming can be slow on large indexes; the README recommends REINDEX INDEX CONCURRENTLY before VACUUM.",
+    "pgvector 0.8.0 (2024-10-30) dropped PostgreSQL 12 support; the still-unreleased 0.9.0 plans to drop Postgres 13 and 14 -- check target Flexible Server's Postgres major version against future pgvector upgrades. [uncertain]",
+    "vector type HNSW/IVFFlat dimension cap is 2,000 -- confirms embeddings must stay at 768 per this build's constraint, but leaves no room to naively switch to a much higher-dimension embedding model later without moving to halfvec (4,000-dim cap) or reducing dims."
+  ],
+  "uncertain": [
+    "key_findings",
+    "pitfalls"
+  ]
+}

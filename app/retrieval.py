@@ -6,7 +6,7 @@ from pgvector.sqlalchemy import Vector
 from app.db import Paper, PaperChunk, Course
 from app.config import settings
 from app import embeddings
-from google.cloud import storage
+from app.ports import ObjectStore
 
 log = logging.getLogger(__name__)
 
@@ -144,10 +144,8 @@ def render_served_pdf(raw_pdf_bytes: bytes) -> bytes:
     return stitch_images_to_pdf(out)
 
 
-def load_pdf_bytes(paper: Paper, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
-    bucket = gcs_client.bucket(bucket_name)
-    blob = bucket.blob(paper.gcs_object)
-    raw_pdf_bytes = blob.download_as_bytes()        # RAW ground truth in GCS — never overwritten
+def load_pdf_bytes(paper: Paper, store: ObjectStore) -> tuple[bytes, str]:
+    raw_pdf_bytes = store.download_bytes(paper.gcs_object)   # RAW ground truth — never overwritten
     filename = f"{paper.course_code}_{paper.semester}_{paper.year}.pdf"
     served = render_served_pdf(raw_pdf_bytes) if settings.serve_enhance_enabled else raw_pdf_bytes
     return served, filename
@@ -173,7 +171,7 @@ def _image_to_enhanced_png(raw: bytes, ext: str) -> bytes:
     return img
 
 
-def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
+def load_served_bytes_v1(session, pending_id: int, store: ObjectStore) -> tuple[bytes, str]:
     """V1 serve loader over the corpus-index `pending_papers`. Returns (served_pdf_bytes, filename).
 
     V1.2: if `pending_id` is a logical_exam_id in exam_group, assemble ALL its page rows in
@@ -194,7 +192,7 @@ def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, b
             code = grp[0]["course_code"]
             pages = []
             for r in grp:
-                praw = gcs_client.bucket(bucket_name).blob(r["gcs_object"]).download_as_bytes()
+                praw = store.download_bytes(r["gcs_object"])
                 pext = r["gcs_object"].rsplit(".", 1)[-1].lower() if "." in r["gcs_object"] else ""
                 pages.append(_image_to_enhanced_png(praw, pext))
             return stitch_images_to_pdf(pages), f"{(code or 'paper').replace('/', '_')}.pdf"
@@ -207,7 +205,7 @@ def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, b
     if row is None:
         raise ValueError(f"pending_paper {pending_id} not found")
     course_code, gcs_object = row["course_code"], row["gcs_object"]
-    raw = gcs_client.bucket(bucket_name).blob(gcs_object).download_as_bytes()
+    raw = store.download_bytes(gcs_object)
     filename = f"{(course_code or 'paper').replace('/', '_')}.pdf"
     ext = gcs_object.rsplit(".", 1)[-1].lower() if "." in gcs_object else ""
 
@@ -217,7 +215,7 @@ def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, b
     return stitch_images_to_pdf([_image_to_enhanced_png(raw, ext)]), filename
 
 
-def precompute_served_pdf(session, served_id: int, gcs_client: storage.Client, bucket_name: str) -> tuple[str, str]:
+def precompute_served_pdf(session, served_id: int, store: ObjectStore) -> tuple[str, str]:
     """Render the served PDF for `served_id` ONCE (reusing the EXACT live render path,
     load_served_bytes_v1) and store it at served/<id>.pdf, recording (served_object, served_filename)
     on the pending_papers row. Idempotent: re-running overwrites the GCS object and the columns.
@@ -227,15 +225,14 @@ def precompute_served_pdf(session, served_id: int, gcs_client: storage.Client, b
     The caller commits. Heavy (does the full rasterize/enhance/stitch) -> call OFFLINE or at approval,
     never in the serve request path."""
     from sqlalchemy import text
-    pdf_bytes, filename = load_served_bytes_v1(session, served_id, gcs_client, bucket_name)
+    pdf_bytes, filename = load_served_bytes_v1(session, served_id, store)
     obj = f"{settings.serve_precompute_prefix}{served_id}.pdf"
-    blob = gcs_client.bucket(bucket_name).blob(obj)
     # Some multi-page image exams render to tens of MB -> resumable upload + a generous timeout and a
     # single retry so a slow/flaky link doesn't abort the (one-time) precompute. timeout is per-chunk.
     last_err = None
     for attempt in range(3):
         try:
-            blob.upload_from_string(pdf_bytes, content_type="application/pdf", timeout=600)
+            store.upload_bytes(obj, pdf_bytes, content_type="application/pdf", timeout=600)
             last_err = None
             break
         except Exception as e:                       # transient write/socket timeout -> retry
@@ -250,7 +247,7 @@ def precompute_served_pdf(session, served_id: int, gcs_client: storage.Client, b
     return obj, filename
 
 
-def load_served_cached(session, served_id: int, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
+def load_served_cached(session, served_id: int, store: ObjectStore) -> tuple[bytes, str]:
     """Serve-path loader: if a pre-rendered served/ PDF exists for `served_id`, DOWNLOAD it (~0.5s,
     no rasterize) and return it — this is the hardening fast path (kills render latency AND the
     concurrency OOM/SIGABRT risk, since no live render runs). Otherwise FALL BACK to the live render
@@ -264,8 +261,8 @@ def load_served_cached(session, served_id: int, gcs_client: storage.Client, buck
                 {"id": served_id},
             ).mappings().first()
             if row and row["served_object"]:
-                data = gcs_client.bucket(bucket_name).blob(row["served_object"]).download_as_bytes()
+                data = store.download_bytes(row["served_object"])
                 return data, (row["served_filename"] or f"paper.pdf")
         except Exception:
             log.warning("served_cache_miss_fallback", extra={"served_id": served_id}, exc_info=True)
-    return load_served_bytes_v1(session, served_id, gcs_client, bucket_name)
+    return load_served_bytes_v1(session, served_id, store)

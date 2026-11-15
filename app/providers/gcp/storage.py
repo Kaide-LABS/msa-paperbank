@@ -1,0 +1,49 @@
+# -*- coding: utf-8 -*-
+"""GCP object-store adapter (Phase 1).
+
+Thin wrapper over `google.cloud.storage` that implements the `ObjectStore` port by
+delegating to `bucket.blob(key).*`. The underlying `storage.Client` is built lazily
+(in `from_settings` / first use) and never at import, so importing this module makes
+no network call.
+"""
+from __future__ import annotations
+
+
+class GcsObjectStore:
+    """`ObjectStore` backed by a GCS bucket."""
+
+    def __init__(self, client, bucket_name: str) -> None:
+        self._client = client
+        self._bucket_name = bucket_name
+
+    @classmethod
+    def from_settings(cls, settings) -> "GcsObjectStore":
+        from google.cloud import storage
+
+        return cls(storage.Client(project=settings.gcp_project), settings.gcs_bucket)
+
+    def _blob(self, key: str):
+        return self._client.bucket(self._bucket_name).blob(key)
+
+    def download_bytes(self, key: str) -> bytes:
+        return self._blob(key).download_as_bytes()
+
+    def upload_bytes(
+        self,
+        key: str,
+        data: bytes,
+        content_type: str | None = None,
+        timeout: int | None = None,
+    ) -> None:
+        if timeout is None:
+            self._blob(key).upload_from_string(data, content_type=content_type)
+        else:
+            self._blob(key).upload_from_string(
+                data, content_type=content_type, timeout=timeout
+            )
+
+    def exists(self, key: str) -> bool:
+        return self._blob(key).exists()
+
+    def delete(self, key: str) -> None:
+        self._blob(key).delete()

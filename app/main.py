@@ -10,6 +10,7 @@ from google.cloud import storage
 
 from app.config import settings
 from app.logging_setup import setup_logging
+from app.providers import get_object_store
 from app import db
 from app.deps import get_session
 from app.schemas import WAWebhookPayload, TextReply
@@ -51,7 +52,8 @@ def _warmup() -> None:
 async def lifespan(app: FastAPI):
     setup_logging(settings.log_level)
     app.state.http = httpx.Client(timeout=httpx.Timeout(connect=5, read=30, write=30, pool=5))
-    app.state.gcs = storage.Client(project=settings.gcp_project)
+    app.state.gcs = storage.Client(project=settings.gcp_project)  # retained for not-yet-rerouted paths
+    app.state.store = get_object_store(settings)
     # NON-BLOCKING: start warmup in a daemon thread so readiness is NOT delayed (the startup probe
     # passes immediately; the ~11s embed-init runs in the background, not before 'ready').
     threading.Thread(target=_warmup, name="warmup", daemon=True).start()
@@ -96,17 +98,17 @@ async def webhook_inbound(
                 try:
                     if settings.serve_v1_enabled:
                         reply = serve_v1.handle_message_v1(
-                            session, msg, request.app.state.http, request.app.state.gcs
+                            session, msg, request.app.state.http, request.app.state.store
                         )
                         paper_loader = lambda pid: retrieval.load_served_cached(
-                            session, pid, request.app.state.gcs, settings.gcs_bucket
+                            session, pid, request.app.state.store
                         )
                     else:
                         reply = pipeline.handle_message(
                             session, msg, request.app.state.http, request.app.state.gcs
                         )
                         paper_loader = lambda pid: retrieval.load_pdf_bytes(
-                            session.get(db.Paper, pid), request.app.state.gcs, settings.gcs_bucket
+                            session.get(db.Paper, pid), request.app.state.store
                         )
                     if not (isinstance(reply, TextReply) and reply.body == ""):
                         whatsapp.send_reply(

@@ -118,11 +118,11 @@ def _download(http, msg: WAMessage):
     return whatsapp.download_media(http, url), mime, None
 
 
-def _store_image(gcs, cid: int, msg: WAMessage, raw: bytes, mime: str) -> str:
+def _store_image(store, cid: int, msg: WAMessage, raw: bytes, mime: str) -> str:
     ext = "jpg" if mime in ("image/jpeg", "image/jpg") else ("png" if mime == "image/png"
           else ("heic" if "heic" in (mime or "") else "bin"))
     key = f"{settings.contribution_gcs_prefix}{cid}/{msg.id}.{ext}"
-    gcs.bucket(settings.gcs_bucket).blob(key).upload_from_string(raw, content_type=mime or "image/jpeg")
+    store.upload_bytes(key, raw, content_type=mime or "image/jpeg")
     return key
 
 
@@ -142,18 +142,18 @@ def _find_dup(session: Session, school: str | None, course: str | None, year: st
 
 
 # ---------------------------------------------------------------- main entry
-def handle(session: Session, msg: WAMessage, http_client, gcs_client) -> Reply | None:
+def handle(session: Session, msg: WAMessage, http_client, store) -> Reply | None:
     """Returns a Reply if this message belongs to the contribution path, else None (-> retrieval)."""
     phone = msg.from_
     state = _get_state(session, phone)
     if msg.type == "image":
-        return _on_image(session, msg, http_client, gcs_client, state)
+        return _on_image(session, msg, http_client, store, state)
     if state:
-        return _on_text(session, msg, state, http_client, gcs_client)
+        return _on_text(session, msg, state, http_client, store)
     return None
 
 
-def _on_image(session, msg, http, gcs, state) -> Reply:
+def _on_image(session, msg, http, store, state) -> Reply:
     phone = msg.from_
     if msg.image is None:
         return TextReply(body="That image didn't come through — please resend the photo.")
@@ -177,7 +177,7 @@ def _on_image(session, msg, http, gcs, state) -> Reply:
 
     # accepted -> open or append
     cid = state["cid"] if state else _open_contribution(session, phone)
-    key = _store_image(gcs, cid, msg, raw, mime)
+    key = _store_image(store, cid, msg, raw, mime)
     n = _add_page(session, cid, key, v.model_dump())
     reopened = bool(state and state.get("state") not in ("collecting", None))
     _set_state(session, phone, cid, "collecting")
@@ -190,7 +190,7 @@ def _on_image(session, msg, http, gcs, state) -> Reply:
     return TextReply(body=f"Got page {n} ✅ — keep them coming, or 'done' when finished.")
 
 
-def _on_text(session, msg, state, http, gcs) -> Reply:
+def _on_text(session, msg, state, http, store) -> Reply:
     phone = msg.from_
     cid = state["cid"]
     st = state.get("state", "collecting")
@@ -211,7 +211,7 @@ def _on_text(session, msg, state, http, gcs) -> Reply:
 
     if st == "confirm":
         if low in _YES or low in _DONE:
-            return _to_filing(session, phone, cid, http, gcs)
+            return _to_filing(session, phone, cid, http, store)
         if low in _MORE:
             _set_state(session, phone, cid, "collecting"); session.commit()
             return TextReply(body="Sure — send the rest, then 'done'.")
@@ -257,7 +257,7 @@ def _filing_confirm_text(session, cid) -> Reply:
     return TextReply(body=f"This looks like: {', '.join(bits)}. Is that right? (yes / fix)")
 
 
-def _to_filing(session, phone, cid, http, gcs) -> Reply:
+def _to_filing(session, phone, cid, http, store) -> Reply:
     # rate cap at finalize (counts attempts, not files) — before the masthead Vertex cost
     if _over_cap(session, phone):
         session.execute(text("UPDATE contributions SET status='denied', review_comment='auto: weekly cap', updated_at=now() WHERE id=:c"), {"c": cid})
@@ -267,7 +267,7 @@ def _to_filing(session, phone, cid, http, gcs) -> Reply:
     guess = None
     try:
         obj = _first_page_object(session, cid)
-        raw = gcs.bucket(settings.gcs_bucket).blob(obj).download_as_bytes()
+        raw = store.download_bytes(obj)
         guess = llm.read_masthead(raw, school_hint=_school_of(session, phone))
     except Exception as e:
         log.warning("masthead_read_failed", extra={"cid": cid, "err": str(e)})
@@ -312,7 +312,7 @@ def _commit(session, phone, cid) -> Reply:
 
 
 # ---------------------------------------------------------------- opportunistic idle sweep
-def sweep(session: Session, http_client, gcs_client) -> int:
+def sweep(session: Session, http_client, store) -> int:
     """Find idle 'collecting' contributions: nudge once (check-in), then finalize on continued silence.
     Runs opportunistically on each webhook; sends directly via http (contributor's 24h window is open)."""
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.contribution_idle_seconds)

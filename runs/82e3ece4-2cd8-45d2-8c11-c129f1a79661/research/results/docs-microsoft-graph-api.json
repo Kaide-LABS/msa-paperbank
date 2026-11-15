@@ -1,0 +1,95 @@
+{
+  "summary": "Microsoft Graph is a single REST API surface (base https://graph.microsoft.com) with two endpoints: v1.0 (stable/GA, use for production) and beta (preview, breaking changes without notice). For this build's Microsoft Graph importer, the relevant surface is driveItem listing/download under SharePoint document libraries and OneDrive (via /sites/{siteId}/drive and /drives/{drive-id}/items), authenticated app-only via OAuth2 client credentials (no signed-in user, suited to a Container Apps Job). Install via the official Python SDK package msgraph-sdk (current PyPI version 1.65.0, released 2026-10-22) layered on azure-identity credential classes. A critical pitfall for acceptance criterion 10: the Graph API's own sha256Hash field on driveItem is explicitly documented as unsupported, so the importer must compute SHA-256 locally after downloading file content rather than relying on Graph-provided hashes.",
+  "key_findings": [
+    "v1.0 is the current stable endpoint (https://graph.microsoft.com/v1.0); beta is preview-only and 'not supported' for production use per the official overview page (ms.date 2024-07-16, content current through at least 2026-10 per linked what's-new page).",
+    "Versioning policy page (updated_at 2025-08-06) states: 'Currently, no versions of Microsoft Graph are deprecated or unsupported' and deprecations require 24 months' advance notice.",
+    "driveItem content download: GET /drives/{drive-id}/items/{item-id}/content (also /sites/{siteId}/drive/items/{item-id}/content for SharePoint) returns HTTP 302 redirecting to a preauthenticated, time-limited download URL (expires within minutes) — must follow the redirect immediately, not cache the URL.",
+    "Required Graph application permissions for app-only (daemon) file/site access: least-privileged Files.Read.All, or Sites.Read.All for broader SharePoint site access; both require tenant admin consent.",
+    "App-only auth flow: POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token with grant_type=client_credentials and scope=https://graph.microsoft.com/.default (per auth-v2-service doc, ms.date 2025-08-29) — this is the 'background service/daemon' pattern, matching a Container Apps Job with no signed-in user.",
+    "Official Python SDK package is msgraph-sdk on PyPI, current version 1.65.0 (released 2026-10-22), requires Python >=3.10, uses GraphServiceClient and azure-identity credential classes (e.g. ClientSecretCredential) for auth.",
+    "driveItem file hashes facet: sha256Hash property is explicitly documented as 'This property isn't supported. Don't use.' Only quickXorHash is guaranteed available across OneDrive consumer and work/school; sha1Hash and crc32Hash are 'if available' only.",
+    "[uncertain] Could not open the live Graph API changelog page (developer.microsoft.com/graph/changelog) in enough detail to extract specific dated 2025–2026 breaking-change entries for Files/SharePoint/driveItem; the versioning policy page itself reports no currently deprecated versions, but item-level changelog entries were not individually verified."
+  ],
+  "recommendations": [
+    "Use the v1.0 endpoint only (never beta) for the SharePoint/OneDrive importer, per Microsoft's explicit production guidance.",
+    "Authenticate with the OAuth2 client credentials grant via azure-identity's ClientSecretCredential (or a managed identity if supported for the tenant), requesting scope https://graph.microsoft.com/.default — matches the existing provider-neutral secrets abstraction (acceptance criterion 2) and the no-signed-in-user Container Apps Job context.",
+    "Request least-privileged application permissions (Files.Read.All, or Sites.Read.All only if cross-site listing is needed) and get tenant admin consent before first run; re-consent whenever permissions change.",
+    "Do NOT dedupe using Graph's sha256Hash field — it is documented as unsupported. Download file content via GET .../content, then compute SHA-256 locally in Python and compare against stored hashes to satisfy acceptance criterion 10.",
+    "Treat the @microsoft.graph.downloadUrl / 302 redirect target as ephemeral: fetch driveItem metadata, immediately follow/download, don't persist the download URL for retry logic.",
+    "Pin msgraph-sdk and azure-identity versions in requirements and note the SDK is large (~36MB) — account for this in Container Apps Job image build time.",
+    "Before building, pull the live Microsoft Graph API changelog (developer.microsoft.com/graph/changelog, filtered to v1.0) directly rather than relying on this summary, since granular 2025–2026 Files/SharePoint changelog entries were not independently verified here."
+  ],
+  "as_of": "Nov 2026 — msgraph-sdk (Python) 1.65.0 released 2026-10-22; Graph what's-new-overview page content dated/updated through 2026-10-31; versioning-and-support page updated 2025-08-06; auth-v2-service page updated 2025-08-29; overview/driveitem-get-content/hashes reference pages dated 2024 but still canonical per current Microsoft Learn site",
+  "sources": [
+    {
+      "title": "Microsoft Graph REST API v1.0 endpoint reference",
+      "url": "https://learn.microsoft.com/en-us/graph/api/overview?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "API sets on the v1.0 endpoint (https://graph.microsoft.com/v1.0) have reached general availability (GA)... Updates to APIs on this endpoint are additive in nature and don't break existing app scenarios."
+    },
+    {
+      "title": "Versioning, support, and breaking change policies for Microsoft Graph",
+      "url": "https://learn.microsoft.com/en-us/graph/versioning-and-support",
+      "type": "official-docs",
+      "quote": "Currently, no versions of Microsoft Graph are deprecated or unsupported."
+    },
+    {
+      "title": "Download driveItem content - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/driveitem-get-content?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "Returns a 302 Found response redirecting to a preauthenticated download URL for the file... Preauthenticated download URLs are valid for a limited time. Use them immediately, as they might expire within minutes."
+    },
+    {
+      "title": "hashes resource type - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/resources/hashes?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "sha256Hash | String | This property isn't supported. Don't use."
+    },
+    {
+      "title": "Get access without a user - Microsoft Graph",
+      "url": "https://learn.microsoft.com/en-us/graph/auth-v2-service",
+      "type": "official-docs",
+      "quote": "scope=https%3A%2F%2Fgraph.microsoft.com%2F.default ... grant_type=client_credentials ... Background services (daemons) that run on a server without a signed-in user."
+    },
+    {
+      "title": "Install a Microsoft Graph SDK",
+      "url": "https://learn.microsoft.com/en-us/graph/sdks/sdk-installation?tabs=python",
+      "type": "official-docs",
+      "quote": "pip install msgraph-sdk"
+    },
+    {
+      "title": "msgraph-sdk · PyPI",
+      "url": "https://pypi.org/project/msgraph-sdk/",
+      "type": "official-docs",
+      "quote": "Current Version: 1.65.0, Release Date: October 22, 2026, requires Python >=3.10"
+    },
+    {
+      "title": "What's new in Microsoft Graph",
+      "url": "https://learn.microsoft.com/en-us/graph/whats-new-overview",
+      "type": "official-docs",
+      "quote": "ms.date: 2026-10-06 ... updated_at: 2026-10-31"
+    }
+  ],
+  "current_version": "Microsoft Graph v1.0 endpoint (stable/GA); beta endpoint for preview APIs. Python SDK (msgraph-sdk) is at 1.65.0 as of 2026-10-22.",
+  "api_surface": [
+    "OAuth2 client credentials token request: POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token (grant_type=client_credentials, scope=https://graph.microsoft.com/.default)",
+    "GET /sites/{siteId}/drive or /sites/{siteId}/drives — resolve SharePoint document library drive",
+    "GET /drives/{drive-id}/items/{item-id}/children or /drives/{drive-id}/root/children — list files/folders in SharePoint/OneDrive",
+    "GET /drives/{drive-id}/items/{item-id}/content — download primary file content (follow 302 redirect)",
+    "driveItem resource fields: id, name, size, lastModifiedDateTime, file.hashes.quickXorHash (for change detection only, not sha256)",
+    "msgraph-sdk Python: GraphServiceClient with azure.identity.ClientSecretCredential (or aio variant) as auth provider",
+    "Application permissions: Files.Read.All and/or Sites.Read.All, admin-consented in Entra ID app registration"
+  ],
+  "pitfalls": [
+    "driveItem hashes.sha256Hash is documented as unsupported — do not use it for dedup; compute SHA-256 locally from downloaded bytes.",
+    "Only quickXorHash is guaranteed present across OneDrive personal and work/school; other hash fields are 'if available' only.",
+    "/content endpoint's download URL is a time-limited preauthenticated redirect (expires within minutes) — must be consumed immediately, not cached or retried later.",
+    "beta endpoint APIs can break or be removed without notice and are explicitly unsupported for production — restrict the importer to v1.0.",
+    "Application (app-only) permissions always require tenant admin consent, and any permission change requires re-consent — plan this into the deployment/runbook, not just code.",
+    "[uncertain] Detailed 2025–2026 changelog entries specific to Files/SharePoint/driveItem endpoints were not individually confirmed by opening the live Graph changelog; verify directly against developer.microsoft.com/graph/changelog before relying on current driveItem behavior for edge cases."
+  ],
+  "uncertain": [
+    "key_findings",
+    "pitfalls"
+  ]
+}

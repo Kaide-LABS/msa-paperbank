@@ -2,9 +2,9 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, or_
-from google.cloud import storage
 import httpx
 from app.db import Uploader, ImageBatch, ImageBatchItem, IntakeNotification, PendingPaper, PendingPaperChunk
+from app.ports import ObjectStore
 from app.schemas import WAMessage, Reply, TextReply
 from app.config import settings
 from app import whatsapp
@@ -24,7 +24,7 @@ def is_whitelisted(session: Session, phone_number: str) -> bool:
 def handle_image(
     session: Session,
     http_client: httpx.Client,
-    gcs_client: storage.Client,
+    store: ObjectStore,
     msg: WAMessage,
 ) -> Reply:
     phone = msg.from_
@@ -65,7 +65,7 @@ def handle_image(
     
     if items_count >= settings.ocr_max_images_per_paper:
         # Force seal
-        sweep_and_seal_single(session, gcs_client, batch.id)
+        sweep_and_seal_single(session, store, batch.id)
         
         batch = ImageBatch(phone_number=phone)
         session.add(batch)
@@ -85,9 +85,8 @@ def handle_image(
         
         ext = "jpg" if mime in ["image/jpeg", "image/jpg"] else "png" if mime == "image/png" else "bin"
         key = f"{settings.media_gcs_prefix}{msg.id}.{ext}"
-        
-        bucket = gcs_client.bucket(settings.gcs_bucket)
-        bucket.blob(key).upload_from_string(pdf_bytes, content_type=mime)
+
+        store.upload_bytes(key, pdf_bytes, content_type=mime)
         
         ord_val = items_count + 1
         item = ImageBatchItem(
@@ -110,18 +109,18 @@ def handle_image(
         # Ensure we don't crash the pipeline, let the IntegrityError or other bubble up if it's dedupe
         raise
 
-def sweep_and_seal_single(session: Session, gcs_client: storage.Client, batch_id: int):
+def sweep_and_seal_single(session: Session, store: ObjectStore, batch_id: int):
     # This is a helper to force seal one batch inline
     batch = session.execute(
         select(ImageBatch).where(ImageBatch.id == batch_id).with_for_update(skip_locked=True)
     ).scalar_one_or_none()
-    
+
     if not batch or batch.status != 'open':
         return
-        
-    _process_batch(session, gcs_client, batch)
 
-def sweep_and_seal(session: Session, gcs_client: storage.Client) -> int:
+    _process_batch(session, store, batch)
+
+def sweep_and_seal(session: Session, store: ObjectStore) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.image_batch_seal_seconds)
     
     candidates = session.execute(
@@ -135,14 +134,14 @@ def sweep_and_seal(session: Session, gcs_client: storage.Client) -> int:
     
     for batch in candidates:
         try:
-            _process_batch(session, gcs_client, batch)
+            _process_batch(session, store, batch)
         except Exception as e:
             log.exception("sweep_and_seal_batch_failed", extra={"batch_id": batch.id, "phase": "sealer"})
             session.rollback()
             
     return len(candidates)
 
-def _process_batch(session: Session, gcs_client: storage.Client, batch: ImageBatch):
+def _process_batch(session: Session, store: ObjectStore, batch: ImageBatch):
     items = session.execute(
         select(ImageBatchItem).where(ImageBatchItem.batch_id == batch.id).order_by(ImageBatchItem.ord)
     ).scalars().all()
@@ -164,12 +163,11 @@ def _process_batch(session: Session, gcs_client: storage.Client, batch: ImageBat
         session.commit()
         return
         
-    bucket = gcs_client.bucket(settings.gcs_bucket)
     raw_bytes_list = []
 
     try:
         for item in items:
-            b = bucket.blob(item.gcs_object).download_as_bytes()
+            b = store.download_bytes(item.gcs_object)
             raw_bytes_list.append(b)
 
         # Decision 2: preprocessing off by default; raw images go straight to OCR.
@@ -192,7 +190,7 @@ def _process_batch(session: Session, gcs_client: storage.Client, batch: ImageBat
         # Use first item sha for the object name suffix
         sha_part = items[0].sha256[:8]
         gcs_object = f"papers/_intake/{batch.id}-{sha_part}.pdf"
-        bucket.blob(gcs_object).upload_from_string(pdf_bytes, content_type="application/pdf")
+        store.upload_bytes(gcs_object, pdf_bytes, content_type="application/pdf")
         
         from app.retrieval import known_courses
         known = known_courses(session)

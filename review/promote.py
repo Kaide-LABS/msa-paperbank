@@ -86,7 +86,8 @@ def promote(session, gcs, http, cid: int, filing: dict, dedup_choice: str, revie
         served_id = min(new_ids) if len(new_ids) > 1 else new_ids[0]
         try:
             from app import retrieval
-            retrieval.precompute_served_pdf(session, served_id, gcs, settings.gcs_bucket)
+            from app.providers import get_object_store
+            retrieval.precompute_served_pdf(session, served_id, get_object_store(settings))
             session.commit()
         except Exception:
             session.rollback()

@@ -1,7 +1,6 @@
 import os
 from datetime import datetime
 from typing import Optional
-from google.cloud.sql.connector import Connector
 from sqlalchemy import create_engine, BigInteger, ForeignKey, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from pgvector.sqlalchemy import Vector
@@ -10,33 +9,23 @@ from app.config import settings
 # Test DB URL hook for pytest
 TEST_DB_URL = os.environ.get("DATABASE_URL_TEST")
 
-connector = None
-
-def getconn():
-    global connector
-    if connector is None:
-        connector = Connector()
-    return connector.connect(
-        settings.cloud_sql_instance,
-        "pg8000",
-        user=settings.db_user,
-        password=settings.db_password.get_secret_value(),
-        db=settings.db_name,
-    )
+_engine_provider = None
 
 if TEST_DB_URL:
     engine = create_engine(TEST_DB_URL, pool_size=2, max_overflow=2, pool_pre_ping=True)
 else:
-    engine = create_engine("postgresql+pg8000://", creator=getconn, pool_size=2, max_overflow=2, pool_pre_ping=True, pool_recycle=1800)
+    from app.providers import get_engine_provider
+
+    _engine_provider = get_engine_provider(settings)
+    engine = _engine_provider.create_engine()
 
 SessionLocal = sessionmaker(engine, expire_on_commit=False, autoflush=False)
 
 def dispose() -> None:
-    global connector
-    engine.dispose()
-    if connector is not None:
-        connector.close()
-        connector = None
+    if _engine_provider is not None:
+        _engine_provider.dispose()
+    else:
+        engine.dispose()
 
 from sqlalchemy.dialects.postgresql import JSONB
 

@@ -1,0 +1,69 @@
+{
+  "summary": "Azure Container Registry (ACR) is a managed Docker/OCI registry; for this build it is deployed via Bicep (Microsoft.ContainerRegistry/registries, stable API 2025-11-01) with Basic/Standard/Premium SKUs, authenticated via Microsoft Entra RBAC (not the legacy admin account), and consumed by the bot/review Container Apps and ingest/backfill Container Apps Jobs to pull images. No GCP project IDs are needed in ACR config, satisfying acceptance criterion 8. Classic (unSKU'd) registries are retired, Docker Content Trust is being deprecated in favor of Notary Project/Notation, and legacy Helm repositories were fully retired in March 2025 -- none of this affects a plain docker-push/pull CI/CD flow.",
+  "key_findings": [
+    "ACR is a managed registry based on the Docker platform, offered in three tiers (SKUs): Basic, Standard, Premium; Premium adds geo-replication and Private Link (per container-registry-intro, ms.date 2026-02-11).",
+    "Authentication is via Azure CLI/docker login, Microsoft Entra service principal or managed identity, or a discouraged admin account; RBAC (and optional ABAC scoped to repositories) assigns push/pull without full registry control (per container-registry-intro and container-registry-faq, ms.date 2026-02-04/2026-02-11).",
+    "Latest stable ARM/Bicep API version for Microsoft.ContainerRegistry/registries is 2025-11-01 (newest preview listed is 2026-09-01-preview), per the official allversions reference page.",
+    "Docker Content Trust (DCT) deprecation started 2025-03-31; DCT can still be enabled on registries that never had it until 2026-05-31; full removal is 2028-03-31. Microsoft's recommended replacement is Notary Project/Notation signing via Azure Key Vault.",
+    "Legacy Helm repository support (non-OCI Helm charts) and the 'az acr helm' CLI group were fully retired by 2025-03-30; classic (pre-SKU) registries are no longer supported at all, per the official FAQ.",
+    "Older ACR REST API versions (2016-06-27-preview, 2017-06-01-preview, 2018-02-01-preview) lost support in October 2023; the 2017-03-01-GA version's support ends September 2026, so new deployments should target a current API version, per the official FAQ.",
+    "Private Link/private endpoints for ACR are documented as a current Premium-tier feature (dedicated article, ms.date 2026-02-11) with a 200 private-endpoint cap and specific subnet IP-planning guidance for geo-replicated registries; note the separate intro overview page still labels this feature '(preview)' in its summary text even though the dedicated how-to treats it as available -- treat the dedicated article as authoritative."
+  ],
+  "recommendations": [
+    "Deploy ACR via Bicep using the current stable API version (2025-11-01 or newer) with Basic or Standard SKU for a single-registry, low-replica setup (Premium only needed if geo-replication/Private Link/CMK is required); parameterize SKU, name, and location -- no hardcoded GCP project IDs.",
+    "Disable the local admin account (adminUserEnabled: false) and grant AcrPull to the Container Apps' managed identities (bot, review) and AcrPush to the CI/CD identity, per Entra RBAC guidance; avoid az acr credential show-based admin credentials in any script.",
+    "Do not adopt Docker Content Trust for new image signing; if image signing is required, use Notary Project/Notation with Azure Key Vault-held keys instead, since DCT is mid-deprecation.",
+    "Reference the 'allversions' API list before pinning an apiVersion in Bicep so the pipeline doesn't drift onto a version nearing its Sept 2026 support cutoff (applies to 2017-03-01-GA specifically, not newer versions).",
+    "Skip ACR Tasks/agent pools and Helm repository features entirely -- they are unused by this build and Helm repos are already retired."
+  ],
+  "as_of": "Docs pages read ms.date 2026-02-04 to 2026-02-11, allversions page updated_at 2026-09-21; current as of November 2026",
+  "sources": [
+    {
+      "title": "Introduction to Azure Container Registry",
+      "url": "https://learn.microsoft.com/en-us/azure/container-registry/container-registry-intro",
+      "type": "official-docs",
+      "quote": "Container registries are available in three tiers (SKUs): Basic, Standard, and Premium... Premium registries support additional capabilities and have greater storage and limits."
+    },
+    {
+      "title": "Azure Container Registry FAQ",
+      "url": "https://learn.microsoft.com/en-us/azure/container-registry/container-registry-faq",
+      "type": "official-docs",
+      "quote": "The following API versions have been deprecated... 2017-03-01-GA | September 2023 | September 2026... Classic registries are no longer supported."
+    },
+    {
+      "title": "Transition from Docker Content Trust to Notary Project",
+      "url": "https://learn.microsoft.com/en-us/azure/container-registry/container-registry-content-trust-deprecation",
+      "type": "official-docs",
+      "quote": "deprecation of DCT started on March 31, 2025. DCT will be completely removed from Azure Container Registry on March 31, 2028."
+    },
+    {
+      "title": "Set Up Private Endpoint with Private Link for ACR",
+      "url": "https://learn.microsoft.com/en-us/azure/container-registry/container-registry-private-endpoints",
+      "type": "official-docs",
+      "quote": "This feature is available in the Premium container registry service tier (SKU), with a maximum of 200 private endpoints."
+    },
+    {
+      "title": "Microsoft.ContainerRegistry/registries - all versions",
+      "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.containerregistry/allversions",
+      "type": "official-docs",
+      "quote": "Microsoft.ContainerRegistry/registries | ...[2025-11-01]...[2026-01-01-preview][2026-03-01-preview][2026-09-01-preview]"
+    }
+  ],
+  "current_version": "ARM/Bicep resource API 2025-11-01 (stable); service tiers Basic/Standard/Premium",
+  "api_surface": [
+    "Bicep resource Microsoft.ContainerRegistry/registries (apiVersion 2025-11-01), properties: sku.name, adminUserEnabled, publicNetworkAccess",
+    "Entra RBAC role assignments: AcrPull (Container Apps managed identities), AcrPush (CI/CD identity)",
+    "az acr login / docker login, docker push, docker pull against <registry>.azurecr.io",
+    "Docker Registry HTTP API V2 at https://<registry>.azurecr.io/v2/ (used implicitly by docker/Container Apps pulls)",
+    "az acr show-usage / az acr check-health (operational diagnostics, optional)"
+  ],
+  "pitfalls": [
+    "Classic (pre-SKU) registries are no longer supported -- must create/already use Basic, Standard, or Premium tier.",
+    "Legacy Helm repository functionality and 'az acr helm' CLI group were fully retired 2025-03-30; store any Helm charts as OCI artifacts instead.",
+    "Docker Content Trust is mid-deprecation (started 2025-03-31, can still be newly enabled until 2026-05-31, fully removed 2028-03-31) -- new signing work should use Notary Project/Notation, not DCT.",
+    "Disabling public network access on a registry breaks 'az acr build' unless a dedicated agent pool or the AzureContainerRegistry service tag is allowlisted -- relevant only if private networking is added later.",
+    "Admin account is single-user and discouraged for multi-service access; use RBAC/managed identity for Container Apps pulls instead.",
+    "ACR API versions 2016-06-27-preview/2017-06-01-preview/2018-02-01-preview are already unsupported (since Oct 2023) and 2017-03-01-GA loses support Sept 2026 -- pin Bicep to a current (2025-11-01+) apiVersion."
+  ],
+  "uncertain": []
+}
