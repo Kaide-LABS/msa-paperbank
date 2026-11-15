@@ -37,6 +37,8 @@ class ObjectStore(Protocol):
 
     def delete(self, key: str) -> None: ...
 
+    def signed_url(self, key: str, *, ttl_seconds: int = 900) -> str: ...
+
 
 @runtime_checkable
 class Embedder(Protocol):

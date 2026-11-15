@@ -4,7 +4,7 @@ import httpx
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Header, Query, HTTPException, Depends
 from fastapi.responses import PlainTextResponse, Response
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 from google.cloud import storage
 
@@ -20,6 +20,8 @@ from app import retrieval
 from app.inbound import handle_inbound
 from app.channels import whatsapp as whatsapp_channel
 from app.errors import DuplicateMessage
+from app import signing
+from app.auth import require_tool_token
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +69,71 @@ app = FastAPI(lifespan=lifespan, title="msa-paperbank", version="0.1.0")
 @app.get("/healthz")
 def healthz() -> dict:
     return {"ok": True}
+
+
+@app.get("/download")
+def download(
+    request: Request,
+    key: str = Query(...),
+    exp: int = Query(...),
+    sig: str = Query(...),
+) -> Response:
+    """Stateless signed-URL download (Phase 3, AC 6).
+
+    The HMAC signature over (key, exp) IS the capability: accept iff it verifies and has
+    not expired, else 403. No DB lookup and no auth header — the ~15-min TTL bounds
+    exposure. On success stream the object bytes from the active object store.
+    """
+    if not signing.verify(key, exp, sig):
+        raise HTTPException(status_code=403, detail="invalid or expired signature")
+    try:
+        data = request.app.state.store.download_bytes(key)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="object not found")
+    return Response(content=data, media_type="application/octet-stream")
+
+
+class ToolRetrieveRequest(BaseModel):
+    query: str
+    prefer_courses: list[str] | None = None
+
+
+@app.post("/tool/retrieve")
+def tool_retrieve(
+    body: ToolRetrieveRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+    _: None = Depends(require_tool_token),
+) -> dict:
+    """Authed single-call retrieval seam for the future Copilot Studio agent (Phase 3).
+
+    Minimal JSON `{query, prefer_courses?}` -> `retrieval.answer_query`; returns the
+    matched paper's metadata plus a short-lived `signed_url` for its object. Guarded by
+    the bearer dependency; imports no WhatsApp types.
+    """
+    result = retrieval.answer_query(session, body.query, prefer_courses=body.prefer_courses)
+    paper = result.paper
+    if paper is None:
+        return {
+            "found": False,
+            "intent": result.intent,
+            "course_code": result.course_code,
+            "course_known": result.course_known,
+        }
+    serve_key = paper.served_object_key or paper.object_key
+    return {
+        "found": True,
+        "intent": result.intent,
+        "paper": {
+            "id": paper.id,
+            "course_code": paper.course_code,
+            "course_title": paper.course_title,
+            "year": paper.year,
+            "semester": paper.semester,
+            "exam_session": paper.exam_session,
+        },
+        "signed_url": request.app.state.store.signed_url(serve_key),
+    }
 
 @app.get("/webhook")
 def webhook_verify(

@@ -44,6 +44,9 @@ class FakeObjectStore:
     def delete(self, key: str) -> None:
         self._data.pop(key, None)
 
+    def signed_url(self, key: str, *, ttl_seconds: int = 900) -> str:
+        return f"https://fake/download?key={key}&ttl={ttl_seconds}"
+
 
 def _settings(**over):
     base = dict(provider="gcp", gcp_project="proj", gcs_bucket="bucket", embedding_dim=768)
@@ -148,18 +151,20 @@ def test_get_secrets_provider_gcp(monkeypatch):
 
 
 def test_factory_unknown_provider_raises():
-    s = _settings(provider="local")
-    with pytest.raises(ValueError, match="unknown provider: local"):
+    # "local"/"minio" object stores arrive in Phase 3; a genuinely-unknown provider
+    # still raises across every factory.
+    s = _settings(provider="bogus")
+    with pytest.raises(ValueError, match="unknown provider: bogus"):
         get_object_store(s)
-    with pytest.raises(ValueError, match="unknown provider: local"):
+    with pytest.raises(ValueError, match="unknown provider: bogus"):
         get_embedder(s)
-    with pytest.raises(ValueError, match="unknown provider: local"):
+    with pytest.raises(ValueError, match="unknown provider: bogus"):
         get_engine_provider(s)
 
 
 def test_get_secrets_provider_unknown_raises(monkeypatch):
-    monkeypatch.setenv("PROVIDER", "local")
-    with pytest.raises(ValueError, match="unknown provider: local"):
+    monkeypatch.setenv("PROVIDER", "bogus")
+    with pytest.raises(ValueError, match="unknown provider: bogus"):
         get_secrets_provider()
 
 

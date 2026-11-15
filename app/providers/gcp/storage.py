@@ -48,3 +48,12 @@ class GcsObjectStore:
 
     def delete(self, key: str) -> None:
         self._blob(key).delete()
+
+    def signed_url(self, key: str, *, ttl_seconds: int = 900) -> str:
+        # Uniform across adapters: return a backend `/download` URL (HMAC-signed by
+        # `app.signing`), not a GCS-native presigned URL, so the backend stays the sole
+        # verifier. The live WhatsApp path still sends bytes; this exists so the port is
+        # uniform and the download route works under any provider.
+        from app.signing import signed_download_url
+
+        return signed_download_url(key, ttl_seconds=ttl_seconds)

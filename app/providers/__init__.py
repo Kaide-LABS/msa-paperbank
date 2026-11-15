@@ -23,6 +23,14 @@ def get_object_store(settings) -> ObjectStore:
         from app.providers.gcp.storage import GcsObjectStore
 
         return GcsObjectStore.from_settings(settings)
+    if name == "local":
+        from app.providers.local.storage import FsObjectStore
+
+        return FsObjectStore.from_settings(settings)
+    if name == "minio":
+        from app.providers.local.storage import MinioObjectStore
+
+        return MinioObjectStore.from_settings(settings)
     raise ValueError(f"unknown provider: {name}")
 
 
