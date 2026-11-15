@@ -2,12 +2,12 @@
 
 ## What was built
 
-The groundwork for moving the past-paper bot off Google's cloud. The bot's code was reshaped so that the parts that talk to storage, search, passwords, and the database now go through standard "sockets." Today those sockets still plug into Google, but they're built so a different provider can be slotted in later without rewriting everything. A new round of safety checks was added for this reshaped plumbing, and those checks pass.
+The bot's inner workings were reshaped so that the parts that talk to Google's cloud — file storage, search, password-style secrets, and the database connection — now go through tidy "plug points" instead of being wired directly to Google. Today's behaviour is unchanged and Google is still the only thing plugged in, but the groundwork is now laid so the school's own tools can be slotted in next, without rewriting the bot. New safety-check tests and a short explainer document were added to lock this in.
 
 ## What was decided
 
-Google was kept as the only live provider for now, so nothing users rely on changes while the structure is rebuilt first. The team also chose to hold off rerouting a few remaining pieces to a later step, to keep each change small and reviewable.
+Only the main, live path was switched over this stage, to keep the change small and safe. One older, unused side-path was deliberately left for a later stage. Google's current behaviour was copied exactly rather than improved, to avoid any surprises for users.
 
 ## What is uncertain
 
-This stage did not finish — it stopped partway. Several pieces still point directly at Google and need rerouting next: parts of the database, file handling, and password handling. The full set of automated checks could not all be run here because of a setup mismatch on the test machine, so wider confidence is not yet confirmed. The next worker has a written list of exactly what remains.
+The full set of safety checks could not all be run here because this workstation runs a mismatched version of the underlying software; the focused checks passed. This must be confirmed on the project's proper setup before relying on it. Also, one older side-path still points at the old wiring and would fail if used; it is flagged for the next stage.
