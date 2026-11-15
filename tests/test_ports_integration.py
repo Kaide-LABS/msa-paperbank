@@ -7,7 +7,7 @@ when disabled, the test-path DB engine stays on sqlite, and the factory/embedder
 object-store error paths are exercised without touching GCP.
 """
 import types
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -108,6 +108,20 @@ def test_gcp_engine_provider_create_engine_not_called_without_use():
         # constructing the provider opens no connector
         mock_connector.assert_not_called()
     assert provider._engine is None
+    assert provider._connector is None
+
+
+def test_gcp_engine_provider_dispose_closes_engine_and_connector():
+    provider = GcpEngineProvider(_settings())
+    engine_dispose = MagicMock()
+    connector_close = MagicMock()
+    provider._engine = types.SimpleNamespace(dispose=engine_dispose)
+    provider._connector = types.SimpleNamespace(close=connector_close)
+
+    provider.dispose()
+
+    engine_dispose.assert_called_once_with()
+    connector_close.assert_called_once_with()
     assert provider._connector is None
 
 
