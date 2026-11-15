@@ -15,9 +15,10 @@ from app import db
 from app.deps import get_session
 from app.schemas import WAWebhookPayload, TextReply
 from app import whatsapp
-from app import pipeline
 from app import serve_v1
 from app import retrieval
+from app.inbound import handle_inbound
+from app.channels import whatsapp as whatsapp_channel
 from app.errors import DuplicateMessage
 
 log = logging.getLogger(__name__)
@@ -104,12 +105,14 @@ async def webhook_inbound(
                             session, pid, request.app.state.store
                         )
                     else:
-                        reply = pipeline.handle_message(
-                            session, msg, request.app.state.http, request.app.state.gcs
+                        inbound = whatsapp_channel.to_inbound(msg)
+                        reply = handle_inbound(
+                            session, inbound, request.app.state.http, request.app.state.store
                         )
                         paper_loader = lambda pid: retrieval.load_pdf_bytes(
                             session.get(db.Paper, pid), request.app.state.store
                         )
+                    reply = whatsapp_channel.from_reply(reply)
                     if not (isinstance(reply, TextReply) and reply.body == ""):
                         whatsapp.send_reply(
                             http_client=request.app.state.http,

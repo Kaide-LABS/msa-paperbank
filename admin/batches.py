@@ -2,9 +2,9 @@ import argparse
 import sys
 from sqlalchemy import select, func
 from tabulate import tabulate
-from google.cloud import storage
 from app.db import SessionLocal, ImageBatch, ImageBatchItem
 from app.config import settings
+from app.providers import get_object_store
 from app.intake import sweep_and_seal_single
 
 def list_cmd(args):
@@ -47,9 +47,9 @@ def seal_cmd(args):
         batch.status = 'open'
         session.commit()
         
-    gcs_client = storage.Client(project=settings.gcp_project)
+    store = get_object_store(settings)
     with SessionLocal() as session:
-        sweep_and_seal_single(session, gcs_client, args.batch_id)
+        sweep_and_seal_single(session, store, args.batch_id)
         print(f"Sealed batch {args.batch_id}")
 
 def clear_cmd(args):

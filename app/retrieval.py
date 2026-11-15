@@ -1,5 +1,6 @@
 import logging
 import time
+from dataclasses import dataclass
 from sqlalchemy.orm import Session
 from sqlalchemy import select, or_, func
 from pgvector.sqlalchemy import Vector
@@ -7,8 +8,22 @@ from app.db import Paper, PaperChunk, Course
 from app.config import settings
 from app import embeddings
 from app.ports import ObjectStore
+from app.errors import EmbeddingError
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class RetrievalResult:
+    """Channel-neutral retrieval outcome. Carries the matched paper (if any) plus the routed
+    intent/course so the future tool endpoint (Phase 3) and the handler core share one shape.
+    Imports no WhatsApp types."""
+    paper: Paper | None
+    intent: str
+    course_code: str | None = None
+    year: int | None = None
+    semester: str | None = None
+    course_known: bool | None = None
 
 _courses_cache = None
 _courses_cache_time = 0
@@ -97,6 +112,49 @@ def find_paper_by_semantic_query(
             return paper
             
     return results[0][0]
+
+def answer_query(
+    session: Session,
+    query: str,
+    *,
+    prefer_courses: list[str] | None = None,
+) -> RetrievalResult:
+    """Channel-neutral retrieval: route a plain text query, apply the course guard, and look up
+    the paper (with the semantic fallback), returning a `RetrievalResult`. Composes the existing
+    `find_paper` / `find_paper_by_semantic_query` so the future tool endpoint (Phase 3) and the
+    channel-neutral handler core can share one callable. Imports no WhatsApp types.
+
+    `llm` is imported lazily so this module stays free of import-time vendor coupling and the
+    retrieval helpers remain callable without routing."""
+    from app import llm
+
+    routed, _in_tok, _out_tok = llm.route(query)
+
+    if routed.intent != "paper_request":
+        return RetrievalResult(paper=None, intent=routed.intent)
+
+    course_code = (routed.course_code or "").upper().replace(" ", "")
+    known = known_courses(session)
+    if not course_code or course_code not in known:
+        return RetrievalResult(
+            paper=None, intent="paper_request", course_code=course_code or None,
+            year=routed.year, semester=routed.semester, course_known=False,
+        )
+
+    paper = find_paper(session, course_code, routed.year, routed.semester)
+    if paper is None and routed.confidence >= settings.semantic_fallback_min_router_confidence:
+        try:
+            paper = find_paper_by_semantic_query(
+                session, course_code, query, prefer_courses=prefer_courses
+            )
+        except EmbeddingError:
+            paper = None
+
+    return RetrievalResult(
+        paper=paper, intent="paper_request", course_code=course_code,
+        year=routed.year, semester=routed.semester, course_known=True,
+    )
+
 
 def render_served_pdf(raw_pdf_bytes: bytes) -> bytes:
     """Transform the stored RAW paper PDF into the human-display version: rasterize each page,

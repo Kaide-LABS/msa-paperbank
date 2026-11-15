@@ -27,8 +27,29 @@ def handle_image(
     store: ObjectStore,
     msg: WAMessage,
 ) -> Reply:
-    phone = msg.from_
-    
+    """Backward-compatible WhatsApp entrypoint. Delegates to the channel-neutral
+    ``handle_image_inbound`` so callers holding a channel-agnostic envelope (the Phase-2
+    ``InboundMessage`` path) do not need WhatsApp wire types."""
+    return handle_image_inbound(
+        session,
+        http_client,
+        store,
+        phone=msg.from_,
+        media_id=msg.image.id,
+        message_id=msg.id,
+    )
+
+
+def handle_image_inbound(
+    session: Session,
+    http_client: httpx.Client,
+    store: ObjectStore,
+    *,
+    phone: str,
+    media_id: str,
+    message_id: str,
+) -> Reply:
+
     if not is_whitelisted(session, phone):
         log.warning("image_from_non_whitelisted", extra={"wa_from": phone, "phase": "intake"})
         # Outcome will be set in pipeline.py
@@ -76,23 +97,23 @@ def handle_image(
         reply_prefix = ""
         
     try:
-        download_url, mime, size = whatsapp.get_media_metadata(http_client, msg.image.id)
+        download_url, mime, size = whatsapp.get_media_metadata(http_client, media_id)
         if size > settings.ocr_max_image_bytes:
             return TextReply(body="That image is too large. Try a smaller photo.")
-            
+
         pdf_bytes = whatsapp.download_media(http_client, download_url)
         sha = hashlib.sha256(pdf_bytes).hexdigest()
-        
+
         ext = "jpg" if mime in ["image/jpeg", "image/jpg"] else "png" if mime == "image/png" else "bin"
-        key = f"{settings.media_gcs_prefix}{msg.id}.{ext}"
+        key = f"{settings.media_gcs_prefix}{message_id}.{ext}"
 
         store.upload_bytes(key, pdf_bytes, content_type=mime)
-        
+
         ord_val = items_count + 1
         item = ImageBatchItem(
             batch_id=batch.id,
-            wa_media_id=msg.image.id,
-            wa_message_id=msg.id,
+            wa_media_id=media_id,
+            wa_message_id=message_id,
             gcs_object=key,
             mime_type=mime,
             sha256=sha,
@@ -104,7 +125,7 @@ def handle_image(
         return TextReply(body=f"{reply_prefix}got page {ord_val}")
         
     except Exception as e:
-        log.error("handle_image_error", extra={"wa_message_id": msg.id, "wa_from": phone, "phase": "intake", "err": str(e)})
+        log.error("handle_image_error", extra={"wa_message_id": message_id, "wa_from": phone, "phase": "intake", "err": str(e)})
         session.rollback()
         # Ensure we don't crash the pipeline, let the IntegrityError or other bubble up if it's dedupe
         raise
