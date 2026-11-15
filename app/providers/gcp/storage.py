@@ -20,7 +20,8 @@ class GcsObjectStore:
     def from_settings(cls, settings) -> "GcsObjectStore":
         from google.cloud import storage
 
-        return cls(storage.Client(project=settings.gcp_project), settings.gcs_bucket)
+        bucket = getattr(settings, "object_store_bucket", settings.gcs_bucket)
+        return cls(storage.Client(project=settings.gcp_project), bucket)
 
     def _blob(self, key: str):
         return self._client.bucket(self._bucket_name).blob(key)

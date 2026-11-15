@@ -41,7 +41,7 @@ def upload_pdf_cmd(args):
             
         gcs_object = f"papers/{code}/{args.year}-{args.semester}-{args.session or 'exam'}.pdf"
         
-        print(f"Uploading to gs://{settings.gcs_bucket}/{gcs_object} ...")
+        print(f"Uploading to gs://{settings.object_store_bucket}/{gcs_object} ...")
         upload_pdf(get_object_store(settings), gcs_object, pdf_bytes)
         
         new_paper = Paper(
@@ -110,7 +110,7 @@ def upload_images_cmd(args):
     gcs_object = f"papers/{code}/{args.year}-{args.semester}-{args.session or 'exam'}.pdf"
     
     client = storage.Client(project=settings.gcp_project)
-    bucket = client.bucket(settings.gcs_bucket)
+    bucket = client.bucket(settings.object_store_bucket)
     if bucket.blob(gcs_object).exists():
         gcs_object = f"papers/{code}/{args.year}-{args.semester}-{args.session or 'exam'}-{sha256_combined[:8]}.pdf"
         

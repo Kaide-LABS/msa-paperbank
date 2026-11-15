@@ -242,7 +242,7 @@ def load_served_bytes_v1(session, pending_id: int, store: ObjectStore) -> tuple[
     # --- grouped multi-page exam? ---
     if settings.serve_multipage_enabled:
         grp = session.execute(text(
-            "SELECT pp.gcs_object, pp.course_code FROM exam_group eg "
+            "SELECT pp.object_key, pp.course_code FROM exam_group eg "
             "JOIN pending_papers pp ON pp.id = eg.page_row_id "
             "WHERE eg.logical_exam_id = :lex ORDER BY eg.page_order"
         ), {"lex": pending_id}).mappings().all()
@@ -257,7 +257,7 @@ def load_served_bytes_v1(session, pending_id: int, store: ObjectStore) -> tuple[
 
     # --- single row ---
     row = session.execute(
-        text("SELECT course_code, gcs_object FROM pending_papers WHERE id = :id"),
+        text("SELECT course_code, object_key FROM pending_papers WHERE id = :id"),
         {"id": pending_id},
     ).mappings().first()
     if row is None:
@@ -299,7 +299,7 @@ def precompute_served_pdf(session, served_id: int, store: ObjectStore) -> tuple[
     if last_err is not None:
         raise last_err
     session.execute(
-        text("UPDATE pending_papers SET served_object = :o, served_filename = :f WHERE id = :id"),
+        text("UPDATE pending_papers SET served_object_key = :o, served_filename = :f WHERE id = :id"),
         {"o": obj, "f": filename, "id": served_id},
     )
     return obj, filename
@@ -315,7 +315,7 @@ def load_served_cached(session, served_id: int, store: ObjectStore) -> tuple[byt
         from sqlalchemy import text
         try:
             row = session.execute(
-                text("SELECT served_object, served_filename FROM pending_papers WHERE id = :id"),
+                text("SELECT served_object_key, served_filename FROM pending_papers WHERE id = :id"),
                 {"id": served_id},
             ).mappings().first()
             if row and row["served_object"]:

@@ -105,7 +105,7 @@ def handle_image_inbound(
         sha = hashlib.sha256(pdf_bytes).hexdigest()
 
         ext = "jpg" if mime in ["image/jpeg", "image/jpg"] else "png" if mime == "image/png" else "bin"
-        key = f"{settings.media_gcs_prefix}{message_id}.{ext}"
+        key = f"{settings.media_prefix}{message_id}.{ext}"
 
         store.upload_bytes(key, pdf_bytes, content_type=mime)
 

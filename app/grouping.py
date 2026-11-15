@@ -116,7 +116,7 @@ def build_exam_groups(session: Session, confidences=("HIGH",)):
     """(Re)build exam_group rows for the given confidence levels. Idempotent: clears those levels
     first. Returns (n_exams, n_pages)."""
     rows = session.execute(text(
-        "SELECT id, gcs_object, course_code, exam_session, filing_source "
+        "SELECT id, object_key, course_code, exam_session, filing_source "
         "FROM pending_papers WHERE source='corpus_full' AND student_visible"
     )).mappings().all()
     clusters = classify([dict(r) for r in rows])

@@ -121,7 +121,7 @@ def _download(http, msg: WAMessage):
 def _store_image(store, cid: int, msg: WAMessage, raw: bytes, mime: str) -> str:
     ext = "jpg" if mime in ("image/jpeg", "image/jpg") else ("png" if mime == "image/png"
           else ("heic" if "heic" in (mime or "") else "bin"))
-    key = f"{settings.contribution_gcs_prefix}{cid}/{msg.id}.{ext}"
+    key = f"{settings.contribution_prefix}{cid}/{msg.id}.{ext}"
     store.upload_bytes(key, raw, content_type=mime or "image/jpeg")
     return key
 

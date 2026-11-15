@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 from typing import Optional
 from sqlalchemy import create_engine, BigInteger, ForeignKey, UniqueConstraint, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker, synonym
 from pgvector.sqlalchemy import Vector
 from app.config import settings
 
@@ -64,7 +64,10 @@ class Paper(Base):
     exam_session: Mapped[Optional[str]]                          # 'CA1' | 'CA2' | 'exam' | NULL
     semester: Mapped[str]                                        # 'harmattan' | 'rain'
     year: Mapped[int]
-    gcs_object: Mapped[str]
+    object_key: Mapped[str]
+    gcs_object = synonym("object_key")
+    served_object_key: Mapped[Optional[str]]
+    served_object = synonym("served_object_key")
     sha256: Mapped[str] = mapped_column(unique=True)
     uploaded_by: Mapped[str]
     uploaded_at: Mapped[datetime] = mapped_column(server_default=func.now())
@@ -96,7 +99,8 @@ class PendingPaper(Base):
     semester: Mapped[str]
     exam_session: Mapped[Optional[str]]
     year: Mapped[int]
-    gcs_object: Mapped[str]
+    object_key: Mapped[str]
+    gcs_object = synonym("object_key")
     sha256: Mapped[str] = mapped_column(unique=True)
     uploaded_by: Mapped[str]
     uploaded_at: Mapped[datetime] = mapped_column(server_default=func.now())
@@ -163,7 +167,8 @@ class ImageBatchItem(Base):
     batch_id: Mapped[int] = mapped_column(ForeignKey("image_batches.id", ondelete="CASCADE"))
     wa_media_id: Mapped[str]
     wa_message_id: Mapped[str] = mapped_column(unique=True)
-    gcs_object: Mapped[str]
+    object_key: Mapped[str]
+    gcs_object = synonym("object_key")
     mime_type: Mapped[str]
     sha256: Mapped[str]
     ord: Mapped[int]

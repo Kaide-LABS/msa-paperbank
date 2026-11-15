@@ -32,7 +32,7 @@ def promote(session, gcs, http, cid: int, filing: dict, dedup_choice: str, revie
         "SELECT gcs_object, page_order FROM contribution_pages WHERE contribution_id=:c ORDER BY page_order"
     ), {"c": cid}).mappings().all()
     school = contrib["contributor_school"]
-    bucket = gcs.bucket(settings.gcs_bucket)
+    bucket = gcs.bucket(settings.object_store_bucket)
 
     new_ids = []
     for k, pg in enumerate(pages, 1):

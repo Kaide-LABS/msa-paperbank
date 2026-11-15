@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     db_user: str
     db_password: SecretStr
     db_name: str = "paperbank"
-    gcs_bucket: str
+    object_store_bucket: str = Field(validation_alias=AliasChoices("OBJECT_STORE_BUCKET", "GCS_BUCKET"))
     wa_phone_number_id: str
     wa_access_token: SecretStr
     wa_app_secret: SecretStr
@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     image_batch_seal_seconds: int = 90
     image_intake_ocr_per_day: int = 100
     image_intake_max_open_batches_per_phone_per_day: int = 3
-    media_gcs_prefix: str = "media/"
+    media_prefix: str = Field("media/", validation_alias=AliasChoices("MEDIA_PREFIX", "MEDIA_GCS_PREFIX"))
     personalization_min_interactions: int = 5
     personalization_tie_band: float = 0.05
     personalization_top_k_for_bias: int = 2
@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     # Build 2: WhatsApp contribution intake (students photograph papers -> bot validates/collects ->
     # awaiting_review queue; NOTHING student-visible until the Build-3 web app approves).
     serve_contributions_enabled: bool = True
-    contribution_gcs_prefix: str = "contributions/"   # contributed raw images, separate from corpus_full/
+    contribution_prefix: str = Field("contributions/", validation_alias=AliasChoices("CONTRIBUTION_PREFIX", "CONTRIBUTION_GCS_PREFIX"))   # contributed raw images, separate from corpus_full/
     contribution_weekly_cap: int = 20                 # accepted finalized sessions per rolling 7 days (general public)
     contribution_idle_seconds: int = 90               # idle before the sweep checks in / finalizes a collecting session
     contribution_max_pages: int = 20                  # safety cap on pages per contribution

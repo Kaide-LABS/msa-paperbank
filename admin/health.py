@@ -21,11 +21,11 @@ def check_gcs():
     start = time.time()
     try:
         gcs = storage.Client(project=settings.gcp_project)
-        exists = gcs.bucket(settings.gcs_bucket).exists()
+        exists = gcs.bucket(settings.object_store_bucket).exists()
         if exists:
-            return True, int((time.time() - start) * 1000), f"bucket={settings.gcs_bucket}"
+            return True, int((time.time() - start) * 1000), f"bucket={settings.object_store_bucket}"
         else:
-            return False, int((time.time() - start) * 1000), f"bucket {settings.gcs_bucket} not found"
+            return False, int((time.time() - start) * 1000), f"bucket {settings.object_store_bucket} not found"
     except Exception as e:
         return False, int((time.time() - start) * 1000), str(e)
 

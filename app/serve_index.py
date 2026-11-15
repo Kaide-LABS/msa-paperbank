@@ -23,7 +23,7 @@ _CODE_RE = re.compile(r"[A-Z]{2,}\s?\d{2,}")     # a real-looking course code, e
 _LEVEL_RE = re.compile(r"\b([1-6])00\s*(?:level|lvl|l)?\b|\bl\s?([1-6])00\b", re.I)
 
 _SELECT_COLS = ("id, course_code, course_title, dept, school, level, semester, year, "
-                "exam_session, gcs_object")
+                "exam_session, object_key")
 
 
 @dataclass

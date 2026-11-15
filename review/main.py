@@ -354,7 +354,7 @@ def history(request: Request, s: Session = Depends(get_session)):
 def _serve_object(request: Request, gcs_object: str | None):
     if not gcs_object:
         return Response(status_code=404)
-    raw = request.app.state.gcs.bucket(settings.gcs_bucket).blob(gcs_object).download_as_bytes()
+    raw = request.app.state.gcs.bucket(settings.object_store_bucket).blob(gcs_object).download_as_bytes()
     ext = gcs_object.rsplit(".", 1)[-1].lower() if "." in gcs_object else "jpg"
     mt = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "heic": "image/heic"}.get(ext, "image/jpeg")
     return Response(content=raw, media_type=mt)
