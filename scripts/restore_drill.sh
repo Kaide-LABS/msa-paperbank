@@ -14,8 +14,8 @@ if [[ "$confirm" != "yes" ]]; then
 fi
 
 INSTANCE="paperbank"
-REGION="africa-south1" # Adjust if necessary
-PROJECT=$(gcloud config get-value project)
+REGION="${REGION:?set REGION}"
+PROJECT="${PROJECT:?set PROJECT}"
 
 echo "Fetching latest successful backup..."
 BACKUP_ID=$(gcloud sql backups list --instance $INSTANCE --filter='status=SUCCESSFUL' --sort-by=~window_start_time --limit=1 --format='value(id)')

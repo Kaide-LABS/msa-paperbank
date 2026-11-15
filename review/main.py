@@ -372,5 +372,5 @@ def img_contrib(page_id: int, request: Request, s: Session = Depends(get_session
 def img_paper(pid: int, request: Request, s: Session = Depends(get_session)):
     if not _me(request):
         return Response(status_code=401)
-    obj = s.execute(text("SELECT gcs_object FROM pending_papers WHERE id=:i"), {"i": pid}).scalar()
+    obj = s.execute(text("SELECT object_key FROM pending_papers WHERE id=:i"), {"i": pid}).scalar()
     return _serve_object(request, obj)

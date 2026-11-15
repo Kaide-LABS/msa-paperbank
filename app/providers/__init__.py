@@ -49,13 +49,22 @@ def get_engine_provider(settings) -> EngineProvider:
         from app.providers.gcp.engine import GcpEngineProvider
 
         return GcpEngineProvider(settings)
+    if name in {"local", "minio"}:
+        from app.providers.local.engine import PostgresEngineProvider
+
+        return PostgresEngineProvider(settings)
     raise ValueError(f"unknown provider: {name}")
 
 
-def get_secrets_provider() -> SecretsProvider:
-    name = os.environ.get("PROVIDER", "gcp")
+def get_secrets_provider(settings=None) -> SecretsProvider:
+    name = getattr(settings, "provider", None) or os.environ.get("PROVIDER", "gcp")
     if name == "gcp":
         from app.providers.gcp.secrets import GcpSecretsProvider
 
         return GcpSecretsProvider()
+    if name in {"local", "minio"}:
+        from app.providers.local.secrets import EnvSecretsProvider, FileSecretsProvider
+
+        secrets_dir = getattr(settings, "secrets_dir", None) if settings is not None else None
+        return FileSecretsProvider(secrets_dir) if secrets_dir else EnvSecretsProvider()
     raise ValueError(f"unknown provider: {name}")

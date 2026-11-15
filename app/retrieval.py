@@ -250,8 +250,8 @@ def load_served_bytes_v1(session, pending_id: int, store: ObjectStore) -> tuple[
             code = grp[0]["course_code"]
             pages = []
             for r in grp:
-                praw = store.download_bytes(r["gcs_object"])
-                pext = r["gcs_object"].rsplit(".", 1)[-1].lower() if "." in r["gcs_object"] else ""
+                praw = store.download_bytes(r["object_key"])
+                pext = r["object_key"].rsplit(".", 1)[-1].lower() if "." in r["object_key"] else ""
                 pages.append(_image_to_enhanced_png(praw, pext))
             return stitch_images_to_pdf(pages), f"{(code or 'paper').replace('/', '_')}.pdf"
 
@@ -262,7 +262,7 @@ def load_served_bytes_v1(session, pending_id: int, store: ObjectStore) -> tuple[
     ).mappings().first()
     if row is None:
         raise ValueError(f"pending_paper {pending_id} not found")
-    course_code, gcs_object = row["course_code"], row["gcs_object"]
+    course_code, gcs_object = row["course_code"], row["object_key"]
     raw = store.download_bytes(gcs_object)
     filename = f"{(course_code or 'paper').replace('/', '_')}.pdf"
     ext = gcs_object.rsplit(".", 1)[-1].lower() if "." in gcs_object else ""
@@ -318,8 +318,8 @@ def load_served_cached(session, served_id: int, store: ObjectStore) -> tuple[byt
                 text("SELECT served_object_key, served_filename FROM pending_papers WHERE id = :id"),
                 {"id": served_id},
             ).mappings().first()
-            if row and row["served_object"]:
-                data = store.download_bytes(row["served_object"])
+            if row and row["served_object_key"]:
+                data = store.download_bytes(row["served_object_key"])
                 return data, (row["served_filename"] or f"paper.pdf")
         except Exception:
             log.warning("served_cache_miss_fallback", extra={"served_id": served_id}, exc_info=True)

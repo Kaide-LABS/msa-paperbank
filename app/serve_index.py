@@ -91,7 +91,7 @@ def _row_to_candidate(r, score: float = 0.0) -> Candidate:
     return Candidate(
         id=r["id"], course_code=r["course_code"], course_title=r["course_title"],
         dept=r["dept"], school=r["school"], level=r["level"], semester=r["semester"],
-        year=r["year"], exam_session=r["exam_session"], gcs_object=r["gcs_object"], score=score,
+        year=r["year"], exam_session=r["exam_session"], gcs_object=r["object_key"], score=score,
     )
 
 

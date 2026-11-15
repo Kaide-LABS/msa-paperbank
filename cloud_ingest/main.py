@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS pending_papers (
     id            SERIAL PRIMARY KEY,
     source        TEXT NOT NULL,
     sha           TEXT UNIQUE NOT NULL,
-    gcs_object    TEXT,
+    object_key    TEXT,
     course_code   TEXT,
     school        TEXT, dept TEXT, level TEXT, semester TEXT, year TEXT,
     exam_session  TEXT,
@@ -112,7 +112,7 @@ def write_paper(row):
     try:
         cur = c.cursor()
         cur.execute("""INSERT INTO pending_papers
-            (source,sha,gcs_object,course_code,school,dept,level,semester,year,exam_session,
+            (source,sha,object_key,course_code,school,dept,level,semester,year,exam_session,
              outcome,curation_tier,primary_reader,num_questions,flags,reason,questions_json,
              course_title,filing_confidence,filing_source,student_visible)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)

@@ -41,7 +41,7 @@ def promote(session, gcs, http, cid: int, filing: dict, dedup_choice: str, revie
         bucket.copy_blob(src, bucket, dst_name)            # served copy (raw contribution kept intact)
         sha = hashlib.sha256(f"contrib-{cid}-{k}-{dst_name}".encode()).hexdigest()[:32]
         nid = session.execute(text(
-            "INSERT INTO pending_papers (source, sha, gcs_object, course_code, course_title, school, "
+            "INSERT INTO pending_papers (source, sha, object_key, course_code, course_title, school, "
             "year, exam_session, outcome, curation_tier, filing_source, filing_confidence, "
             "student_visible, contribution_id) VALUES "
             "('corpus_full', :sha, :obj, :code, :title, :school, :year, :sess, 'approved_contribution', "
