@@ -11,3 +11,11 @@ What went wrong in past runs and what resolved it. One fact per line.
 - Research item local-cpu-embedder-768 failed: Required field "key_findings" is missing. _(run ef877dec, 2026-11-11)_
 - Run stopped: The build stopped before it was finished. _(run ef877dec, 2026-11-15)_
 - Phase 4 did not complete: claude-code: The AI provider stopped with an error (it exited with code 1). _(run ef877dec, 2026-11-15)_
+- Run stopped: The finished project did not pass the final check. _(run ef877dec, 2026-11-16)_
+- Final check found a requirement NOT met: The existing pytest suite passes unchanged after Phase 1 (tests minimally re-pointed at new seams are allowed; no behavioural assertion changed). _(run ef877dec, 2026-11-16)_
+- Final check found a requirement NOT met: Ports exist for object store, embedder, secrets, and DB engine, selectable by a provider setting, with the existing GCP implementations behind them. _(run ef877dec, 2026-11-16)_
+- Final check found a requirement NOT met: The gcs_* rename is applied via a reversible migration using SQLAlchemy synonyms, and the pre-existing env variable names still resolve. _(run ef877dec, 2026-11-16)_
+- Final check found a requirement NOT met: No plaintext DB password, Cloud SQL connection string, or hardcoded GCP project id remains in apply_migrations.py, scripts, or the Dockerfile. _(run ef877dec, 2026-11-16)_
+- Final check found a requirement NOT met: A re-embed job repopulates chunk and title embeddings, and a recorded parity report compares old vs new top-k results on a fixed query set. _(run ef877dec, 2026-11-16)_
+- Final check found a requirement NOT met: docker compose up starts bot + Postgres (pgvector, pg_trgm) + optional MinIO, and each service reports healthy via its health check. _(run ef877dec, 2026-11-16)_
+- Final check found a requirement NOT met: Phase 6 migration/cutover/teardown scripts exist but are not executed, and GCP production remains running and reversible. (the check could not exercise this criterion) _(run ef877dec, 2026-11-16)_
