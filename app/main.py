@@ -25,16 +25,18 @@ from app.auth import require_tool_token
 
 log = logging.getLogger(__name__)
 
-def _warmup() -> None:
+def _warmup(embedder) -> None:
     """Fire-and-forget at boot: pay the cold-init costs OFF the first user message's critical path.
-    The embedding model's first call is ~11s cold (gemini-embedding-001) — force it here; also
-    preload the in-memory title vectors. Behaviour-unchanged: this only moves WHEN init happens.
-    NEVER fatal — warmup is an optimisation, not a dependency (a boot-time Vertex hiccup is logged
+    Force the embedder's first (cold) call here and preload the in-memory title vectors.
+    Behaviour-unchanged: this only moves WHEN init happens. Routes through the ACTIVE embedder
+    (`app.state.embedder`) — the local CPU model under provider=local (no network, loads from the
+    baked cache), or the Vertex adapter under provider=gcp (the ~11s gemini-embedding cold init) —
+    so a credential-free local boot never reaches Vertex.
+    NEVER fatal — warmup is an optimisation, not a dependency (a boot-time hiccup is logged
     and swallowed; the bot starts and serves regardless)."""
     try:
-        from app.embeddings import embed_query
         try:
-            embed_query("warmup")                    # forces the ~11s gemini-embedding cold init
+            embedder.embed_query("warmup")           # forces the active embedder's cold init
         except Exception:
             log.warning("warmup_embed_failed", extra={"phase": "warmup"}, exc_info=True)
         try:
@@ -55,14 +57,18 @@ def _warmup() -> None:
 async def lifespan(app: FastAPI):
     setup_logging(settings.log_level)
     app.state.http = httpx.Client(timeout=httpx.Timeout(connect=5, read=30, write=30, pool=5))
-    app.state.gcs = storage.Client(project=settings.gcp_project)  # retained for not-yet-rerouted paths
+    # Provider-gate the residual GCP boot path: only construct the GCS client under
+    # provider=gcp. A credential-free provider=local boot leaves app.state.gcs=None and
+    # reaches no GCP service, so `docker compose up` starts healthy without credentials (E1).
+    app.state.gcs = storage.Client(project=settings.gcp_project) if settings.provider == "gcp" else None
     app.state.store = get_object_store(settings)
     # Build the active embedder once (mirrors app.state.store). CPU model — nothing to
     # dispose; the GCP default's from_settings is lazy so this stays cheap under "gcp".
     app.state.embedder = get_embedder(settings)
     # NON-BLOCKING: start warmup in a daemon thread so readiness is NOT delayed (the startup probe
-    # passes immediately; the ~11s embed-init runs in the background, not before 'ready').
-    threading.Thread(target=_warmup, name="warmup", daemon=True).start()
+    # passes immediately; the embed-init runs in the background, not before 'ready'). Warmup goes
+    # through the ACTIVE embedder, never the Vertex-only import, so local boot stays GCP-free.
+    threading.Thread(target=_warmup, args=(app.state.embedder,), name="warmup", daemon=True).start()
     yield
     app.state.http.close()
     db.dispose()

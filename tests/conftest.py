@@ -10,6 +10,7 @@ sys.modules["reportlab.pdfgen"] = MagicMock()
 sys.modules["reportlab.pdfgen.canvas"] = MagicMock()
 sys.modules["reportlab.lib"] = MagicMock()
 sys.modules["reportlab.lib.pagesizes"] = MagicMock()
+sys.modules["reportlab.lib.utils"] = MagicMock()
 
 # Set dummy env vars before importing app
 os.environ["GCP_PROJECT"] = "test-project"

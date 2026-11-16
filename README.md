@@ -1,32 +1,9 @@
 # MSA Paperbank
 
-A single-course (MTH102) WhatsApp bot that sends past exam papers to students. It receives WhatsApp messages, identifies the intent and paper details, and returns a PDF via WhatsApp Cloud API.
+Self-hosted past-paper bot using a local CPU embedder, PostgreSQL/pgvector, and optional MinIO. It needs no GCP credentials or internet at container start.
 
-## Quick Start
-1. Clone this repo: `git clone <repo-url> && cd msa-paperbank`
-2. Install dependencies: `pip install -r requirements.txt`
-3. Set up `.env` (use `.env.example` as a template).
-4. Run migrations via `psql`: `\i migrations/001_init.sql`, `\i migrations/002_phase2.sql`, `\i migrations/003_phase3.sql`, `\i migrations/004_phase4.sql`
-5. Deploy: `make deploy`
+## Start
 
-## Daily Ops
-- Check bot health: `make health`
-- Triage recent errors: `make tail`
-- Check logs: `make logs`
-- List live papers: `python -m admin.list`
-- See weekly summary: `make digest`
-- See usage stats: `python -m admin.stats`
+Prerequisites: Docker Engine with Compose v2 and persistent Linux storage. Copy `.env.example` to `.env`, fill it in, then run `docker compose up -d`. Add `--profile minio` to enable MinIO. Check `http://localhost:8080/healthz`. Postgres data is in `pgdata`; nightly archives are in `backups`; migrations run after the database health check. Use `docker compose logs -f app` for logs.
 
-## Adding a Paper
-1. Make sure the course exists: `python -m admin.courses add <CODE> --title ... --level ... --department ...`.
-2. Either: bulk-import from Drive (`make drive-import` with `DRIVE_FOLDER_ID` set), or upload images directly (`python -m admin.upload images ...`).
-3. Approve via `python -m admin.curate`.
-
-## Privacy
-We securely store the user's phone number, last-seen time, and a raw count of how many times they've asked for each course to bias retrieval. Users can send `STOP TRACKING` at any time to hard-delete this profile. The data lives securely in a managed Cloud SQL instance and is never exported to external analytic sinks.
-
-## Secrets
-All secrets live in GCP Secret Manager (`WA_ACCESS_TOKEN`, `WA_APP_SECRET`, `WA_VERIFY_TOKEN`, `DB_PASSWORD`, `ADMIN_BEARER_TOKEN`). You need the `roles/secretmanager.secretAccessor` IAM role to manage them.
-
-## License
-Sadaqah Jariyah project.
+Expose the bot only through HTTPS and keep `.env` private. Run the restore drill against a non-production database; see [RUNBOOK.md](RUNBOOK.md).
