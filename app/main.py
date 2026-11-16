@@ -6,7 +6,6 @@ from fastapi import FastAPI, Request, Header, Query, HTTPException, Depends
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
-from google.cloud import storage
 
 from app.config import settings
 from app.logging_setup import setup_logging
@@ -57,17 +56,16 @@ def _warmup(embedder) -> None:
 async def lifespan(app: FastAPI):
     setup_logging(settings.log_level)
     app.state.http = httpx.Client(timeout=httpx.Timeout(connect=5, read=30, write=30, pool=5))
-    # Provider-gate the residual GCP boot path: only construct the GCS client under
-    # provider=gcp. A credential-free provider=local boot leaves app.state.gcs=None and
-    # reaches no GCP service, so `docker compose up` starts healthy without credentials (E1).
-    app.state.gcs = storage.Client(project=settings.gcp_project) if settings.provider == "gcp" else None
+    # Self-hosted object store via the provider seam. No GCS client is ever constructed;
+    # a credential-free provider=local boot reaches no GCP service, so `docker compose up`
+    # starts healthy without credentials (E1).
     app.state.store = get_object_store(settings)
-    # Build the active embedder once (mirrors app.state.store). CPU model — nothing to
-    # dispose; the GCP default's from_settings is lazy so this stays cheap under "gcp".
+    # Build the active local-CPU embedder once (mirrors app.state.store); from_settings is
+    # lazy so this stays cheap.
     app.state.embedder = get_embedder(settings)
     # NON-BLOCKING: start warmup in a daemon thread so readiness is NOT delayed (the startup probe
     # passes immediately; the embed-init runs in the background, not before 'ready'). Warmup goes
-    # through the ACTIVE embedder, never the Vertex-only import, so local boot stays GCP-free.
+    # through the ACTIVE embedder at app.state.embedder.
     threading.Thread(target=_warmup, args=(app.state.embedder,), name="warmup", daemon=True).start()
     yield
     app.state.http.close()

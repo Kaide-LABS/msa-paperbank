@@ -7,7 +7,7 @@ class Settings(BaseSettings):
 
     # Provider seam (Phase 1): selects which adapters the factory returns. Only "gcp"
     # is valid this phase; "local"/"minio" arrive in later phases. Env: PROVIDER.
-    provider: str = "gcp"
+    provider: str = "local"
     storage_root: str = "./data/objects"
     minio_endpoint: str | None = None
     minio_bucket: str | None = None
@@ -19,9 +19,6 @@ class Settings(BaseSettings):
     database_url: str | None = None
     tool_api_token: SecretStr | None = None
     secrets_dir: str | None = None
-    gcp_project: str
-    gcp_location: str = "global"
-    cloud_sql_instance: str
     db_user: str
     db_password: SecretStr
     db_name: str = "paperbank"

@@ -6,9 +6,9 @@ Each factory function returns the concrete adapter chosen by the active provider
 `settings.provider`; `get_secrets_provider` switches on the `PROVIDER` env var directly
 (the secrets loader runs before `Settings` is built, so it must not depend on it).
 
-Only `"gcp"` is valid this phase; any other value raises `ValueError`. Adapter modules
-are imported lazily inside each function so importing this package pulls in no vendor
-SDK and opens no network client.
+Only `"local"`/`"minio"` are valid; any other value (including the retired `"gcp"`)
+raises `ValueError`. Adapter modules are imported lazily inside each function so importing
+this package pulls in no vendor SDK and opens no network client.
 """
 from __future__ import annotations
 
@@ -19,10 +19,6 @@ from app.ports import Embedder, EngineProvider, ObjectStore, SecretsProvider
 
 def get_object_store(settings) -> ObjectStore:
     name = settings.provider
-    if name == "gcp":
-        from app.providers.gcp.storage import GcsObjectStore
-
-        return GcsObjectStore.from_settings(settings)
     if name == "local":
         from app.providers.local.storage import FsObjectStore
 
@@ -36,10 +32,6 @@ def get_object_store(settings) -> ObjectStore:
 
 def get_embedder(settings) -> Embedder:
     name = settings.provider
-    if name == "gcp":
-        from app.providers.gcp.embedder import GcpEmbedder
-
-        return GcpEmbedder.from_settings(settings)
     if name in {"local", "minio"}:
         from app.providers.local.embedder import LocalCpuEmbedder
 
@@ -49,10 +41,6 @@ def get_embedder(settings) -> Embedder:
 
 def get_engine_provider(settings) -> EngineProvider:
     name = settings.provider
-    if name == "gcp":
-        from app.providers.gcp.engine import GcpEngineProvider
-
-        return GcpEngineProvider(settings)
     if name in {"local", "minio"}:
         from app.providers.local.engine import PostgresEngineProvider
 
@@ -61,11 +49,7 @@ def get_engine_provider(settings) -> EngineProvider:
 
 
 def get_secrets_provider(settings=None) -> SecretsProvider:
-    name = getattr(settings, "provider", None) or os.environ.get("PROVIDER", "gcp")
-    if name == "gcp":
-        from app.providers.gcp.secrets import GcpSecretsProvider
-
-        return GcpSecretsProvider()
+    name = getattr(settings, "provider", None) or os.environ.get("PROVIDER", "local")
     if name in {"local", "minio"}:
         from app.providers.local.secrets import EnvSecretsProvider, FileSecretsProvider
 

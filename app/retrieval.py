@@ -13,7 +13,7 @@ from app.errors import EmbeddingError
 log = logging.getLogger(__name__)
 
 # Phase 4 seam: obtain the active embedder via the factory instead of importing
-# `app.embeddings` directly, so the provider setting selects the embedder (GCP by
+# the provider setting selects the embedder (local by
 # default — identical behaviour — or the local CPU model). Cached for non-request
 # callers; request paths may pass `request.app.state.embedder` explicitly.
 _default_embedder: Embedder | None = None

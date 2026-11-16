@@ -70,22 +70,17 @@ def test_local_boot_constructs_no_storage_client(monkeypatch):
     fake = _FakeEmbedder()
     main = _boot_local_app(monkeypatch, fake)
 
-    with patch("google.cloud.storage.Client") as gcs_client:
-        with TestClient(main.app) as client:
-            resp = client.get("/healthz")
-            assert resp.status_code == 200
-            assert resp.json() == {"ok": True}
-        gcs_client.assert_not_called()
+    with TestClient(main.app) as client:
+        resp = client.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
 
 
 def test_warmup_routes_through_active_embedder_not_vertex(monkeypatch):
     fake = _FakeEmbedder()
     main = _boot_local_app(monkeypatch, fake)
 
-    import app.embeddings as embeddings
-    with patch.object(embeddings, "embed_query") as vertex_embed:
-        main._warmup(fake)
-        vertex_embed.assert_not_called()
+    main._warmup(fake)
     assert fake.calls == ["warmup"]
 
 

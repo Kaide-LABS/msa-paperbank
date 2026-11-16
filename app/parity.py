@@ -50,3 +50,51 @@ def run_parity(session: Session, embedder_old_snapshot: Callable[[str], list[flo
     return {"k": k, "queries": rows,
             "mean_jaccard": mean([r["jaccard"] for r in rows]) if rows else 1.0,
             "mean_rank_correlation": mean([r["rank_correlation"] for r in rows]) if rows else 1.0}
+
+
+def main() -> None:
+    """Operator CLI: run the parity harness over the fixed query set and print JSON.
+
+    Reuses ``run_parity`` unchanged. The "old" side is a pre-captured snapshot file
+    mapping each query to its stored (Vertex-era) top-k query vector; the "new" side is
+    the configured local embedder. Both come from the self-hosted stack — no GCP import,
+    no network beyond the local model. The report threshold lives in
+    ``docs/parity_report.md`` (mean Jaccard@10 >= 0.70, mean rank correlation >= 0.60).
+    """
+    import argparse
+    import json
+
+    from app.config import settings
+    from app.providers import get_embedder, get_engine_provider
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--queries", default="data/parity_queries.json")
+    parser.add_argument("--old-snapshot", required=True,
+                        help="JSON object mapping each query to its old top-k query vector")
+    parser.add_argument("-k", type=int, default=10)
+    args = parser.parse_args()
+
+    if settings.provider == "gcp":
+        raise SystemExit("parity is run against the self-hosted provider, not gcp")
+
+    with open(args.queries, encoding="utf-8") as fh:
+        queries = json.load(fh)
+    with open(args.old_snapshot, encoding="utf-8") as fh:
+        snapshot = json.load(fh)
+
+    def old_vec(query: str) -> list[float]:
+        if query not in snapshot:
+            raise SystemExit(f"old snapshot missing vector for query: {query!r}")
+        return snapshot[query]
+
+    provider = get_engine_provider(settings)
+    try:
+        from app.db import SessionLocal
+        report = run_parity(SessionLocal(), old_vec, get_embedder(settings), queries, k=args.k)
+    finally:
+        provider.dispose()
+    print(json.dumps(report, indent=2))
+
+
+if __name__ == "__main__":
+    main()

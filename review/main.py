@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request, Form, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, PlainTextResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from google.cloud import storage
+from app.providers import get_object_store
 
 from app.config import settings
 from app.db import SessionLocal
@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.http = httpx.Client(timeout=httpx.Timeout(connect=5, read=30, write=30, pool=5))
-    app.state.gcs = storage.Client(project=settings.gcp_project)
+    app.state.store = get_object_store(settings)
     yield
     app.state.http.close()
 

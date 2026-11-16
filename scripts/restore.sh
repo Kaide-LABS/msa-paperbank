@@ -15,7 +15,6 @@ case "$POSTGRES_HOST" in *cloudsql*|*google*|*sqladmin*) echo "refusing Cloud SQ
 case "$TARGET_DB" in paperbank|prod|production|gcp_*) echo "restore target must be non-prod" >&2; exit 2;; esac
 [ -f "$BACKUP_FILE" ] || { echo "backup archive not found" >&2; exit 2; }
 export PGPASSWORD="$POSTGRES_PASSWORD"
-createdb --if-exists --host="$POSTGRES_HOST" --port="${POSTGRES_PORT:-5432}" --username="$POSTGRES_USER" "$TARGET_DB" 2>/dev/null || true
 dropdb --if-exists --host="$POSTGRES_HOST" --port="${POSTGRES_PORT:-5432}" --username="$POSTGRES_USER" "$TARGET_DB"
 createdb --host="$POSTGRES_HOST" --port="${POSTGRES_PORT:-5432}" --username="$POSTGRES_USER" "$TARGET_DB"
 pg_restore --exit-on-error --host="$POSTGRES_HOST" --port="${POSTGRES_PORT:-5432}" --username="$POSTGRES_USER" --dbname="$TARGET_DB" "$BACKUP_FILE"
