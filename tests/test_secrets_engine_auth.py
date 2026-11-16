@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -6,6 +8,31 @@ from app.auth import require_tool_token
 from app.ports import EngineProvider
 from app.providers.local.engine import PostgresEngineProvider
 from app.providers.local.secrets import EnvSecretsProvider, FileSecretsProvider
+
+
+def test_tracked_sources_contain_no_gcp_secret_literals():
+    """Keep removed deployment credentials from returning in tracked sources."""
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "-z"], text=False
+    ).decode().split("\0")
+    source_roots = ("app/", "admin/", "cloud_ingest/", "scripts/", "tests/", "migrations/")
+    forbidden = (
+        "ummah",
+        "my-project:africa-south1:paperbank",
+        "DB_PASSWORD=secret",
+    )
+    violations = []
+    for name in tracked:
+        if not name or not name.startswith(source_roots) or name == "tests/test_secrets_engine_auth.py":
+            continue
+        try:
+            contents = open(name, encoding="utf-8").read()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for literal in forbidden:
+            if literal in contents:
+                violations.append(f"{name}: {literal}")
+    assert not violations, "forbidden deployment literals found: " + ", ".join(violations)
 
 
 def test_env_secret(monkeypatch):
