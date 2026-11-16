@@ -26,10 +26,10 @@ SIGNOFF=${SIGNOFF_FILE:-docs/SIGNOFF.md}
 : "${SOURCE_BUCKET:?SOURCE_BUCKET is required (gs:// prod bucket, read-only)}"
 : "${OBJECT_STORE_DIR:?OBJECT_STORE_DIR is required (self-hosted object-store root)}"
 
-# -r mirrors into the destination; we deliberately DO NOT pass -d so nothing on the
-# source is ever considered for deletion. Source is read-only throughout.
 COPY_CMD="gsutil -m rsync -r \"$SOURCE_BUCKET\" \"$OBJECT_STORE_DIR\""
 
+# -r mirrors into the destination; we deliberately DO NOT pass -d so nothing on the
+# source is ever considered for deletion. Source is read-only throughout.
 is_signed_off() {
     [ -s "$SIGNOFF" ] && grep -qE '^## Status:[[:space:]]+GRANTED[[:space:]]*$' "$SIGNOFF" 2>/dev/null
 }
@@ -49,5 +49,5 @@ fi
 
 mkdir -p "$OBJECT_STORE_DIR"
 echo "SIGNED-OFF run: copying (read-only) from $SOURCE_BUCKET into $OBJECT_STORE_DIR"
-eval "$COPY_CMD"
+gsutil -m rsync -r "$SOURCE_BUCKET" "$OBJECT_STORE_DIR"
 echo "bucket copy complete: $OBJECT_STORE_DIR"

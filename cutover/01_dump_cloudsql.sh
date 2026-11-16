@@ -33,7 +33,8 @@ STAGING_DIR=${STAGING_DIR:-./staging}
 : "${EXPORT_BUCKET:?EXPORT_BUCKET is required (gs:// staging bucket)}"
 
 # The read-only export command (shown in dry-run, executed only after sign-off).
-EXPORT_CMD="gcloud sql export sql \"$CLOUDSQL_INSTANCE\" \"$EXPORT_BUCKET/paperbank-cutover.sql.gz\" --database=\"$CLOUDSQL_DATABASE\" --offload"
+EXPORT_OBJECT="$EXPORT_BUCKET/paperbank-cutover.sql.gz"
+EXPORT_CMD="gcloud sql export sql \"$CLOUDSQL_INSTANCE\" \"$EXPORT_OBJECT\" --database=\"$CLOUDSQL_DATABASE\" --offload"
 
 is_signed_off() {
     [ -s "$SIGNOFF" ] && grep -qE '^## Status:[[:space:]]+GRANTED[[:space:]]*$' "$SIGNOFF" 2>/dev/null
@@ -55,6 +56,7 @@ fi
 
 mkdir -p "$STAGING_DIR"
 echo "SIGNED-OFF run: exporting (read-only) from $CLOUDSQL_INSTANCE"
-eval "$EXPORT_CMD"
-gsutil cp "$EXPORT_BUCKET/paperbank-cutover.sql.gz" "$STAGING_DIR/"
+gcloud sql export sql "$CLOUDSQL_INSTANCE" "$EXPORT_OBJECT" \
+    --database="$CLOUDSQL_DATABASE" --offload
+gsutil cp "$EXPORT_OBJECT" "$STAGING_DIR/"
 echo "export complete: $STAGING_DIR/paperbank-cutover.sql.gz"

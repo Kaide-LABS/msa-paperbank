@@ -67,6 +67,12 @@ def test_shell_scripts_embed_no_secret_literal(name):
     assert not any(value in text for value in FORBIDDEN), f"forbidden literal in {name}"
 
 
+@pytest.mark.parametrize("name", SHELL_SCRIPTS)
+def test_shell_scripts_do_not_eval_environment_input(name):
+    text = (CUTOVER / name).read_text(encoding="utf-8")
+    assert "eval \"$" not in text, f"unsafe eval of environment input in {name}"
+
+
 @pytest.mark.parametrize("name", PROD_TOUCHING)
 def test_prod_touching_scripts_carry_readonly_and_signoff_guard(name):
     text = (CUTOVER / name).read_text(encoding="utf-8")

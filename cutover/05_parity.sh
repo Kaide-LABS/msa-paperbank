@@ -41,4 +41,4 @@ if [ "$CONFIRM" -ne 1 ]; then
 fi
 
 echo "running parity over $QUERIES"
-eval "$PARITY_CMD"
+python -m app.parity --queries "$QUERIES" --old-snapshot "$PARITY_OLD_SNAPSHOT" -k "$PARITY_K"

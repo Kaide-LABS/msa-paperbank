@@ -49,5 +49,7 @@ fi
 [ -f "$DUMP_FILE" ] || { echo "dump archive not found: $DUMP_FILE" >&2; exit 2; }
 export PGPASSWORD="$POSTGRES_PASSWORD"
 echo "restoring into self-hosted DB '$TARGET_DB' on '$POSTGRES_HOST'"
-eval "$RESTORE_CMD"
+pg_restore --exit-on-error --no-owner \
+    --host="$POSTGRES_HOST" --port="${POSTGRES_PORT:-5432}" \
+    --username="$POSTGRES_USER" --dbname="$TARGET_DB" "$DUMP_FILE"
 echo "restore into $TARGET_DB complete"
