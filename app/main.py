@@ -10,7 +10,7 @@ from google.cloud import storage
 
 from app.config import settings
 from app.logging_setup import setup_logging
-from app.providers import get_object_store
+from app.providers import get_object_store, get_embedder
 from app import db
 from app.deps import get_session
 from app.schemas import WAWebhookPayload, TextReply
@@ -57,6 +57,9 @@ async def lifespan(app: FastAPI):
     app.state.http = httpx.Client(timeout=httpx.Timeout(connect=5, read=30, write=30, pool=5))
     app.state.gcs = storage.Client(project=settings.gcp_project)  # retained for not-yet-rerouted paths
     app.state.store = get_object_store(settings)
+    # Build the active embedder once (mirrors app.state.store). CPU model — nothing to
+    # dispose; the GCP default's from_settings is lazy so this stays cheap under "gcp".
+    app.state.embedder = get_embedder(settings)
     # NON-BLOCKING: start warmup in a daemon thread so readiness is NOT delayed (the startup probe
     # passes immediately; the ~11s embed-init runs in the background, not before 'ready').
     threading.Thread(target=_warmup, name="warmup", daemon=True).start()

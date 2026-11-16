@@ -8,22 +8,61 @@
 - You'll know it works when the existing tests still pass, a before/after search comparison matches, and the whole thing starts with one Docker Compose command.
 
 ## It did not finish
-One AI tool's hand-over note to the next could not be read, so the build was stopped rather than carry on from a possibly wrong state.
+The build stopped before it was finished.
 
 ## Stage by stage
 
-### Stage 1 (did not complete)
+### Stage 1
 #### What was built
 
-The groundwork for moving the past-paper bot off Google's cloud. The bot's code was reshaped so that the parts that talk to storage, search, passwords, and the database now go through standard "sockets." Today those sockets still plug into Google, but they're built so a different provider can be slotted in later without rewriting everything. A new round of safety checks was added for this reshaped plumbing, and those checks pass.
+The bot's inner workings were reshaped so that the parts that talk to Google's cloud — file storage, search, password-style secrets, and the database connection — now go through tidy "plug points" instead of being wired directly to Google. Today's behaviour is unchanged and Google is still the only thing plugged in, but the groundwork is now laid so the school's own tools can be slotted in next, without rewriting the bot. New safety-check tests and a short explainer document were added to lock this in.
 
 #### What was decided
 
-Google was kept as the only live provider for now, so nothing users rely on changes while the structure is rebuilt first. The team also chose to hold off rerouting a few remaining pieces to a later step, to keep each change small and reviewable.
+Only the main, live path was switched over this stage, to keep the change small and safe. One older, unused side-path was deliberately left for a later stage. Google's current behaviour was copied exactly rather than improved, to avoid any surprises for users.
 
 #### What is uncertain
 
-This stage did not finish — it stopped partway. Several pieces still point directly at Google and need rerouting next: parts of the database, file handling, and password handling. The full set of automated checks could not all be run here because of a setup mismatch on the test machine, so wider confidence is not yet confirmed. The next worker has a written list of exactly what remains.
+The full set of safety checks could not all be run here because this workstation runs a mismatched version of the underlying software; the focused checks passed. This must be confirmed on the project's proper setup before relying on it. Also, one older side-path still points at the old wiring and would fail if used; it is flagged for the next stage.
+
+### Stage 2
+#### What was built
+
+The bot's "brain" was separated from the part that talks to WhatsApp. Before, the two were tangled together; now there's a clean middle layer that takes in a message, works out the answer, and sends a reply — without caring which app the message came from. WhatsApp still works exactly as before. Because of this split, a future Microsoft Teams version can be added later without disturbing anything. The way files are labelled in storage was also renamed to remove old Google-specific names, with a documented way to undo it.
+
+#### What was decided
+
+The old WhatsApp wiring was kept in place as a safety net rather than deleted, so nothing existing breaks. The storage rename was made reversible, to keep it safe. User experience was left completely unchanged, because this stage was plumbing, not features.
+
+#### What is uncertain
+
+Three loose ends were found and are scheduled to be fixed in the next stage: a few places still use the old storage labels and would fail when looking up files, and a planned safety test was not written yet. Also, the full test suite could not be run here due to a software-version mismatch, so final confirmation that everything passes is still pending.
+
+### Stage 3
+#### What was built
+
+The bot can now store files on the school's own system and hand out download links that work for a short time, then expire — so files stay private without relying on Google. A new rule also makes sure only approved requests can ask the bot for a paper. This replaces parts that previously depended on Google's cloud.
+
+#### What was decided
+
+Download links were made to expire quickly and be tamper-proof, for safety. Old Google-specific account details were stripped out of the setup files, so nothing is tied to Google by accident. Where a choice existed, the team favoured settings that keep the system locked-down by default.
+
+#### What is uncertain
+
+This stage finished, but with gaps that need attention. The full set of safety checks could not all be run here because of a mismatch in the testing environment — they must be re-run on the school's proper setup before trusting the result. One planned automatic check that guards against leftover Google details was not written yet. And the real before-and-after search comparison still has to be done on the live collection later by an operator.
+
+### Stage 4 (did not complete)
+#### What was built
+
+Nothing new is working yet from this stage. The goal was to swap the bot's search engine over to a small program that runs on the school's own computers — so searches no longer depend on Google — while keeping the results people see exactly the same. This stage was meant to deliver that change, but it did not get there.
+
+#### What was decided
+
+The plan is to run the new search on the school's own hardware rather than a paid Google service, so the school controls its own system and costs. The intended safeguard was to compare searches before and after the switch to confirm users notice no difference.
+
+#### What is uncertain
+
+This stage did not complete. The automated helper doing the work stopped partway through with an error and could not continue, so the search change was not finished or tested. Nothing was broken, but nothing was proven either. This needs attention: the work has to be restarted and run again before we can trust the new search, and before we can say the before-and-after comparison truly matches.
 
 ## Choices made for you
 - (you confirmed this risky one) The local CPU embedder uses a sentence-transformers / Hugging Face model with native 768-dim output (e.g. all-mpnet-base-v2 class), run via sentence-transformers or ONNX Runtime; exact model chosen to maximise top-k parity.
@@ -33,14 +72,14 @@ This stage did not finish — it stopped partway. Several pieces still point dir
 - (you confirmed this risky one) The authoritative tree is the root-level codebase (app/, admin/, review/, cloud_ingest/, scripts/, migrations/, tests/); any nested msa-paperbank/ mirror is not edited.
 - (you confirmed this risky one) Column rename uses Alembic (the existing migrations/ tooling) for the reversible migration carrying the SQLAlchemy synonyms.
 - (you confirmed this risky one) Making the daily model cost-cap breaker 'harmless' means turning it into a no-op/removing it, since the backend no longer calls any paid model API.
-- This round of work only reorganizes how things are wired internally — same behavior as today, nothing new to notice from the outside, and nothing new needed to run it.
-- The system is being set up so it can later switch from Google's cloud to other options without rework, but for now Google remains the only valid choice; anything else is rejected right away.
-- Features like running on a school's own machines are intentionally left for later stages, not this one.
-- Two capabilities deferred: temporary shareable links to files, and running the text-understanding piece locally — both come in later rounds.
-- A single clear switch controls which cloud provider is used, making future provider swaps a quick, contained change rather than a messy hunt across the system.
-- Existing automated safety checks still pass unchanged, so we know this cleanup didn't break anything.
-- The cost-protection limit stays exactly as-is for now and will be revisited later.
-- Older internal labels were kept as-is this round to avoid risk; renaming them is a separate later step.
+- We're setting up the system so its major pieces (where files are stored, how documents are understood) can be swapped out later without disrupting everything — this is groundwork for moving away from Google's cloud.
+- This round changes nothing about how the system behaves: same features, same speed, nothing new added and nothing removed that users would notice.
+- No new outside services, costs, or internet connections are introduced in this round — it's purely internal tidying.
+- A new setting picks which provider to use; for now only Google is allowed, with other options (running on your own machine) coming in later rounds. Choosing an unsupported option fails immediately rather than misbehaving.
+- Work continues in the main, up-to-date version of the project; an old leftover copy is deliberately left alone to avoid confusion.
+- Each piece only connects to the outside when actually used, so routine startup and testing stay fast and offline.
+- Existing safety checks and tests are kept as-is, so we can be confident nothing quietly broke.
+- We deliberately kept the original plan: it makes the later switch-over clean and simple for the school's IT staff, avoiding a more complex setup that would be harder to run and maintain.
 
 ## How it was checked
 - Research: 71 official documentation source(s), 5 academic paper(s) and 0 existing project(s) were consulted.
@@ -48,19 +87,17 @@ This stage did not finish — it stopped partway. Several pieces still point dir
 - Every build stage was written by one AI and reviewed by a different one, and every change was recorded in git.
 
 ## What to look at
-- codex-cli is installed and signed in but did not answer a test call (codex-cli: The AI provider stopped with an error (it exited with code 1).), so it was left out. If its default model is not available to your account, name one in osa.config.json: providers.modelOverrides.
-- opencode-cli is installed and signed in but did not answer a test call (opencode-cli: The AI provider's reply wasn't in the expected form.), so it was left out. If its default model is not available to your account, name one in osa.config.json: providers.modelOverrides.
 - antigravity-cli also answered, but OSA only chooses providers it has run builds on by itself (claude-code, codex-cli) unless they are the only ones; name it in providers.pair to use it.
-- Only claude-code is among the providers OSA chooses on its own, so one provider fills both seats; the review is separated by model instead.
-- claude-code (opus) reviewed work written by claude-code (sonnet): the same model family but a different capability class.
-- Research item "local-cpu-embedder-768" could not be completed: Required field "key_findings" is missing. Required field "recommendations" is missing. Required field "as_of" is missing. Required field "sources" is missing. The "uncertain" array is required (use [] when nothing is uncertain).
-- 3 research claim(s) were not confirmed by the independent check.
+- OSA chose claude-code and codex-cli from the providers that are installed and signed in.
+- claude-code reviewed work written by codex-cli: a different model family, the most independent kind of check.
+- This run was carried on from its saved spec: intake, research and spec were not repeated.
+- The build was carried on from phase 4: phases 1 to 3 were already finished and kept. 5 commit(s) from the interrupted attempt were folded back into the working tree so the reviewer still sees that work.
 
 ## For engineers (technical detail)
 
 _Everything above is written for non-engineers; this is the raw detail behind it._
 
-- `Phase 1's own runDispatch() call did not complete successfully: ✖ Too big: expected string to have <=4000 characters → at work_done.`
+- `Phase 4's own runDispatch() call did not complete successfully: claude-code: The AI provider stopped with an error (it exited with code 1)..`
 - `decision: The authoritative codebase is the root-level tree ('app/', 'admin/', 'review/', 'cloud_ingest/', 'scripts/', 'migrations/', 'tests/', 'apply_migrations.py'); the nested 'msa-paperbank/' directory is a stale partial mirror and is NOT edited in any phase.`
 - `decision: Ports live in a new 'app/ports.py' as 'typing.Protocol' classes (structural, not ABCs); GCP adapters live in a new 'app/providers/gcp/' package; a factory in 'app/providers/__init__.py' selects implementations by a new setting.`
 - `decision: The provider setting is named 'provider' (env 'PROVIDER'), added to 'app/config.Settings' with default '"gcp"'. This phase only '"gcp"' is a valid value; '"local"'/'"minio"' arrive in later phases. An unknown value raises 'ValueError' at factory call time.`
@@ -74,4 +111,4 @@ _Everything above is written for non-engineers; this is the raw detail behind it
 - `decision: The 'DATABASE_URL_TEST'/sqlite pytest branch in 'app/db.py' and 'tests/conftest.py' is preserved unchanged; only the non-test Cloud SQL engine construction is routed through the engine-provider port.`
 - `decision: The daily cost-cap breaker is left untouched this phase (the PRD's "make harmless or remove" is not a provider seam); it is addressed in a later phase.`
 - `decision: Architecture: kept the original plan after an independent review -- The ports-and-adapters layer is load-bearing for two specific PRD mechanics the alternatives all weaken. The phased plan swaps implementations independently — object store in Phase 3, embedder in Phase 4 — which Alt 3's bundled 'Environment' makes awkward (mixed GCP-secrets/local-storage states mid-migration) and Alt 1's scattered per-site branches turn into repeat call-site churn each phase. AC 12/13's "clean delete of all GCP code" is a one-line 'rm -rf app/providers/gcp/' under the plan but a diff-by-diff audit ac`
-- `tokens (estimated): 627240 total -- file_exploration 14%, research_input 42%, handoffs 2%, spec_prd 24%, tool_output 1%, model_output 19%`
+- `tokens (estimated): 24937 total -- file_exploration 15%, research_input 0%, handoffs 24%, spec_prd 52%, tool_output 2%, model_output 6%`

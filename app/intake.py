@@ -4,17 +4,28 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, func, or_
 import httpx
 from app.db import Uploader, ImageBatch, ImageBatchItem, IntakeNotification, PendingPaper, PendingPaperChunk
-from app.ports import ObjectStore
+from app.ports import ObjectStore, Embedder
 from app.schemas import WAMessage, Reply, TextReply
 from app.config import settings
 from app import whatsapp
 from app.preprocess import prepare_images_for_ocr
 from app.ocr import ocr_paper
-from app.embeddings import embed_many
+from app.providers import get_embedder
 from app.pdfgen import stitch_images_to_pdf
 import logging
 
 log = logging.getLogger(__name__)
+
+# Phase 4 seam: the intake chunk-embedding path goes through the active embedder
+# selected by the provider setting, not a direct `app.embeddings` import.
+_default_embedder: Embedder | None = None
+
+
+def _get_default_embedder() -> Embedder:
+    global _default_embedder
+    if _default_embedder is None:
+        _default_embedder = get_embedder(settings)
+    return _default_embedder
 
 def is_whitelisted(session: Session, phone_number: str) -> bool:
     return session.execute(
@@ -162,7 +173,12 @@ def sweep_and_seal(session: Session, store: ObjectStore) -> int:
             
     return len(candidates)
 
-def _process_batch(session: Session, store: ObjectStore, batch: ImageBatch):
+def _process_batch(
+    session: Session,
+    store: ObjectStore,
+    batch: ImageBatch,
+    embedder: Embedder | None = None,
+):
     items = session.execute(
         select(ImageBatchItem).where(ImageBatchItem.batch_id == batch.id).order_by(ImageBatchItem.ord)
     ).scalars().all()
@@ -205,7 +221,9 @@ def _process_batch(session: Session, store: ObjectStore, batch: ImageBatch):
             session.commit()
             return
             
-        vectors = embed_many([q.text for q in ocr_result.questions])
+        vectors = (embedder or _get_default_embedder()).embed_documents(
+            [q.text for q in ocr_result.questions]
+        )
         
         pdf_bytes = stitch_images_to_pdf(images)
         # Use first item sha for the object name suffix

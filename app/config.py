@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     model_embedding: str = "gemini-embedding-001"
     embedding_dim: int = 768
+    # Phase 4 local CPU embedder (provider in {"local","minio"}). Native 768-dim,
+    # CPU, loaded lazily at FastAPI lifespan / first encode — never at import, never
+    # a network fetch at import. `embedding_model_path` (a pre-downloaded local dir)
+    # is preferred over the hub name when set, for an offline school server.
+    embedding_model_name: str = "sentence-transformers/all-mpnet-base-v2"
+    embedding_model_path: str | None = None
+    embedding_device: str = "cpu"
+    embedding_normalize: bool = True
+    embedding_batch_size: int = 32
     ocr_max_image_bytes: int = 7_000_000
     ocr_max_images_per_paper: int = 12
     # Decision 2 (2026-06 OCR probe): cv2 preprocessing improved 0/12 sampled files and was

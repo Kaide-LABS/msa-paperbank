@@ -40,6 +40,10 @@ def get_embedder(settings) -> Embedder:
         from app.providers.gcp.embedder import GcpEmbedder
 
         return GcpEmbedder.from_settings(settings)
+    if name in {"local", "minio"}:
+        from app.providers.local.embedder import LocalCpuEmbedder
+
+        return LocalCpuEmbedder.from_settings(settings)
     raise ValueError(f"unknown provider: {name}")
 
 

@@ -9,3 +9,5 @@ What went wrong in past runs and what resolved it. One fact per line.
 - Unconfirmed research claim (do not rely on it): Meta WhatsApp Cloud API current Graph API version is v27.0 and /messages remains the send endpoint; webhook signature/handshake mechanics _(run ef877dec, 2026-11-11)_
 - Unconfirmed research claim (do not rely on it): Source text contained an instruction aimed at an AI (remote-exec); it was removed and nothing from it was used _(run ef877dec, 2026-11-11)_
 - Research item local-cpu-embedder-768 failed: Required field "key_findings" is missing. _(run ef877dec, 2026-11-11)_
+- Run stopped: The build stopped before it was finished. _(run ef877dec, 2026-11-15)_
+- Phase 4 did not complete: claude-code: The AI provider stopped with an error (it exited with code 1). _(run ef877dec, 2026-11-15)_

@@ -6,11 +6,24 @@ from sqlalchemy import select, or_, func
 from pgvector.sqlalchemy import Vector
 from app.db import Paper, PaperChunk, Course
 from app.config import settings
-from app import embeddings
-from app.ports import ObjectStore
+from app.ports import ObjectStore, Embedder
+from app.providers import get_embedder
 from app.errors import EmbeddingError
 
 log = logging.getLogger(__name__)
+
+# Phase 4 seam: obtain the active embedder via the factory instead of importing
+# `app.embeddings` directly, so the provider setting selects the embedder (GCP by
+# default — identical behaviour — or the local CPU model). Cached for non-request
+# callers; request paths may pass `request.app.state.embedder` explicitly.
+_default_embedder: Embedder | None = None
+
+
+def _get_default_embedder() -> Embedder:
+    global _default_embedder
+    if _default_embedder is None:
+        _default_embedder = get_embedder(settings)
+    return _default_embedder
 
 
 @dataclass
@@ -77,8 +90,9 @@ def find_paper_by_semantic_query(
     query_text: str,
     top_k: int | None = None,
     prefer_courses: list[str] | None = None,
+    embedder: Embedder | None = None,
 ) -> Paper | None:
-    qvec = embeddings.embed_query(query_text)
+    qvec = (embedder or _get_default_embedder()).embed_query(query_text)
     
     limit_k = top_k or settings.semantic_fallback_top_k
     fetch_k = limit_k * 2 if prefer_courses else limit_k
