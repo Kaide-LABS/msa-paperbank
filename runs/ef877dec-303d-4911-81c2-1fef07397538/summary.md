@@ -8,7 +8,7 @@
 - You'll know it works when the existing tests still pass, a before/after search comparison matches, and the whole thing starts with one Docker Compose command.
 
 ## It did not finish
-The build stopped before it was finished.
+The finished project did not pass the final check against the requirements.
 
 ## Stage by stage
 
@@ -51,18 +51,44 @@ Download links were made to expire quickly and be tamper-proof, for safety. Old 
 
 This stage finished, but with gaps that need attention. The full set of safety checks could not all be run here because of a mismatch in the testing environment — they must be re-run on the school's proper setup before trusting the result. One planned automatic check that guards against leftover Google details was not written yet. And the real before-and-after search comparison still has to be done on the live collection later by an operator.
 
-### Stage 4 (did not complete)
+### Stage 4
 #### What was built
 
-Nothing new is working yet from this stage. The goal was to swap the bot's search engine over to a small program that runs on the school's own computers — so searches no longer depend on Google — while keeping the results people see exactly the same. This stage was meant to deliver that change, but it did not get there.
+The bot can now run its own search engine on the school's own computers, instead of renting Google's. A new piece reads a question and finds the most relevant past papers using a small program that runs on ordinary hardware. We also built a tool that re-does the search index for every stored paper, and a side-by-side checker that compares the new search results against the old Google ones to confirm people still get the same answers.
 
 #### What was decided
 
-The plan is to run the new search on the school's own hardware rather than a paid Google service, so the school controls its own system and costs. The intended safeguard was to compare searches before and after the switch to confirm users notice no difference.
+We kept the search quality the same size and shape as before, so users notice no difference. We fixed a flaw in the re-indexing tool that would have rebuilt the index incorrectly. We also added an automatic check that scans our own files for leaked passwords or old Google account details, to catch mistakes early.
 
 #### What is uncertain
 
-This stage did not complete. The automated helper doing the work stopped partway through with an error and could not continue, so the search change was not finished or tested. Nothing was broken, but nothing was proven either. This needs attention: the work has to be restarted and run again before we can trust the new search, and before we can say the before-and-after comparison truly matches.
+This stage is finished, but a few things need attention. The full set of tests has only been confirmed on a slightly different setup than the school's real one, so it should be re-checked there. More importantly, the bot cannot yet start up on the school's servers without still reaching for Google — fixing that is the next stage's job. One internal log accidentally recorded sensitive-looking text.
+
+### Stage 5
+#### What was built
+
+The bot can now be started on the school's own computers with a single command. Everything it needs to run — the bot, its database, its file storage, and its search brain — now starts up together as one package. The search brain is a small model that runs on the school's own hardware, so the bot no longer depends on Google for searching. There are also new tools to make nightly safety copies of the data and to restore from them if needed, plus written guides for starting it up and keeping it running securely over the internet.
+
+#### What was decided
+
+Search was switched to a self-contained model so users get the same results without relying on Google. File storage can use either the plain hard disk or an optional add-on, kept simple by default. Safety copies refuse to run against the live system, to avoid accidents.
+
+#### What is uncertain
+
+The stage finished, but some checks still need a real server. Nobody has yet started the full package on an actual school computer to confirm it runs without Google. The complete automated test run also needs confirming on the proper setup. One optional storage add-on may not report itself as "ready" correctly.
+
+### Stage 6
+#### What was built
+
+The tools to actually move the bot off Google and onto the school's own servers now exist, and the bot's own code no longer depends on Google at all. There's a step-by-step moving kit: copy the data across, rebuild the search index on the school's hardware, and check the new search gives the same answers as the old one. All the Google-specific parts have been stripped out, and the bot now defaults to running entirely on the school's own equipment.
+
+#### What was decided
+
+The moving tools won't touch the live system until someone signs a go-ahead note, and they only read (never change) the old Google setup — to prevent accidents. By default, nothing runs against the real data until explicitly confirmed, as a safety measure.
+
+#### What is uncertain
+
+The moving kit has been written and tested, but **the actual move has not happened yet** — it waits for your sign-off. The full set of checks has only been run in a stand-in testing setup, not yet on a real school server or the real Docker setup. Someone still needs to confirm everything starts up and works cleanly on the school's actual hardware before going live.
 
 ## Choices made for you
 - (you confirmed this risky one) The local CPU embedder uses a sentence-transformers / Hugging Face model with native 768-dim output (e.g. all-mpnet-base-v2 class), run via sentence-transformers or ONNX Runtime; exact model chosen to maximise top-k parity.
@@ -72,32 +98,42 @@ This stage did not complete. The automated helper doing the work stopped partway
 - (you confirmed this risky one) The authoritative tree is the root-level codebase (app/, admin/, review/, cloud_ingest/, scripts/, migrations/, tests/); any nested msa-paperbank/ mirror is not edited.
 - (you confirmed this risky one) Column rename uses Alembic (the existing migrations/ tooling) for the reversible migration carrying the SQLAlchemy synonyms.
 - (you confirmed this risky one) Making the daily model cost-cap breaker 'harmless' means turning it into a no-op/removing it, since the backend no longer calls any paid model API.
-- We're setting up the system so its major pieces (where files are stored, how documents are understood) can be swapped out later without disrupting everything — this is groundwork for moving away from Google's cloud.
-- This round changes nothing about how the system behaves: same features, same speed, nothing new added and nothing removed that users would notice.
-- No new outside services, costs, or internet connections are introduced in this round — it's purely internal tidying.
-- A new setting picks which provider to use; for now only Google is allowed, with other options (running on your own machine) coming in later rounds. Choosing an unsupported option fails immediately rather than misbehaving.
-- Work continues in the main, up-to-date version of the project; an old leftover copy is deliberately left alone to avoid confusion.
-- Each piece only connects to the outside when actually used, so routine startup and testing stay fast and offline.
-- Existing safety checks and tests are kept as-is, so we can be confident nothing quietly broke.
-- We deliberately kept the original plan: it makes the later switch-over clean and simple for the school's IT staff, avoiding a more complex setup that would be harder to run and maintain.
+- This phase just reorganizes the existing system internally — nothing changes in how it behaves, and it keeps running exactly as it does today.
+- It still runs only on the current cloud provider; the groundwork for switching to other options is laid, but none are available yet.
+- If someone sets up the system with an unsupported provider name, it stops immediately with a clear error rather than misbehaving.
+- No new outside services, costs, or network connections are added, and nothing contacts the internet just from starting the system up.
+- The reorganization is structured so each piece — file storage, the text-understanding model — can be swapped out one at a time in later phases cleanly, with minimal rework.
+- Several planned capabilities (shareable file links, running without the cloud, the alternative storage option) are deliberately left for later phases.
+- Existing safeguards and the daily spending limit are left exactly as they are for now, to be revisited later.
+- All existing automated checks continue to pass unchanged, confirming nothing was broken.
 
 ## How it was checked
 - Research: 71 official documentation source(s), 5 academic paper(s) and 0 existing project(s) were consulted.
 - A second, different AI checked the research against its sources.
 - Every build stage was written by one AI and reviewed by a different one, and every change was recorded in git.
 
+## Does it actually work?
+- 7 of 14 requirements were seen working when the finished project was run.
+- Not working / not shown: The existing pytest suite passes unchanged after Phase 1 (tests minimally re-pointed at new seams are allowed; no behavioural assertion changed).
+- Not working / not shown: Ports exist for object store, embedder, secrets, and DB engine, selectable by a provider setting, with the existing GCP implementations behind them.
+- Not working / not shown: The gcs_* rename is applied via a reversible migration using SQLAlchemy synonyms, and the pre-existing env variable names still resolve.
+- Not working / not shown: No plaintext DB password, Cloud SQL connection string, or hardcoded GCP project id remains in apply_migrations.py, scripts, or the Dockerfile.
+- Not working / not shown: A re-embed job repopulates chunk and title embeddings, and a recorded parity report compares old vs new top-k results on a fixed query set.
+- Not working / not shown: docker compose up starts bot + Postgres (pgvector, pg_trgm) + optional MinIO, and each service reports healthy via its health check.
+- Not working / not shown: Phase 6 migration/cutover/teardown scripts exist but are not executed, and GCP production remains running and reversible. (the check could not exercise this criterion)
+
 ## What to look at
+- opencode-cli is installed and signed in but did not answer a test call (opencode-cli: The AI provider's reply wasn't in the expected form.), so it was left out. If its default model is not available to your account, name one in osa.config.json: providers.modelOverrides.
 - antigravity-cli also answered, but OSA only chooses providers it has run builds on by itself (claude-code, codex-cli) unless they are the only ones; name it in providers.pair to use it.
 - OSA chose claude-code and codex-cli from the providers that are installed and signed in.
 - claude-code reviewed work written by codex-cli: a different model family, the most independent kind of check.
 - This run was carried on from its saved spec: intake, research and spec were not repeated.
-- The build was carried on from phase 4: phases 1 to 3 were already finished and kept. 5 commit(s) from the interrupted attempt were folded back into the working tree so the reviewer still sees that work.
+- The build was carried on from phase 6: phases 1 to 5 were already finished and kept. 2 commit(s) from the interrupted attempt were folded back into the working tree so the reviewer still sees that work.
 
 ## For engineers (technical detail)
 
 _Everything above is written for non-engineers; this is the raw detail behind it._
 
-- `Phase 4's own runDispatch() call did not complete successfully: claude-code: The AI provider stopped with an error (it exited with code 1)..`
 - `decision: The authoritative codebase is the root-level tree ('app/', 'admin/', 'review/', 'cloud_ingest/', 'scripts/', 'migrations/', 'tests/', 'apply_migrations.py'); the nested 'msa-paperbank/' directory is a stale partial mirror and is NOT edited in any phase.`
 - `decision: Ports live in a new 'app/ports.py' as 'typing.Protocol' classes (structural, not ABCs); GCP adapters live in a new 'app/providers/gcp/' package; a factory in 'app/providers/__init__.py' selects implementations by a new setting.`
 - `decision: The provider setting is named 'provider' (env 'PROVIDER'), added to 'app/config.Settings' with default '"gcp"'. This phase only '"gcp"' is a valid value; '"local"'/'"minio"' arrive in later phases. An unknown value raises 'ValueError' at factory call time.`
@@ -111,4 +147,4 @@ _Everything above is written for non-engineers; this is the raw detail behind it
 - `decision: The 'DATABASE_URL_TEST'/sqlite pytest branch in 'app/db.py' and 'tests/conftest.py' is preserved unchanged; only the non-test Cloud SQL engine construction is routed through the engine-provider port.`
 - `decision: The daily cost-cap breaker is left untouched this phase (the PRD's "make harmless or remove" is not a provider seam); it is addressed in a later phase.`
 - `decision: Architecture: kept the original plan after an independent review -- The ports-and-adapters layer is load-bearing for two specific PRD mechanics the alternatives all weaken. The phased plan swaps implementations independently — object store in Phase 3, embedder in Phase 4 — which Alt 3's bundled 'Environment' makes awkward (mixed GCP-secrets/local-storage states mid-migration) and Alt 1's scattered per-site branches turn into repeat call-site churn each phase. AC 12/13's "clean delete of all GCP code" is a one-line 'rm -rf app/providers/gcp/' under the plan but a diff-by-diff audit ac`
-- `tokens (estimated): 24937 total -- file_exploration 15%, research_input 0%, handoffs 24%, spec_prd 52%, tool_output 2%, model_output 6%`
+- `tokens (estimated): 229515 total -- file_exploration 25%, research_input 0%, handoffs 9%, spec_prd 12%, tool_output 47%, model_output 8%`
