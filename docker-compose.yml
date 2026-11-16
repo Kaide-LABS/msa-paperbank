@@ -68,8 +68,10 @@ services:
     volumes:
       - ./scripts:/scripts:ro
       - backups:/backups
+    # Stop the companion on a failed dump so Compose/restart policy and host
+    # monitoring surface the failure instead of masking it in an endless loop.
     command: >
-      sh -c "while true; do sh /scripts/backup.sh; sleep 86400; done"
+      sh -c "set -e; while true; do sh /scripts/backup.sh; sleep 86400; done"
     restart: unless-stopped
 
   # Optional object store — off by default; enable with `--profile minio`.

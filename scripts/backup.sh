@@ -15,6 +15,11 @@ case "$RETENTION_DAYS" in ''|*[!0-9]*) echo "RETENTION_DAYS must be numeric" >&2
 mkdir -p "$BACKUP_DIR"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 archive="$BACKUP_DIR/paperbank-$stamp.dump"
+suffix=0
+while [ -e "$archive" ]; do
+    suffix=$((suffix + 1))
+    archive="$BACKUP_DIR/paperbank-$stamp-$suffix.dump"
+done
 export PGPASSWORD="$POSTGRES_PASSWORD"
 echo "creating $archive"
 pg_dump --format=custom --file="$archive" --host="$POSTGRES_HOST" --port="${POSTGRES_PORT:-5432}" --username="$POSTGRES_USER" "$POSTGRES_DB"

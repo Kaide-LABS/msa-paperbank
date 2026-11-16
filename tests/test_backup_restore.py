@@ -23,3 +23,10 @@ def test_docs_cover_operations():
     runbook = (ROOT / "RUNBOOK.md").read_text().lower()
     assert all(word in readme for word in ("docker compose up", "backup", "minio"))
     assert all(word in runbook for word in ("nightly", "restore", "https", "caddy", "nginx", "webhook"))
+
+def test_backup_service_surfaces_failed_dumps_and_avoids_timestamp_collisions():
+    compose = (ROOT / "docker-compose.yml").read_text()
+    backup = (ROOT / "scripts" / "backup.sh").read_text()
+    assert 'set -e; while true; do sh /scripts/backup.sh' in compose
+    assert 'while [ -e "$archive" ]' in backup
+    assert 'suffix=$((suffix + 1))' in backup
