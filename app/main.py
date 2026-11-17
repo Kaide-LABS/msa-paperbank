@@ -1,10 +1,11 @@
 import logging
+import mimetypes
 import threading
 import httpx
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Header, Query, HTTPException, Depends
-from fastapi.responses import PlainTextResponse, Response
-from pydantic import BaseModel, ValidationError
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -78,6 +79,22 @@ def healthz() -> dict:
     return {"ok": True}
 
 
+def _download_headers(key: str) -> tuple[str, str]:
+    """Return (media_type, content_disposition) for an object key.
+
+    The filename is the key's last path segment reduced to printable ASCII with
+    quotes, backslashes and slashes removed, so it cannot inject header characters.
+    The media type is guessed from that filename (.pdf -> application/pdf), else
+    application/octet-stream.
+    """
+    name = key.replace("\\", "/").rsplit("/", 1)[-1]
+    safe_name = "".join(
+        c for c in name if 0x20 <= ord(c) <= 0x7E and c not in '"\\/'
+    ).strip() or "download"
+    media_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+    return media_type, f'inline; filename="{safe_name}"'
+
+
 @app.get("/download")
 def download(
     request: Request,
@@ -97,21 +114,53 @@ def download(
         data = request.app.state.store.download_bytes(key)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="object not found")
-    return Response(content=data, media_type="application/octet-stream")
+    media_type, cd = _download_headers(key)
+    return Response(content=data, media_type=media_type, headers={"Content-Disposition": cd})
 
 
 class ToolRetrieveRequest(BaseModel):
-    query: str
-    prefer_courses: list[str] | None = None
+    query: str = Field(..., description="What the student asked for, in their own words.")
+    prefer_courses: list[str] | None = Field(
+        None, description="Optional course codes to prefer; leave empty if unspecified."
+    )
 
 
-@app.post("/tool/retrieve")
+class PaperModel(BaseModel):
+    id: int | None = Field(None, description="Internal paper identifier.")
+    course_code: str | None = Field(None, description="PAU course code, e.g. MTH102.")
+    course_title: str | None = Field(None, description="Human-readable course title.")
+    year: int | None = Field(None, description="Academic year of the paper.")
+    semester: str | None = Field(None, description="Semester, e.g. 'harmattan' or 'rain'.")
+    exam_session: str | None = Field(None, description="Exam session, e.g. CA1, CA2, exam.")
+
+
+class RetrieveResponse(BaseModel):
+    found: bool | None = Field(None, description="True when a matching paper was found.")
+    intent: str | None = Field(None, description="Routed intent for the request.")
+    course_code: str | None = Field(None, description="Course code parsed from the query (not-found case).")
+    course_known: bool | None = Field(None, description="Whether the course code is in the catalog (not-found case).")
+    paper: PaperModel | None = Field(None, description="The matched paper's metadata (found case).")
+    signed_url: str | None = Field(None, description="Download link to the paper PDF, valid for about 15 minutes.")
+
+
+@app.post(
+    "/tool/retrieve",
+    operation_id="RetrievePaper",
+    response_model=RetrieveResponse,
+    summary="Find a past paper",
+    description="Searches the past-paper collection for the paper that best "
+                "matches the student's request and returns its course, year and "
+                "semester plus a short-lived download link. Call it when a student "
+                "asks for a past paper or exam questions for a course. If nothing "
+                "matches, found is false.",
+    responses={401: {"description": "The bearer token was missing, malformed, or wrong."}},
+)
 def tool_retrieve(
     body: ToolRetrieveRequest,
     request: Request,
     session: Session = Depends(get_session),
     _: None = Depends(require_tool_token),
-) -> dict:
+):
     """Authed single-call retrieval seam for the future Copilot Studio agent (Phase 3).
 
     Minimal JSON `{query, prefer_courses?}` -> `retrieval.answer_query`; returns the
@@ -121,14 +170,14 @@ def tool_retrieve(
     result = retrieval.answer_query(session, body.query, prefer_courses=body.prefer_courses)
     paper = result.paper
     if paper is None:
-        return {
+        return JSONResponse(content={
             "found": False,
             "intent": result.intent,
             "course_code": result.course_code,
             "course_known": result.course_known,
-        }
+        })
     serve_key = paper.served_object_key or paper.object_key
-    return {
+    return JSONResponse(content={
         "found": True,
         "intent": result.intent,
         "paper": {
@@ -140,7 +189,7 @@ def tool_retrieve(
             "exam_session": paper.exam_session,
         },
         "signed_url": request.app.state.store.signed_url(serve_key),
-    }
+    })
 
 @app.get("/webhook")
 def webhook_verify(
