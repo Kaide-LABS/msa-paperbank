@@ -19,3 +19,6 @@ What went wrong in past runs and what resolved it. One fact per line.
 - Final check found a requirement NOT met: A re-embed job repopulates chunk and title embeddings, and a recorded parity report compares old vs new top-k results on a fixed query set. _(run ef877dec, 2026-11-16)_
 - Final check found a requirement NOT met: docker compose up starts bot + Postgres (pgvector, pg_trgm) + optional MinIO, and each service reports healthy via its health check. _(run ef877dec, 2026-11-16)_
 - Final check found a requirement NOT met: Phase 6 migration/cutover/teardown scripts exist but are not executed, and GCP production remains running and reversible. (the check could not exercise this criterion) _(run ef877dec, 2026-11-16)_
+- Run stopped: This folder already looks like a finished build, so a new one was not started on top of it. _(run 3ff2966e, 2026-11-16)_
+- Final check found a requirement NOT met: All pre-existing tests pass unchanged after the edits. _(run 3ff2966e, 2026-11-17)_
+- Final check found a requirement NOT met: Every new test that sets app.dependency_overrides or app.state.store restores the original state in fixture teardown. The full suite passes when run in default order, in reverse order, and with each new test file run alone (for example... _(run 3ff2966e, 2026-11-17)_

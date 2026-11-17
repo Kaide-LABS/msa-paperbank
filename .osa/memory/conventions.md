@@ -13,3 +13,9 @@ Stack, tools and conventions this project uses. One fact per line.
 - Constraint: No secrets committed to the repository. _(run ef877dec, 2026-11-11)_
 - Constraint: Backend has no LLM or model API dependency; runs in Docker Compose on no-GPU school Linux servers. _(run ef877dec, 2026-11-11)_
 - Constraint: Embeddings are 768-dimension from a local CPU model; Vector(768) schema and HNSW index stay. _(run ef877dec, 2026-11-11)_
+- Technologies/libraries this project documents and relies on: FastAPI, Starlette, Pydantic, Python standard library (mimetypes), Python standard library (os.path / posixpath), Microsoft Copilot Studio, OpenAPI Specification, Swagger 2.0 _(run 3ff2966e, 2026-11-16)_
+- Constraint: Edit only app/main.py and the tests; touch nothing else and do not modify spike/copilot-studio/. _(run 3ff2966e, 2026-11-16)_
+- Constraint: No new dependencies (standard library only for mimetype lookup and sanitising). _(run 3ff2966e, 2026-11-16)_
+- Constraint: No secrets and no GCP references anywhere in the changes. _(run 3ff2966e, 2026-11-16)_
+- Constraint: Target Python 3.12. _(run 3ff2966e, 2026-11-16)_
+- Constraint: Existing tests must keep passing unchanged. _(run 3ff2966e, 2026-11-16)_
