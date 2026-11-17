@@ -1,0 +1,126 @@
+swagger: "2.0"
+info:
+  title: Paperbank
+  description: >-
+    Finds a past exam paper for a PAU course and returns its details plus a download link that works for about
+    15 minutes. Use it when a student asks for a past paper, a past question paper or exam questions for a course.
+  version: "0.1.0"
+# Replace with the tunnel host for the spike, later the school server's public hostname. No scheme, no path.
+host: REPLACE-WITH-HOST.example.com
+basePath: /
+schemes:
+  - https
+consumes:
+  - application/json
+produces:
+  - application/json
+securityDefinitions:
+  tool_token:
+    type: apiKey
+    in: header
+    name: Authorization
+    description: 'The word Bearer, a space, then the token. Example: Bearer abc123'
+security:
+  - tool_token: []
+paths:
+  /tool/retrieve:
+    post:
+      operationId: RetrievePaper
+      summary: Find a past paper
+      description: >-
+        Searches the past-paper collection for the paper that best matches the student's request and returns its
+        course, year and semester plus a short-lived download link. If nothing matches, found is false.
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            type: object
+            required: [query]
+            properties:
+              query:
+                type: string
+                title: Request
+                description: What the student asked for, in their own words, for example "MAT201 linear algebra 2022 final".
+                x-ms-summary: Request
+              prefer_courses:
+                type: array
+                title: Course codes
+                description: Optional course codes to prefer, for example ["MAT201"]. Leave empty if the student did not say.
+                x-ms-summary: Course codes
+                items:
+                  type: string
+      responses:
+        "200":
+          description: Search result
+          schema:
+            type: object
+            properties:
+              found:
+                type: boolean
+                title: Found
+                description: True when a matching paper was found.
+              intent:
+                type: string
+                title: Intent
+              course_code:
+                type: string
+                title: Course code
+              course_known:
+                type: boolean
+                title: Course known
+              paper:
+                type: object
+                title: Paper
+                properties:
+                  id:
+                    type: integer
+                  course_code:
+                    type: string
+                    title: Course code
+                  course_title:
+                    type: string
+                    title: Course title
+                  year:
+                    type: integer
+                    title: Year
+                  semester:
+                    type: integer
+                    title: Semester
+                  exam_session:
+                    type: string
+                    title: Exam session
+              signed_url:
+                type: string
+                title: Download link
+                description: Link to the paper PDF. Valid for about 15 minutes. Give it to the student as a clickable link.
+        "401":
+          description: The token was missing or wrong.
+  /tool/probe:
+    post:
+      operationId: ProbeInput
+      summary: Spike only. Report what was received
+      description: Spike only. Not part of the product. Echoes the shape of whatever it is sent, to test image and file input.
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              query:
+                type: string
+                title: Text
+              image:
+                type: string
+                title: Image
+                description: The photo or screenshot the student sent, if any.
+              file:
+                type: string
+                title: File
+                description: Any file the student attached, if any.
+      responses:
+        "200":
+          description: What arrived
+          schema:
+            type: object
