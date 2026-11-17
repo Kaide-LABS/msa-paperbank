@@ -85,8 +85,9 @@ paths:
                     type: integer
                     title: Year
                   semester:
-                    type: integer
+                    type: string
                     title: Semester
+                    description: "Semester, e.g. 'harmattan' or 'rain'."
                   exam_session:
                     type: string
                     title: Exam session

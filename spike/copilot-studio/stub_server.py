@@ -42,9 +42,9 @@ LOG_PATH = Path(__file__).with_name("spike_requests.jsonl")
 
 # Fake papers: enough variety to test "found", "not found", and the course-filter argument.
 PAPERS = [
-    {"id": 1, "course_code": "CSC101", "course_title": "Introduction to Computing", "year": 2023, "semester": 1, "exam_session": "Final"},
-    {"id": 2, "course_code": "MAT201", "course_title": "Linear Algebra", "year": 2022, "semester": 2, "exam_session": "Final"},
-    {"id": 3, "course_code": "ENG110", "course_title": "Technical Writing", "year": 2024, "semester": 1, "exam_session": "Midterm"},
+    {"id": 1, "course_code": "CSC101", "course_title": "Introduction to Computing", "year": 2023, "semester": "harmattan", "exam_session": "Final"},
+    {"id": 2, "course_code": "MAT201", "course_title": "Linear Algebra", "year": 2022, "semester": "rain", "exam_session": "Final"},
+    {"id": 3, "course_code": "ENG110", "course_title": "Technical Writing", "year": 2024, "semester": "harmattan", "exam_session": "Midterm"},
 ]
 
 app = FastAPI(title="Paperbank tool stub (Copilot Studio spike)", version="0.0.1")
