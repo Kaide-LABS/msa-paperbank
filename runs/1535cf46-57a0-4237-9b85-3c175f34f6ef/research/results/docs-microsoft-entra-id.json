@@ -1,0 +1,85 @@
+{
+  "summary": "Microsoft Entra ID (formerly Azure AD) is a continuously-updated cloud identity service, not a versioned library, so 'current version' means the current API/SDK generation rather than a release number. For this build, the relevant surface is: Microsoft Entra Workload ID / Managed Identity on Azure Container Apps and Container Apps Jobs (system- or user-assigned) used to authenticate to Azure Key Vault, Azure Database for PostgreSQL Flexible Server, and Azure Container Registry, accessed in Python via the azure-identity SDK's DefaultAzureCredential/ManagedIdentityCredential. Service-to-service auth (e.g. Graph import, Foundry/OpenAI if key-less) uses the OAuth2 client-credentials flow via login.microsoftonline.com, with client secret, certificate, or federated credential (workload identity federation) as the three supported methods. Documentation is current as of pages dated 2026-01 through 2026-06, i.e. within the research window.",
+  "key_findings": [
+    "Microsoft Entra ID is the renamed, continuously-updated successor to Azure AD; it has no discrete 'version number', confirmed on the official 'What is Microsoft Entra' page (ms.date 2026-06-18).",
+    "Azure Container Apps managed-identity doc (ms.date 2025-06-03, updated 2026-02-13) confirms system-assigned (one per app, tied to app lifecycle) and user-assigned (standalone, multi-app) identities, configurable via portal, az CLI, ARM, YAML, or Bicep ('identity: { type: SystemAssigned }').",
+    "Container Apps exposes an internal token REST endpoint via env vars IDENTITY_ENDPOINT and IDENTITY_HEADER; GET with api-version=2019-08-01 or later and optional client_id for user-assigned identity returns a Bearer token usable against any Entra-protected resource.",
+    "Init containers in consumption-only and dedicated workload-profile environments cannot access managed identities; API version 2024-02-02-preview adds per-identity lifecycle scoping (Init/Main/All/None) to limit which containers can use which identity.",
+    "Managed-identity token cache is held ~24h per resource URI server-side; updating an RBAC role assignment does not force-refresh a cached token, and forced refresh is not supported (relevant to debugging 'permission granted but still denied' issues).",
+    "azure-identity Python SDK latest stable release is 1.27.0 (released 2026-10-26 per PyPI), exposing DefaultAzureCredential, ManagedIdentityCredential, ClientSecretCredential, CertificateCredential, ClientAssertionCredential, WorkloadIdentityCredential, plus async equivalents under azure.identity.aio.",
+    "OAuth2 client-credentials flow doc (ms.date 2026-01-30, updated 2026-06-15) specifies POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token with grant_type=client_credentials and scope=<resource>/.default; three credential forms are client_secret, certificate-based client_assertion, or federated-credential client_assertion (workload identity federation).",
+    "Refresh tokens are never issued in the client-credentials flow; a fresh token request must be made against /token when the prior access_token (default expires_in 3599s) expires.",
+    "Azure Database for PostgreSQL Flexible Server supports Microsoft Entra authentication (PostgreSQL-only, Entra-only, or both) and a dedicated managed-identity connection path, documented on learn.microsoft.com/azure/postgresql/security/security-entra-concepts and security-connect-with-managed-identity.",
+    "Per a 2026 Postgres-at-Microsoft roundup (secondary source, not official docs): Entra token-refresh helper libraries for Python became available and an April 2026 maintenance release fixed PgBouncer auth failures when Entra tokens exceeded 4KB with PgBouncer — treat as [uncertain] pending confirmation on an official release-notes page."
+  ],
+  "recommendations": [
+    "Use user-assigned Managed Identity (not a client-secret app registration) for the Container Apps/Jobs that call Key Vault, Postgres Flexible Server, and ACR — avoids storing any Entra secret in the repo or app config, satisfying the 'no plaintext secrets' acceptance criterion.",
+    "In Bicep, set identity.type = 'UserAssigned' on both the Container App and Container Apps Job, and grant it RBAC roles (Key Vault Secrets User, ACRPull) plus an Entra-based Postgres role rather than embedding DB passwords.",
+    "In the Python secrets/config adapter, use azure-identity's DefaultAzureCredential so the same code authenticates locally (Azure CLI credential) and in Container Apps (managed identity) without branching logic.",
+    "If any service call requires client-credentials (e.g. a Graph import job running outside Container Apps), prefer a federated credential (workload identity federation) over a client secret to keep zero long-lived secrets, per the OAuth2 doc's explicit recommendation.",
+    "Account for the ~24h managed-identity token cache when testing new RBAC role assignments during setup — expect stale-permission errors to persist up to a day, not a code bug.",
+    "Do not rely on init containers having managed-identity access if running on consumption/dedicated workload profiles; do any Entra-authenticated setup work in the main container or move it to a Container Apps Job.",
+    "Verify current Azure PostgreSQL Entra maintenance notes directly on the official release-notes page before relying on the PgBouncer/4KB-token fix claim, since that came from a secondary summary, not the primary changelog."
+  ],
+  "as_of": "2026-06-18 (Entra overview), 2026-02-13 (Container Apps managed identity doc update), 2026-06-15 (OAuth2 client credentials flow doc update), 2026-10-26 (azure-identity 1.27.0 PyPI release)",
+  "sources": [
+    {
+      "title": "What is Microsoft Entra? - Microsoft Entra | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/entra/fundamentals/whatis",
+      "type": "official-docs",
+      "quote": "Microsoft Entra ID is the foundational product of Microsoft Entra. It's a cloud-based identity and access management service..."
+    },
+    {
+      "title": "Managed identities in Azure Container Apps | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/container-apps/managed-identity",
+      "type": "official-docs",
+      "quote": "A managed identity from Microsoft Entra ID allows your container app to access other Microsoft Entra protected resources."
+    },
+    {
+      "title": "OAuth 2.0 client credentials flow on the Microsoft identity platform | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-client-creds-grant-flow",
+      "type": "official-docs",
+      "quote": "To get a token by using the client credentials grant, send a POST request to the /token Microsoft identity platform... client_id, scope, client_secret, grant_type=client_credentials."
+    },
+    {
+      "title": "azure-identity · PyPI",
+      "url": "https://pypi.org/project/azure-identity/",
+      "type": "official-docs",
+      "quote": "Latest Stable Version: 1.27.0 (released October 26, 2026)... Azure Identity library provides Microsoft Entra ID token-based authentication support across the Azure SDK."
+    },
+    {
+      "title": "Microsoft Entra Authentication in Azure Database for PostgreSQL Flexible Server | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/security/security-entra-concepts",
+      "type": "official-docs",
+      "quote": "Azure Database for PostgreSQL supports three modes of authentication: PostgreSQL authentication only, Microsoft Entra authentication only, and both."
+    },
+    {
+      "title": "What's new with Postgres at Microsoft, 2026 edition",
+      "url": "https://techcommunity.microsoft.com/blog/adforpostgresql/whats-new-with-postgres-at-microsoft-2026-edition/4526963",
+      "type": "article",
+      "quote": "Entra ID token refresh libraries are now available for .NET, Python, and Java... In April 2026, an issue was fixed that could lead to authentication failures when Microsoft Entra ID token size exceeds 4 KB while using PgBouncer."
+    }
+  ],
+  "current_version": "No version number — Microsoft Entra ID is a continuously-updated cloud service; relevant SDK is azure-identity (Python) 1.27.0 (released 2026-10-26) and Microsoft identity platform v2.0 token endpoint",
+  "api_surface": [
+    "Container Apps/Jobs Bicep: identity: { type: 'UserAssigned', userAssignedIdentities: { <resourceId>: {} } }",
+    "Internal token endpoint: GET $IDENTITY_ENDPOINT?resource=<entra-resource-uri>&api-version=2019-08-01 with header X-IDENTITY-HEADER: $IDENTITY_HEADER",
+    "Python: azure.identity.DefaultAzureCredential() / ManagedIdentityCredential(client_id=...) passed to Azure SDK clients (Key Vault, Postgres token acquisition)",
+    "OAuth2 client credentials: POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token with grant_type=client_credentials, scope=<resource>/.default",
+    "az CLI: az containerapp identity assign --name <app> --resource-group <rg> --system-assigned | --user-assigned <id>",
+    "Azure Database for PostgreSQL Flexible Server Entra-authenticated connection (security-connect-with-managed-identity) in place of password auth for the pgvector database"
+  ],
+  "pitfalls": [
+    "Managed-identity tokens are cached ~24h per resource URI server-side; new RBAC role assignments may appear not to take effect immediately and forced refresh is unsupported.",
+    "Init containers cannot use managed identity in consumption-only or dedicated workload-profile environments; only API version 2024-02-02-preview's identitySettings lifecycle control changes this.",
+    "Containers apps deployed before 2022-04-11 require a new revision to pick up a newly added managed identity — not relevant for a fresh build but worth knowing if reusing an old revision.",
+    "Client-credentials flow never issues a refresh token; the app must re-POST to /token on each expiry (default ~3599s) rather than expecting a refresh_token field.",
+    "Never request scopes spanning multiple resources in one client-credentials call — the /.default scope must target exactly one resource or the token endpoint returns invalid_scope.",
+    "[uncertain] A secondary (non-official) 2026 summary claims an April 2026 Postgres maintenance fix for Entra tokens >4KB breaking PgBouncer auth; confirm on the official Postgres release-notes page before depending on it.",
+    "Microsoft Entra External ID M2M scenarios require a separate Premium add-on license — not applicable to this internal server-to-server build but a cost pitfall if confused with regular Entra ID tenant auth."
+  ],
+  "uncertain": [
+    "key_findings",
+    "pitfalls"
+  ]
+}

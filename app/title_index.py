@@ -9,7 +9,7 @@ import threading
 import numpy as np
 from sqlalchemy import text
 from app.config import settings
-from app.embeddings import embed_query
+from app.providers import get_embedder
 
 _LOCK = threading.Lock()
 _CODES: list[str] | None = None
@@ -66,7 +66,7 @@ def semantic_scores(session, query: str, codes: list[str]) -> dict[str, float]:
         ensure_loaded(session)
         if not _CODES:
             return {}
-        v = np.array(embed_query(query), dtype=np.float32)
+        v = np.array(get_embedder(settings).embed_query(query), dtype=np.float32)
         v /= (np.linalg.norm(v) + 1e-9)
         out = {}
         for c in codes:

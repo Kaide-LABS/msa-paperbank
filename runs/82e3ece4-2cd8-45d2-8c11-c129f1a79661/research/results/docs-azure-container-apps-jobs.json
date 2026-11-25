@@ -1,0 +1,77 @@
+{
+  "summary": "Azure Container Apps Jobs is a GA feature of Azure Container Apps for running finite-duration containerized tasks (Manual, Schedule, or Event trigger types), which fits this build's ingest and backfill workloads exactly as the PRD specifies (AC #8). It is created/managed via `az containerapp job` CLI commands (requiring the `containerapp` CLI extension), Bicep/ARM resource type `Microsoft.App/jobs`, or the REST API, and shares the same Container Apps Environment as the bot/review apps for networking and logging. The core API surface (trigger types, replica settings, start/execution-list operations) has been stable, but a permission tightening for job-start overrides is actively rolling out as of Nov 2026, and there's a known API-version registration gap (2026-07-01) that can break job start calls from newer SDKs — both are directly relevant to this build's scripted-but-not-yet-executed ingest/backfill jobs.",
+  "key_findings": [
+    "Container Apps Jobs supports three trigger types: Manual (on-demand via CLI/portal/ARM), Schedule (cron, evaluated in UTC), and Event (KEDA-based custom scalers) — per https://learn.microsoft.com/en-us/azure/container-apps/jobs (ms.date 2026-09-16).",
+    "Jobs do NOT support Dapr or ingress/custom domains/SSL — confirmed restriction on the same official page, relevant since ingest/backfill jobs must not rely on inbound HTTP.",
+    "Job execution history via `az containerapp job execution list` / REST GET .../jobs/{name}/executions is limited to the most recent 100 successful and 100 failed executions; full audit requires querying the environment's configured log sink.",
+    "Platform maintenance can interrupt long-running replicas; official docs recommend replicaRetryLimit >= 1 and at-least-once-safe workload design — directly applicable to multi-hour OCR/embedding backfill jobs.",
+    "As of 2026-11-02, Microsoft is actively rolling out (fully active across all production regions within ~2 weeks of that date) a permission change: starting a job with any container/init-container execution override (including an empty array) now requires BOTH `Microsoft.App/jobs/start/action` AND `Microsoft.App/jobs/write`; failures surface as HTTP 400 `JobStartOverrideAuthorizationFailed` — source: https://github.com/microsoft/azure-container-apps/issues/1872.",
+    "Both built-in roles 'Container Apps Jobs Contributor' and 'Container Apps Jobs Operator' include a `Microsoft.App/jobs/*/action` wildcard that also matches `listSecrets`, so anyone who can start a job can read that job's secrets in plaintext — confirmed on the same official jobs doc page.",
+    "azure-mgmt-appcontainers Python SDK 5.1.0 defaults to API version 2026-07-01 for Container Apps Jobs, which was reported not yet registered for Microsoft.App/jobs in all regions, breaking job-start calls — source: https://github.com/Azure/azure-sdk-for-python/issues/49044 [uncertain: whether this is fully resolved as of Nov 2026].",
+    "The `az containerapp job create` command (manual example) uses parameters: --name, --resource-group, --environment, --trigger-type, --replica-timeout, --replica-retry-limit, --replica-completion-count, --parallelism, --image, --cpu, --memory, plus --cron-expression (Schedule) or --min-executions/--max-executions/--scale-rule-* (Event) — confirmed on the official jobs doc page.",
+    "The containerapp CLI functionality ships as an Azure CLI extension (`az extension add --name containerapp --upgrade`, requires CLI >= 2.79.0 per a surfaced AI summary of search results); since May 2024 extensions no longer enable preview features by default, requiring `--allow-preview true` for preview-only features [uncertain — not opened directly, derived from search summary, not a fetched official page]."
+  ],
+  "recommendations": [
+    "Define the ingest and backfill Container Apps Jobs with triggerType Manual in Bicep (Microsoft.App/jobs), started explicitly by the owner-approved cutover/migration script — never Schedule, to preserve the 'not executed until sign-off' requirement.",
+    "Set replicaRetryLimit >= 1 and a generous replicaTimeout for the OCR/embedding backfill job, and design the ingest/backfill logic to be idempotent (at-least-once), per the platform-maintenance-interruption note in the official docs.",
+    "When the scripted migration runbook (AC #9) triggers job executions, avoid passing container/init-container override templates if possible; if overrides are required (e.g., per-batch parameters), ensure the identity running the script holds both `Microsoft.App/jobs/start/action` and `Microsoft.App/jobs/write` to avoid the Nov 2026 permission-change breakage.",
+    "Pin an explicit, tested apiVersion (not 'latest') on the Bicep Microsoft.App/jobs resource — avoid 2026-07-01 given the reported regional-registration gap; verify the chosen version is registered in the target region before relying on it in the Bicep deploy for AC #8.",
+    "Scope RBAC narrowly: grant 'Container Apps Jobs Contributor' only to the deploy pipeline identity and 'Container Apps Jobs Operator' only to the identity/person approving manual starts; do not create custom roles with `Microsoft.App/jobs/*/action` wildcards, since that implicitly grants secret read access.",
+    "Confirm CI/build agents have the `containerapp` Azure CLI extension installed/upgraded (`az extension add --name containerapp --upgrade`) before any `az containerapp job` command runs in the Bicep/CLI deployment scripts.",
+    "Do not attempt to expose the ingest/backfill job as an HTTP-reachable service (Dapr/ingress) — use the bot/review Container Apps for anything requiring inbound traffic, per the stated jobs restrictions."
+  ],
+  "as_of": "2026-11-02 (primary docs confirmed current as of ms.date 2026-09-16 and 2026-09-01; permission-change rollout confirmed as in-progress on 2026-11-02)",
+  "sources": [
+    {
+      "title": "Jobs in Azure Container Apps | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/container-apps/jobs",
+      "type": "official-docs",
+      "quote": "Azure Container Apps jobs enable you to run containerized tasks that run for a finite duration and then stop... A job's trigger type determines how the job is started. ... Manual, Schedule, Event."
+    },
+    {
+      "title": "az containerapp job | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/cli/azure/containerapp/job?view=azure-cli-latest",
+      "type": "official-docs",
+      "quote": "ms.date: 2026-09-01 ... az containerapp job"
+    },
+    {
+      "title": "[IMPORTANT] Update permissions for Azure Container Apps job execution overrides · Issue #1872 · microsoft/azure-container-apps",
+      "url": "https://github.com/microsoft/azure-container-apps/issues/1872",
+      "type": "repo",
+      "quote": "Starting a job with container or init-container overrides now requires both Microsoft.App/jobs/start/action and Microsoft.App/jobs/write permissions... fully active across all production regions within two weeks... an empty array ([]) still counts as an override."
+    },
+    {
+      "title": "azure-mgmt-appcontainers 5.1.0 uses unsupported API version 2026-07-01 for Container Apps Jobs · Issue #49044 · Azure/azure-sdk-for-python",
+      "url": "https://github.com/Azure/azure-sdk-for-python/issues/49044",
+      "type": "repo",
+      "quote": "Version 5.1.0 sends the request using API version 2026-07-01 ... this newer API version is not yet registered for the Microsoft.App/jobs resource type in all regions."
+    },
+    {
+      "title": "Microsoft.App/jobs - Bicep, ARM template & Terraform AzAPI reference | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.app/jobs",
+      "type": "official-docs",
+      "quote": "Azure Microsoft.App/jobs syntax and properties to use in Azure Resource Manager templates for deploying the resource. API version latest"
+    }
+  ],
+  "current_version": "GA platform feature (no separate version number); ARM resource type Microsoft.App/jobs — official doc examples use api-version 2023-05-01, while SDKs/tooling were observed defaulting to 2026-01-01/2026-07-01 in late 2026 [uncertain]",
+  "api_surface": [
+    "az containerapp job create|update|delete|list|show|start|stop",
+    "az containerapp job execution list",
+    "Bicep/ARM resource Microsoft.App/jobs: properties.configuration.triggerType (Manual|Schedule|Event), manualTriggerConfig, scheduleTriggerConfig (cronExpression), eventTriggerConfig (scale rules), replicaTimeout, replicaRetryLimit, parallelism, replicaCompletionCount",
+    "REST: POST /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/jobs/{name}/start, GET .../jobs/{name}/executions",
+    "RBAC roles: Container Apps Jobs Contributor, Container Apps Jobs Operator, Monitoring Reader (optional)",
+    "containerapp Azure CLI extension (required for all az containerapp job commands) [uncertain on exact min version]"
+  ],
+  "pitfalls": [
+    "Nov 2026 rollout: job-start calls with container/init-container overrides (including empty arrays) now need Microsoft.App/jobs/write in addition to start/action, or they fail with JobStartOverrideAuthorizationFailed — audit any CI/migration scripts that start jobs with overrides.",
+    "azure-mgmt-appcontainers 5.1.0 defaulted to API version 2026-07-01, which was reported not registered for Microsoft.App/jobs in all regions, breaking job starts — pin a known-good apiVersion in Bicep rather than 'latest'.",
+    "Job execution history caps at the most recent 100 successful + 100 failed executions; rely on the environment's log sink for durable backfill/ingest run history.",
+    "Container Apps Jobs do not support Dapr or ingress/custom domains/SSL — do not architect ingest/backfill jobs to serve HTTP.",
+    "Jobs Contributor/Operator built-in roles both carry a Microsoft.App/jobs/*/action wildcard that also matches listSecrets, so anyone able to start a job can read its secrets in plaintext — avoid wildcard custom roles for least-privilege automation identities.",
+    "Long-running job replicas can be interrupted by routine platform maintenance; set replicaRetryLimit >= 1 and ensure idempotent at-least-once processing for multi-hour OCR/embedding backfill jobs."
+  ],
+  "uncertain": [
+    "current_version",
+    "api_surface"
+  ]
+}

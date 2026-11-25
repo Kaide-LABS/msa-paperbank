@@ -1,0 +1,81 @@
+{
+  "summary": "Gunicorn is the production WSGI/ASGI process manager that will run the FastAPI app inside the Azure Container Apps container, using Uvicorn worker processes for async support. Current stable is v26.2.x (2026), installed via `pip install gunicorn`, with the app launched as `gunicorn app.main:app -k uvicorn_worker.UvicornWorker -w <N> -b 0.0.0.0:<port>`. The main breaking-change risk for this build is that the classic `uvicorn.workers.UvicornWorker` import path is deprecated in favor of the standalone `uvicorn-worker` package, and `forwarded_allow_ips` handling changed in 24.1.0/24.1.1 in a way that briefly broke Uvicorn interop. Official docs site structure also changed (docs.gunicorn.org now redirects to gunicorn.org with a reorganized settings reference).",
+  "key_findings": [
+    "Current stable gunicorn version is 26.2.2 (released 2026-09-06, per PyPI/web search); PyPI classifiers show Python >=3.10 support (3.10-3.13) [uncertain]",
+    "docs.gunicorn.org/en/stable/ and /en/latest/ both 301-redirect to gunicorn.org; the old settings.html path 404s — the current official settings reference is https://gunicorn.org/reference/settings/",
+    "Install: `pip install gunicorn` (confirmed on official homepage gunicorn.org)",
+    "Official homepage confirms explicit FastAPI/Starlette compatibility and lists worker types: Sync (default), Async (Gevent/Eventlet), Threads (gthread), and ASGI for native asyncio",
+    "Default bind is 127.0.0.1:8000; default workers=1 (respects WEB_CONCURRENCY env var); default worker_class=sync; default timeout=30s; default forwarded_allow_ips='127.0.0.1,::1' (CIDR notation supported since 24.1.0)",
+    "v24.1.0 added Docker images, PROXY protocol v2, CIDR support for forwarded_allow_ips; v24.1.1 shipped promptly after to fix a backward-compat regression where forwarded_allow_ips/proxy_allow_ips no longer returned plain strings, breaking tools expecting the old format including Uvicorn interop",
+    "Since uvicorn 0.30.0 (2024-05-28), `uvicorn.workers.UvicornWorker` is deprecated in favor of the standalone `uvicorn-worker` PyPI package providing `uvicorn_worker.UvicornWorker` (and `UvicornH11Worker` for PyPy); the legacy import still works with a DeprecationWarning as of uvicorn 0.35.0 (~mid-2025) but is not yet removed [uncertain: exact current uvicorn removal timeline]",
+    "26.x line reportedly added HTTP/2 (beta, requires TLS + h2 library), a 'dirty arbiters' feature, and a control socket for runtime management via `gunicornc` [uncertain: not independently verified on an official changelog page, sourced via WebFetch summarization of gunicorn.org/reference/settings/]",
+    "ssl_version setting is deprecated in favor of ssl_context per the settings reference"
+  ],
+  "recommendations": [
+    "Pin gunicorn in requirements (e.g. `gunicorn>=23,<27` or exact pin) and add `uvicorn-worker` as an explicit dependency rather than relying on the deprecated `uvicorn.workers.UvicornWorker` import, to avoid future-removal breakage",
+    "Launch command for the Container Apps container: `gunicorn app.main:app -k uvicorn_worker.UvicornWorker -w ${WEB_CONCURRENCY:-2} -b 0.0.0.0:8000 --timeout 30 --graceful-timeout 30`",
+    "If deployed behind Azure Container Apps' ingress/front door, explicitly set `forwarded_allow_ips` to the known private/internal proxy range rather than '*', given the 24.1.0/24.1.1 history around this setting and its security implications",
+    "Do not use the old settings.html doc path in any internal docs/RUNBOOK; link to https://gunicorn.org/reference/settings/ instead since the old docs.gunicorn.org path now 404s",
+    "Verify gunicorn + uvicorn_worker version pins at implementation time against the official PyPI changelog page directly (not just search-summarized text) before finalizing the Bicep/container image, since some 26.x feature claims above are summarizer-derived rather than independently confirmed on a primary changelog"
+  ],
+  "as_of": "2026-11 (gunicorn 26.2.2, released 2026-09-06); uvicorn deprecation note current as of uvicorn 0.35.0 (~2025-06)",
+  "sources": [
+    {
+      "title": "Gunicorn homepage",
+      "url": "https://gunicorn.org/",
+      "type": "official-docs",
+      "quote": "Battle-tested. Production-ready. One command to serve your Python apps... Compatible with Django, Flask, FastAPI, Pyramid, Starlette, Falcon, and Bottle"
+    },
+    {
+      "title": "Gunicorn Settings reference",
+      "url": "https://gunicorn.org/reference/settings/",
+      "type": "official-docs",
+      "quote": "bind - The socket to bind (default: 127.0.0.1:8000)... worker_class - Type of workers to use (default: sync)... ssl_version is deprecated; use ssl_context instead"
+    },
+    {
+      "title": "gunicorn on PyPI",
+      "url": "https://pypi.org/project/gunicorn/",
+      "type": "official-docs",
+      "quote": "Current Stable Version: 26.2.0... Python Support: Python >=3.10"
+    },
+    {
+      "title": "Gunicorn 24.1.0 has been released (GitHub Discussion)",
+      "url": "https://github.com/benoitc/gunicorn/discussions/3455",
+      "type": "repo",
+      "quote": "24.1.1 is now available with a fix for backward compatibility with tools like uvicorn, specifically mentioning problems with tools expecting string values from forwarded_allow_ips or proxy_allow_ips settings"
+    },
+    {
+      "title": "uvicorn-worker (Kludex/uvicorn-worker)",
+      "url": "https://github.com/Kludex/uvicorn-worker",
+      "type": "repo",
+      "quote": "gunicorn example:app -w 4 -k uvicorn_worker.UvicornWorker ... For PyPy-compatible configurations, use uvicorn_worker.UvicornH11Worker instead"
+    },
+    {
+      "title": "[Bug]: uvicorn.workers.UvicornWorker deprecated · Issue #12069",
+      "url": "https://github.com/BerriAI/litellm/issues/12069",
+      "type": "forum",
+      "quote": "Since uvicorn 0.30.0, this worker is deprecated in favor of the uvicorn-worker package... the legacy import still works (with a DeprecationWarning)"
+    }
+  ],
+  "current_version": "26.2.2 (released 2026-09-06) [uncertain: derived from search summary, not an opened official PyPI release-history page with exact changelog entry]",
+  "api_surface": [
+    "CLI launch: gunicorn <module>:<app> -k uvicorn_worker.UvicornWorker -w <workers> -b <host:port>",
+    "worker_class / -k: uvicorn_worker.UvicornWorker (ASGI, for FastAPI) instead of deprecated uvicorn.workers.UvicornWorker",
+    "workers / -w (also honors WEB_CONCURRENCY env var)",
+    "bind / -b (host:port, unix:PATH, or fd://FD)",
+    "timeout, graceful_timeout (worker liveness and SIGTERM grace period)",
+    "forwarded_allow_ips, secure_scheme_headers (for correct https scheme detection behind Container Apps ingress)",
+    "max_requests (worker recycling to bound memory growth)",
+    "config file (-c gunicorn.conf.py) for centralizing the above instead of long CLI flags"
+  ],
+  "pitfalls": [
+    "uvicorn.workers.UvicornWorker deprecated since uvicorn 0.30.0 (2024-05-28) in favor of the separate uvicorn-worker package; still importable with a DeprecationWarning as of 0.35.0 but should not be relied on long-term",
+    "gunicorn 24.1.0 introduced a forwarded_allow_ips/proxy_allow_ips format regression breaking Uvicorn-adjacent tooling, fixed in the immediate 24.1.1 patch — always pin to >=24.1.1 if using any 24.x line",
+    "Official docs moved: docs.gunicorn.org/en/stable and /en/latest now 301-redirect to gunicorn.org, and the old settings.html path returns 404 — use gunicorn.org/reference/settings/ going forward",
+    "ssl_version setting deprecated in favor of ssl_context"
+  ],
+  "uncertain": [
+    "current_version",
+    "key_findings"
+  ]
+}

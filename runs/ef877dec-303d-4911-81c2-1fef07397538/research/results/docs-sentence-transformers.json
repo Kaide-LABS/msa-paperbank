@@ -1,0 +1,86 @@
+{
+  "summary": "sentence-transformers is the official Python library (sbert.net, UKPLab/sentence-transformers on GitHub) for loading Hugging Face embedding models and computing dense vector embeddings; current stable release is v6.2.0, installed via `pip install -U sentence-transformers`, requiring Python 3.10+, PyTorch 2.2+ and transformers v5.x. For this build's CPU, 768-dimension requirement, the standard model choice is `sentence-transformers/all-mpnet-base-v2` (768-dim, CPU-capable, highest quality in the general-purpose family), loaded via `SentenceTransformer(model_name, device=\"cpu\")` and queried with `.encode()`. The API surface needed (model load, encode, batch_size, normalize_embeddings, convert_to_numpy) is stable and documented, but recent major versions (v5.4+ and v6.0) renamed `encode(sentences=...)` to `encode(inputs=...)` and `get_sentence_embedding_dimension()` to `get_embedding_dimension()`, which this build should account for when pinning a version.",
+  "key_findings": [
+    "Current stable release is v6.2.0, confirmed on the official GitHub Releases page (tag v6.2.0, published '21 Oct') [uncertain on exact year — page did not render the year explicitly, but it is the 'latest' release as of this research date]",
+    "Install via `pip install -U sentence-transformers`; official docs state requirement of Python 3.10+ and PyTorch (v6.0 raised the floor to PyTorch 2.2+, up from 1.11.0+) plus transformers v5.x",
+    "Core API: `SentenceTransformer(model_name_or_path, device=..., cache_folder=..., trust_remote_code=...)` to load, then `.encode(inputs, batch_size=, normalize_embeddings=, convert_to_numpy=, convert_to_tensor=, device=)` to embed; `device='cpu'` is an explicit, documented option alongside 'cuda'/'mps'/'npu'",
+    "`sentence-transformers/all-mpnet-base-v2` is the official docs' recommended 'best quality' general-purpose model trained on 1B+ pairs and runs on CPU; it produces 768-dimensional embeddings, matching this build's Vector(768) schema requirement",
+    "`all-MiniLM-L6-v2` is the faster CPU alternative but outputs 384-dim vectors — NOT a drop-in for this build's fixed 768-dim schema",
+    "v6.0.0 (major breaking release): requires transformers v5.x and torch 2.2+; custom/local module classes now require `trust_remote_code=True` even for local models; `similarity`/`similarity_pairwise` changed from properties to methods; `CrossEncoder.rank()` now returns plain Python floats",
+    "v5.4+ renamed `encode(sentences=...)` → `encode(inputs=...)` and `get_sentence_embedding_dimension()` → `get_embedding_dimension()`; old module import paths from `sentence_transformers.models` still work but emit deprecation warnings",
+    "v5.7.0: int8/uint8 quantized embedding outputs changed — out-of-calibration-range values now saturate at bounds instead of wrapping, which can silently change downstream similarity scores if quantization is ever adopted",
+    "Model cache location is controlled by `cache_folder` param or `SENTENCE_TRANSFORMERS_HOME` env var — relevant for Docker image layering/offline caching in this build"
+  ],
+  "recommendations": [
+    "Pin `sentence-transformers` to a known-good version (e.g., 6.x) in requirements and lock the exact pin in the Dockerfile; do not float on latest, since v6.0 changed `encode()` and dimension-getter method names versus v5.x code examples found online",
+    "Use `sentence-transformers/all-mpnet-base-v2` (768-dim) rather than `all-MiniLM-L6-v2` (384-dim) to satisfy the Vector(768)/HNSW schema requirement without a schema change",
+    "Load the model with `device='cpu'` explicitly and bake the model weights into the Docker image (or pre-populate `SENTENCE_TRANSFORMERS_HOME`) so no network call happens at container start or during tests",
+    "In the re-embed job and parity report, use `.encode(inputs, normalize_embeddings=True, convert_to_numpy=True, batch_size=...)` consistently for both chunk and title embeddings to match pgvector's expected input format",
+    "Do not set `trust_remote_code=True` unless the chosen model repo requires it and has been reviewed — v6.0 enforces this flag even for local custom modules",
+    "Avoid embedding quantization (int8/uint8) for this build unless re-validated against v5.7+'s changed saturation behavior, since the acceptance criteria require an old-vs-new parity report and quantization changes would be a second variable"
+  ],
+  "as_of": "v6.2.0, GitHub Releases page accessed 2026-11-11 (exact release date text showed '21 Oct' without a rendered year)",
+  "sources": [
+    {
+      "title": "Sentence Transformers (official site)",
+      "url": "https://sbert.net/",
+      "type": "official-docs",
+      "quote": "pip install -U sentence-transformers ... Python 3.10+ ... PyTorch 1.11.0+"
+    },
+    {
+      "title": "sentence-transformers GitHub Releases",
+      "url": "https://github.com/UKPLab/sentence-transformers/releases",
+      "type": "repo",
+      "quote": "v6.0.0 ... Requires transformers v5 and PyTorch 2.2+ (upgraded from v4.41.0 and PyTorch 1.11.0)"
+    },
+    {
+      "title": "sentence-transformers GitHub latest release",
+      "url": "https://github.com/UKPLab/sentence-transformers/releases/latest",
+      "type": "repo",
+      "quote": "The version tag is v6.2.0, released on 21 Oct 12:27."
+    },
+    {
+      "title": "Usage docs — SentenceTransformer",
+      "url": "https://sbert.net/docs/sentence_transformer/usage/usage.html",
+      "type": "official-docs",
+      "quote": "model = SentenceTransformer(\"sentence-transformers/all-MiniLM-L6-v2\") ... shape [3, 384]"
+    },
+    {
+      "title": "SentenceTransformer class reference",
+      "url": "https://sbert.net/docs/package_reference/sentence_transformer/SentenceTransformer.html",
+      "type": "official-docs",
+      "quote": "device: Specifies computation hardware like \"cuda\", \"cpu\", \"mps\", or \"npu\""
+    },
+    {
+      "title": "Pretrained Models docs",
+      "url": "https://sbert.net/docs/sentence_transformer/pretrained_models.html",
+      "type": "official-docs",
+      "quote": "all-mpnet-base-v2 ... the best quality, trained on over 1 billion training pairs"
+    },
+    {
+      "title": "Migration Guide",
+      "url": "https://sbert.net/docs/migration_guide.html",
+      "type": "official-docs",
+      "quote": "get_sentence_embedding_dimension() → get_embedding_dimension(); encode(sentences=...) → encode(inputs=...)"
+    }
+  ],
+  "current_version": "6.2.0",
+  "api_surface": [
+    "SentenceTransformer(model_name_or_path, device='cpu', cache_folder=..., trust_remote_code=False)",
+    "model.encode(inputs, batch_size=..., normalize_embeddings=True, convert_to_numpy=True)",
+    "model.get_embedding_dimension() (renamed from get_sentence_embedding_dimension in v5.4+)",
+    "model.similarity(embeddings_a, embeddings_b) (method as of v6.0, not a property)",
+    "SENTENCE_TRANSFORMERS_HOME env var / cache_folder param for offline model caching"
+  ],
+  "pitfalls": [
+    "v6.0.0 raised minimum deps to transformers v5.x and torch 2.2+ — verify CPU-only torch wheel compatibility before pinning",
+    "v5.4+ renamed encode(sentences=...) to encode(inputs=...) and get_sentence_embedding_dimension() to get_embedding_dimension(); old code samples copied from older tutorials will break or warn",
+    "v6.0 enforces trust_remote_code=True for any custom module code, including local models, which can silently fail CI/tests if not set and the chosen model needs it",
+    "all-MiniLM-L6-v2 (384-dim) is a commonly recommended 'fast' model but is incompatible with this build's fixed Vector(768) schema — must use a 768-dim model like all-mpnet-base-v2",
+    "v5.7.0 changed int8/uint8 quantization saturation behavior, which would silently skew a before/after parity comparison if quantization is introduced alongside the migration",
+    "Module import paths moved in v5.4+ (sentence_transformers.models → model-specific submodules); old paths still work but emit deprecation warnings that could pollute CI logs"
+  ],
+  "uncertain": [
+    "as_of"
+  ]
+}

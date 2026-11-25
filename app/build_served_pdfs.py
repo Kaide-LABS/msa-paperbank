@@ -20,13 +20,13 @@ already have served_object). Run with the prod env (GCP_PROJECT / CLOUD_SQL_INST
 import os
 import sys
 from sqlalchemy import text
-from google.cloud import storage
 from app.db import SessionLocal
 from app.config import settings
+from app.providers import get_object_store
 from app import retrieval
 
 MIGRATE = [
-    "ALTER TABLE pending_papers ADD COLUMN IF NOT EXISTS served_object TEXT",
+    "ALTER TABLE pending_papers ADD COLUMN IF NOT EXISTS served_object_key TEXT",
     "ALTER TABLE pending_papers ADD COLUMN IF NOT EXISTS served_filename TEXT",
 ]
 
@@ -51,12 +51,12 @@ def build(skip_existing: bool = False, only_ids: list[int] | None = None) -> Non
     for ddl in MIGRATE:
         s.execute(text(ddl))
     s.commit()
-    gcs = storage.Client(project=settings.gcp_project)
+    store = get_object_store(settings)
 
     ids = only_ids if only_ids else _servable_ids(s)
     if skip_existing and not only_ids:
         done = set(s.execute(text(
-            "SELECT id FROM pending_papers WHERE served_object IS NOT NULL"
+            "SELECT id FROM pending_papers WHERE served_object_key IS NOT NULL"
         )).scalars().all())
         ids = [i for i in ids if i not in done]
 
@@ -75,7 +75,7 @@ def build(skip_existing: bool = False, only_ids: list[int] | None = None) -> Non
     ok = fail = 0
     for n, sid in enumerate(ids, 1):
         try:
-            obj, fn = retrieval.precompute_served_pdf(s, sid, gcs, settings.gcs_bucket)
+            obj, fn = retrieval.precompute_served_pdf(s, sid, store)
             s.commit()
             ok += 1
             if n % 25 == 0 or n == total:
@@ -84,8 +84,8 @@ def build(skip_existing: bool = False, only_ids: list[int] | None = None) -> Non
             s.rollback()
             fail += 1
             print(f"  [{n}/{total}] FAIL sid={sid}: {type(e).__name__}: {e}", flush=True)
-    done_n = s.execute(text("SELECT count(*) FROM pending_papers WHERE served_object IS NOT NULL")).scalar()
-    print(f"done: {ok} rendered, {fail} failed; pending_papers with served_object now = {done_n}", flush=True)
+    done_n = s.execute(text("SELECT count(*) FROM pending_papers WHERE served_object_key IS NOT NULL")).scalar()
+    print(f"done: {ok} rendered, {fail} failed; pending_papers with served_object_key now = {done_n}", flush=True)
     s.close()
 
 

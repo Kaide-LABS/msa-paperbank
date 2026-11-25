@@ -163,11 +163,11 @@ def _route_and_serve(session: Session, msg: WAMessage, body: str, school: str | 
 
 
 # ----------------------------------------------------------------------------- main entry
-def handle_message_v1(session: Session, msg: WAMessage, http_client, gcs_client) -> Reply:
+def handle_message_v1(session: Session, msg: WAMessage, http_client, store) -> Reply:
     # Opportunistic contribution idle-sweep (check-ins / finalize) — side-effect only (Phase-5 pattern).
     if settings.serve_contributions_enabled:
         try:
-            contributions.sweep(session, http_client, gcs_client)
+            contributions.sweep(session, http_client, store)
         except Exception:
             log.exception("contribution_sweep_failed")
             session.rollback()
@@ -182,7 +182,7 @@ def handle_message_v1(session: Session, msg: WAMessage, http_client, gcs_client)
 
     # 2. Contribution intake: image messages, or any text while a contribution session is active.
     if settings.serve_contributions_enabled:
-        reply = contributions.handle(session, msg, http_client, gcs_client)
+        reply = contributions.handle(session, msg, http_client, store)
         if reply is not None:
             return reply
 

@@ -1,0 +1,101 @@
+# Self-hosted school deployment (Phase 5).
+#
+#   cp .env.example .env   # fill in real values; .env is git-ignored, never committed
+#   docker compose up -d                 # bot + Postgres (pgvector + pg_trgm)
+#   docker compose --profile minio up -d # also start the optional MinIO object store
+#
+# The stack is provider-neutral and offline-capable: with PROVIDER=local and no GCP
+# credentials, the bot boots healthy and serves. No service embeds a secret literal —
+# every value comes from the git-ignored .env.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # First-boot init creates the vector + pg_trgm extensions before migrations run.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    # pg_isready forced over TCP (-h 127.0.0.1), not the default unix socket, so the
+    # check reflects the state the app actually connects to.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    # Shared memory for parallel HNSW index builds.
+    shm_size: 1g
+    restart: unless-stopped
+
+  app:
+    build: .
+    env_file:
+      - .env
+    environment:
+      PROVIDER: ${PROVIDER:-local}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Apply migrations 001-007 (schema unchanged this phase) then serve. The DB is
+    # already healthy with both extensions created by the time this runs.
+    command: >
+      sh -c "python apply_migrations.py &&
+             gunicorn app.main:app -k uvicorn.workers.UvicornWorker
+             -b 0.0.0.0:8080 --workers 1 --threads 8 --timeout 60"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  backup:
+    image: pgvector/pgvector:pg16
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      BACKUP_DIR: /backups
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./scripts:/scripts:ro
+      - backups:/backups
+    # Stop the companion on a failed dump so Compose/restart policy and host
+    # monitoring surface the failure instead of masking it in an endless loop.
+    command: >
+      sh -c "set -e; while true; do sh /scripts/backup.sh; sleep 86400; done"
+    restart: unless-stopped
+
+  # Optional object store — off by default; enable with `--profile minio`.
+  minio:
+    image: minio/minio:latest
+    profiles: ["minio"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  backups:
+  miniodata:

@@ -1,0 +1,78 @@
+{
+  "summary": "Azure Database for PostgreSQL Flexible Server is the managed Postgres service this build will use for storage + pgvector retrieval. Current stable engine is PostgreSQL 18 (minor 18.6) for new servers, with 17.11/16.15/15.19/14.24 also fully supported; pgvector ships as the `vector` extension and must first be allow-listed via the `azure.extensions` server parameter before `CREATE EXTENSION vector;` works. HNSW indexing syntax (`CREATE INDEX ... USING hnsw (col vector_cosine_ops) WITH (m=16, ef_construction=64)`), the `vector(768)` column type, and `pg_trgm` for keyword search are all supported unchanged from upstream Postgres, with the key platform-specific pitfall being the 2000-dimension index cap (not relevant at 768) and the extension allow-list step. Provisioning for Bicep/`az deployment` uses resource type `Microsoft.DBforPostgreSQL/flexibleServers`, with current stable apiVersion `2025-08-01` (also `2025-01-01-preview`).",
+  "key_findings": [
+    "Current PostgreSQL major versions on Flexible Server: 18 (18.6, default for new servers), 17 (17.11), 16 (16.15), 15 (15.19), 14 (14.24); 13/12/11 are in Extended Support. [as of docs dated 2026-08-26]",
+    "pgvector is installed as extension name `vector` (not `pgvector`) — must use that exact name both in the `azure.extensions` allow-list and in `CREATE EXTENSION vector;`.",
+    "Two-step enable: (1) `az postgres flexible-server parameter set --name azure.extensions --value vector` (or Portal > Parameters), then (2) `CREATE EXTENSION vector;` per database — repeat per DB.",
+    "pg_trgm is supported across PG 11–18 (extension version 1.4–1.6) and follows the same allow-list-then-CREATE-EXTENSION pattern; creating it requires the `azure_pg_admin` role or you get a permission-denied error. [uncertain: restart requirement for azure.extensions changes]",
+    "Supported vector index types: IVFFlat, HNSW, and Azure-specific DiskANN (DiskANN is Azure Flexible Server-only, not in vanilla pgvector).",
+    "HNSW CREATE INDEX syntax is unchanged from upstream pgvector: `CREATE INDEX ... USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);`; query-time tuning via `SET hnsw.ef_search = N;` (default 40).",
+    "Hard limit: a vector column can only be indexed (ivfflat/hnsw) up to 2000 dimensions — irrelevant at 768 dims but a documented ceiling to be aware of.",
+    "pgvector version on Azure has advanced through 0.8.0 (May 2025) to 0.8.2, which stabilizes parallel HNSW index builds and fixes correctness issues — relevant if the build builds HNSW indexes concurrently/in parallel. [uncertain: exact current default version per region/PG major — not independently confirmed beyond search summary]",
+    "Bicep/ARM resource type is `Microsoft.DBforPostgreSQL/flexibleServers`; stable apiVersion `2025-08-01` exists alongside preview `2025-01-01-preview`. [uncertain: which apiVersion is the officially recommended/non-preview latest at time of writing — page content was too large to fully verify server-side]",
+    "DiskANN index type requires Azure Flexible Server specifically (not available in open-source pgvector) — not needed here since HNSW is the locked choice, but worth knowing it's an Azure-only alternative."
+  ],
+  "recommendations": [
+    "Use `vector(768)` column type and HNSW index with `vector_cosine_ops` (or whichever distance op matches current GCP/pgvector behavior) — syntax is identical to self-hosted pgvector, so no query/index code changes are needed beyond the connection string and provider.",
+    "Add a provisioning/setup step (Bicep deployment script or post-deploy az cli call) that allow-lists `vector,pg_trgm` via `azure.extensions` before running `CREATE EXTENSION vector; CREATE EXTENSION pg_trgm;` — this is Azure-specific and has no equivalent in Cloud SQL, so don't skip it in the Bicep/runbook.",
+    "Pin or verify the PostgreSQL major version used in Bicep (`properties.version`) matches what Cloud SQL ran, to avoid subtle SQL dialect differences; PG 16 or 17 are safe, well-supported choices if version parity with GCP isn't strict.",
+    "When writing the Bicep template, use apiVersion `2025-08-01` (non-preview) for `Microsoft.DBforPostgreSQL/flexibleServers` unless a feature specifically requires the `2025-01-01-preview` surface; avoid preview APIs for a production/ownership-handoff build per the acceptance criteria's stability intent.",
+    "Grant the app's connection role `azure_pg_admin` (or run the CREATE EXTENSION steps as the admin login) since pg_trgm/vector extension creation fails with permission-denied otherwise — budget this into the Bicep/db-init script.",
+    "Do not assume `CREATE EXTENSION` alone works as on self-hosted Postgres — the allow-list step is the most common Azure-specific pitfall and should be an explicit, testable step in the migration scripts/runbook."
+  ],
+  "as_of": "Docs dated 2026-07-10 to 2026-08-27 (pgvector/extensions pages) and 2026-10-20 (Bicep template reference); PostgreSQL 18.6 is current default",
+  "sources": [
+    {
+      "title": "Supported versions of PostgreSQL in Azure Database for PostgreSQL flexible server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/configure-maintain/concepts-supported-versions",
+      "type": "official-docs",
+      "quote": "The current minor release is 18.6... New servers are created with this minor version."
+    },
+    {
+      "title": "Optimize Performance when Using pgvector in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/how-to-optimize-performance-pgvector",
+      "type": "official-docs",
+      "quote": "You can only index a column that has up to 2000 dimensions... CREATE INDEX t_test_hnsw_l2_idx ON t_test USING hnsw (embedding vector_l2_ops) WITH (m = 16, ef_construction = 64);"
+    },
+    {
+      "title": "Vector Search in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/how-to-use-pgvector",
+      "type": "official-docs",
+      "quote": "the name of the binary and the extension itself is simply vector. Take that name into consideration, because it's the name you must use to allowlist it or to create it on any database via the CREATE EXTENSION command."
+    },
+    {
+      "title": "Allow Extensions in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/how-to-allow-extensions",
+      "type": "official-docs",
+      "quote": "az postgres flexible-server parameter set --resource-group <resource_group> --server-name <server> --name azure.extensions --value \"<extension_name>,<extension_name>\""
+    },
+    {
+      "title": "Microsoft.DBforPostgreSQL/flexibleServers - Bicep, ARM template & Terraform AzAPI reference",
+      "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.dbforpostgresql/flexibleservers",
+      "type": "official-docs",
+      "quote": "API version latest ... updated_at: 2026-10-20"
+    }
+  ],
+  "current_version": "PostgreSQL engine 18 (minor 18.6) default for new Flexible Server instances; pgvector extension ~0.8.x on Azure [uncertain]; Bicep resource apiVersion 2025-08-01 [uncertain]",
+  "api_surface": [
+    "az postgres flexible-server create / parameter set (CLI provisioning and extension allow-listing)",
+    "Bicep resource Microsoft.DBforPostgreSQL/flexibleServers (and /databases, /configurations sub-resources) for `az deployment`",
+    "SQL: CREATE EXTENSION vector; CREATE EXTENSION pg_trgm;",
+    "SQL: CREATE TABLE ... embedding vector(768)",
+    "SQL: CREATE INDEX ... USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)",
+    "SQL: SET hnsw.ef_search = N; (query-time tuning)",
+    "Distance operators <->, <#>, <=> and functions cosine_distance/l2_distance/inner_product used by SQLAlchemy 2.0 queries"
+  ],
+  "pitfalls": [
+    "CREATE EXTENSION vector/pg_trgm fails until the extension is added to the server-level azure.extensions allow-list first — a step with no equivalent on GCP Cloud SQL.",
+    "Extension creation requires the azure_pg_admin role; a non-privileged app connection role gets permission-denied.",
+    "Vector columns can't be indexed above 2000 dimensions (not a concern at 768, but a hard platform ceiling if embedding model changes later).",
+    "pgvector on Azure has moved through 0.8.0 (May 2025) to 0.8.2 for parallel HNSW build stability — older pinned pgvector versions in Docker/app code should not be assumed; the server-side version is Azure-managed, not app-controlled.",
+    "DiskANN is an Azure-only index type (not in upstream pgvector) — don't accidentally introduce it expecting portability back to self-hosted/GCP Postgres.",
+    "Bicep apiVersion drift: preview API versions (e.g. 2025-01-01-preview) exist alongside stable ones; pick the stable 2025-08-01 (or later stable) to avoid relying on preview-only behavior in a handoff build."
+  ],
+  "uncertain": [
+    "current_version",
+    "key_findings"
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "summary": "azure-identity is Microsoft's official Python auth library providing Entra ID (Azure AD) token credentials used across all Azure SDKs; current stable release is 1.27.0 (2026-10-26), installed via `pip install azure-identity`, now requiring Python 3.10+. For this build it supplies the credential object (DefaultAzureCredential / ManagedIdentityCredential) passed into the Key Vault secrets client and used to mint bearer tokens for Azure OpenAI/Foundry and optionally AAD-based Postgres Flexible Server auth, letting Container Apps use a user-assigned managed identity in place of GCP service-account JSON keys.",
+  "key_findings": [
+    "Current stable version: 1.27.0, released 2026-10-26 per PyPI and the official CHANGELOG.md (next entry after is 1.26.0, 2026-09-30).",
+    "Install: `pip install azure-identity` (per Microsoft Learn identity-readme, ms.date 2026-10-26).",
+    "Minimum Python support is now 3.10 (as of the 1.27.0-era docs); PR #49638 merged 2026-10-21 dropped Python 3.9 support, following the earlier 1.22.0 (2025-05-06) change that dropped Python 3.8.",
+    "As of v1.14.0, DefaultAzureCredential's continuation policy changed: it now tries all developer credentials in the chain even after one fails, rather than stopping at the first failure (deployed/managed-identity credentials still stop the chain with an exception).",
+    "v1.22.0 (2025-05-06) is a breaking change for Service Fabric managed identity: it now raises an exception if client_id or identity_config are set, instead of silently ignoring them (not applicable to Container Apps but documents the SDK's breaking-change cadence).",
+    "v1.26.0b2 (2026-02-11, preview) renamed WorkloadIdentityCredential's `use_token_proxy` kwarg to `enable_azure_proxy`; this and the new AKS 'identity binding' feature (enable_azure_proxy=True) are AKS-specific and not relevant to Container Apps.",
+    "Continuous Access Evaluation (enable_cae=True on get_token) is supported per-request since v1.14.0 but explicitly NOT supported for developer or managed-identity credentials.",
+    "Async credentials (azure.identity.aio) must be explicitly closed (`await credential.close()` or used as an async context manager) to avoid leaking the underlying transport session.",
+    "DEBUG-level logging (logging_enable=True) can expose request/response bodies; INFO-level logging is safe and does not include secrets, per the official troubleshooting guidance.",
+    "Managed identity support is explicitly documented for App Service/Functions, Azure Arc, Cloud Shell, AKS, Service Fabric, and VMs/VMSS -- Container Apps managed identity is covered under the general DefaultAzureCredential/ManagedIdentityCredential chain, not called out as a separate bullet in this readme."
+  ],
+  "recommendations": [
+    "Pin azure-identity>=1.24,<2 (or simply 1.27.0) in requirements/pyproject, and ensure CI/Container Apps base image runs Python 3.10+ since 3.8/3.9 are no longer supported.",
+    "Use DefaultAzureCredential() as the single credential object across the Azure adapter layer: it will pick up Container Apps' managed identity in production and developer-tool credentials (Azure CLI, VS Code) locally, matching the 'swappable adapters' design goal.",
+    "For a user-assigned managed identity on the Container App, pass managed_identity_client_id=... (or set AZURE_CLIENT_ID) to DefaultAzureCredential rather than relying on system-assigned identity resolution order.",
+    "Wrap any async credential usage (if the FastAPI app uses azure.identity.aio for Key Vault/OpenAI async clients) in an async context manager or ensure .close() is called to avoid connection leaks under load.",
+    "Do not set logging_enable=True in production; keep default INFO logging to avoid leaking secrets in logs, consistent with the no-plaintext-secrets acceptance criterion.",
+    "If AAD-based Postgres Flexible Server auth is used instead of a static password, request a token with get_token('https://ossrdbms-aad.database.windows.net/.default') and refresh it per SQLAlchemy connection; otherwise use Key Vault-stored credentials via the secrets adapter -- decide and document this once, since it affects the DB adapter's token-refresh logic.",
+    "Avoid WorkloadIdentityCredential's AKS-specific identity-binding API (enable_azure_proxy) -- it is preview, AKS-only, and not applicable to Container Apps/Container Apps Jobs."
+  ],
+  "as_of": "2026-10-26 (per Microsoft Learn identity-readme ms.date and PyPI 1.27.0 release date)",
+  "sources": [
+    {
+      "title": "Azure Identity client library for Python | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/python/api/overview/azure/identity-readme?view=azure-python",
+      "type": "official-docs",
+      "quote": "Install Azure Identity with pip: pip install azure-identity ... Python 3.10 or a recent version of Python 3 (this library doesn't support end-of-life versions)"
+    },
+    {
+      "title": "azure-sdk-for-python CHANGELOG.md (azure-identity)",
+      "url": "https://github.com/Azure/azure-sdk-for-python/blob/main/sdk/identity/azure-identity/CHANGELOG.md",
+      "type": "official-docs",
+      "quote": "Service Fabric managed identity now raises exceptions if client_id or identity_config parameters are specified, whereas previously these were silently ignored."
+    },
+    {
+      "title": "azure-identity · PyPI",
+      "url": "https://pypi.org/project/azure-identity/",
+      "type": "official-docs",
+      "quote": "Current Stable Version: 1.27.0 ... Release Date: October 26, 2026"
+    },
+    {
+      "title": "[Identity] Drop Python 3.9 From Identity, add Python 3.15 #49638",
+      "url": "https://github.com/Azure/azure-sdk-for-python/pull/49638",
+      "type": "repo",
+      "quote": "Update pyproject.toml to drop python 3.9 and add python 3.15 ... merged on October 21, 2026"
+    }
+  ],
+  "current_version": "1.27.0 (released 2026-10-26)",
+  "api_surface": [
+    "from azure.identity import DefaultAzureCredential -- primary credential for prod (managed identity) and local dev chain",
+    "DefaultAzureCredential(managed_identity_client_id=...) -- target a specific user-assigned managed identity on the Container App",
+    "credential.get_token('<scope>/.default') -- raw token retrieval, e.g. for Azure OpenAI/Foundry or AAD Postgres auth",
+    "from azure.identity import ManagedIdentityCredential -- direct managed-identity-only credential (no dev fallback)",
+    "from azure.identity.aio import DefaultAzureCredential + await credential.close() / async with -- async variant for async FastAPI paths",
+    "AzureAuthorityHosts / authority=... kwarg -- only needed if targeting a sovereign cloud, not expected for this build",
+    "azure-identity-broker (optional package) -- only relevant for interactive/WAM auth, not used in server workloads"
+  ],
+  "pitfalls": [
+    "Minimum Python raised to 3.10 as of the current docs/PR #49638 (merged 2026-10-21); 3.8 support ended at v1.22.0 (2025-05-06) -- verify Container Apps base image Python version.",
+    "DefaultAzureCredential's error-continuation behavior changed at v1.14.0: it no longer stops at the first failed developer credential, which can mask misconfiguration if not tested against the real credential chain order.",
+    "enable_cae=True is not supported for managed identity or developer credentials -- don't rely on CAE for the managed-identity path used in Container Apps.",
+    "Async credentials leak their transport session if not closed -- must call close() or use as async context manager.",
+    "logging_enable=True exposes request/response bodies at DEBUG level and must never be enabled in a production config that also has the no-plaintext-secrets requirement.",
+    "WorkloadIdentityCredential's kwarg was renamed (use_token_proxy -> enable_azure_proxy) in a 1.26.0b2 preview tied to AKS identity bindings -- irrelevant to Container Apps but a trap if copying AKS-oriented sample code."
+  ],
+  "uncertain": []
+}

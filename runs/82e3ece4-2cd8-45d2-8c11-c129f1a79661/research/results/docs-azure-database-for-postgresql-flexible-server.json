@@ -1,0 +1,84 @@
+{
+  "summary": "Azure Database for PostgreSQL Flexible Server is the target managed Postgres; it currently defaults new servers to PostgreSQL 18 (minor 18.6), with 17.11/16.15/15.19/14.24 also GA and 13/12/11 in extended support (docs dated 2026-08-26). pgvector ('vector' extension, v0.8.2 confirmed on PG16) and pg_trgm are both allowlisted extensions enabled via the azure.extensions server parameter then CREATE EXTENSION. HNSW indexing is supported with the documented 2000-dimension cap, which the build's 768-dim embeddings satisfy with headroom; IVFFlat and DiskANN are also available. The az CLI 'postgres flexible-server' command group had several 2025-2026 breaking changes (removed --create-default-database/--database-name, PG12 support removed then later extended, networking args removed) that matter for the Bicep/CLI-based provisioning script.",
+  "key_findings": [
+    "docs.ms (2026-08-26): supported major versions are PG18 (minor 18.6, default for new servers), 17 (17.11), 16 (16.15), 15 (15.19), 14 (14.24); PG13/12/11 in Extended Support only.",
+    "docs.ms (2026-07-10): extension binary/name is 'vector' (not 'pgvector'); must be added to the azure.extensions allowlist server parameter before CREATE EXTENSION vector; pg_trgm is also allowlisted, no shared_preload_libraries needed.",
+    "docs.ms (2026-07-10): HNSW index limit confirmed verbatim: 'You can only index a column that has up to 2000 dimensions' — error otherwise; 768-dim embeddings are well within this cap.",
+    "docs.ms (2026-07-10): HNSW create syntax is `CREATE INDEX ... USING hnsw (col vector_l2_ops) WITH (m = 16, ef_construction = 64);` with query-time tuning via `SET hnsw.ef_search = 100;` (defaults m=16, ef_construction=64, ef_search=40).",
+    "docs.ms CLI release notes (2026-07-08 page, covering through v2.88.0): breaking changes in 2025-2026 include removal of --create-default-database/--database-name (v2.81.0, Dec 2025), default --create-default-database set to Disabled then later removed, removal of PG12 support (v2.73.0, May 2025) followed by an extension of PG11/12 EOL support (v2.75.0, Jul 2025), and removal of networking args --address-prefixes/--subnet-prefixes plus stopped auto-creation of network resources on create/restore/replica (v2.87.0, Jun 2026).",
+    "docs.ms REST API release notes (2026-10-29): current stable GA API version is 2026-10-01; it removes the PostgreSQL version enum constraint so new major versions (e.g., PG19 preview) don't require an API schema bump.",
+    "docs.ms (2026-07-10): extension page recommends `vector_ip_ops`/<#> for inner-product search when embeddings are normalized (e.g., OpenAI-style embeddings), relevant to the build's 768-dim vectors.",
+    "techcommunity blog title found ('What's new with Postgres at Microsoft, 2026 edition') but body could not be retrieved via fetch tool, so Premium SSDv2/new-region claims from that search snippet are not independently confirmed."
+  ],
+  "recommendations": [
+    "Provision Flexible Server targeting PG16 or PG17 (not forcing PG18) unless all required extensions/features are confirmed compatible with PG18's listed extension limitations.",
+    "Allowlist both 'vector' and 'pg_trgm' via `az postgres flexible-server parameter set --name azure.extensions --value \"vector,pg_trgm\"` (or Bicep parameter) before any CREATE EXTENSION step, in both Bicep template and migration script.",
+    "Keep embeddings at 768 dims and use HNSW (not IVFFlat) for the production index per criteria #6; this is safely under the 2000-dim HNSW cap with large margin.",
+    "In Bicep/CLI scripts for server create/restore, do not rely on --create-default-database, --database-name, --address-prefixes, or --subnet-prefixes; use the separate `az postgres flexible-server db create` command group and pre-existing subnet instead, since these were removed/changed in 2025-2026 CLI releases.",
+    "Target REST API version 2026-10-01 (or pin an explicit GA version) in Bicep/ARM templates rather than an unversioned/preview API, to avoid picking up preview-only behavior.",
+    "Treat the techcommunity 'What's new 2026' blog claims as unverified; re-fetch or find an alternate source if those specifics (SSDv2 64TB, new regions) become load-bearing for the Bicep plan."
+  ],
+  "as_of": "Primary docs dated 2026-08-26 (supported versions) and 2026-07-10 (pgvector/extensions pages); CLI release notes page dated 2026-07-08 covering releases through v2.88.0 (2026-07-07); REST API release notes page dated 2026-10-29 covering API version 2026-10-01.",
+  "sources": [
+    {
+      "title": "Supported versions of PostgreSQL in Azure Database for PostgreSQL flexible server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/configure-maintain/concepts-supported-versions",
+      "type": "official-docs",
+      "quote": "Azure Database for PostgreSQL currently supports the following major versions... PostgreSQL version 18. The current minor release is 18.6."
+    },
+    {
+      "title": "Vector Search in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/how-to-use-pgvector",
+      "type": "official-docs",
+      "quote": "the name of the binary and the extension itself is simply `vector`... running the CREATE EXTENSION command."
+    },
+    {
+      "title": "Optimize Performance when Using pgvector in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/how-to-optimize-performance-pgvector",
+      "type": "official-docs",
+      "quote": "You can only index a column that has up to 2000 dimensions. Attempting to index a column with more dimensions results in the error..."
+    },
+    {
+      "title": "Allow Extensions in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/how-to-allow-extensions",
+      "type": "official-docs",
+      "quote": "az postgres flexible-server parameter set ... --name azure.extensions --value \"<extension_name>,<extension_name>\""
+    },
+    {
+      "title": "Supported extensions versions in Azure Database for PostgreSQL - Flexible Server (by engine)",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/concepts-extensions-by-engine?pivots=postgresql-16",
+      "type": "official-docs",
+      "quote": "pg_trgm Version 1.6 ... vector Version 0.8.2 ... Vector data type and ivfflat and hnsw access methods."
+    },
+    {
+      "title": "Release notes for the CLI module for Azure Database for PostgreSQL flexible server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/release-notes/release-notes-cli",
+      "type": "official-docs",
+      "quote": "[BREAKING CHANGE] Remove default value for `--version`, and remove `--create-default-database` and `--database-name`."
+    },
+    {
+      "title": "Release notes for the REST APIs for Azure Database for PostgreSQL flexible server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/release-notes/release-notes-api",
+      "type": "official-docs",
+      "quote": "2026-10-01 | Stable (GA) ... Removes the PostgreSQL version enumeration constraint..."
+    }
+  ],
+  "current_version": "PostgreSQL 18 (minor 18.6) is the default for new Flexible Server instances; 17.11, 16.15, 15.19, 14.24 are also GA minors; REST API stable GA version is 2026-10-01; pgvector ('vector') extension is at v0.8.2 on PG16.",
+  "api_surface": [
+    "CREATE EXTENSION vector; / CREATE EXTENSION pg_trgm; (after allowlisting via azure.extensions server parameter)",
+    "az postgres flexible-server parameter set --name azure.extensions --value \"vector,pg_trgm\"",
+    "CREATE INDEX ... USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64); SET hnsw.ef_search = 100;",
+    "<=> (cosine), <-> (L2), <#> (negative inner product) operators for ORDER BY ... LIMIT k queries",
+    "az postgres flexible-server create/db create/firewall-rule create (CLI) and Microsoft.DBforPostgreSQL/flexibleServers Bicep resource type, REST API version 2026-10-01",
+    "Standard SQLAlchemy 2.0 + psycopg connection string against the Flexible Server host/port/db (no proprietary driver needed)"
+  ],
+  "pitfalls": [
+    "HNSW/IVFFlat indexing hard-caps at 2000 dimensions per column; exceeding it throws 'column cannot have more than 2000 dimensions for INDEX_TYPE index' — not a concern at 768 dims but must not be raised later without re-architecting.",
+    "az CLI v2.81.0 (Dec 2025) removed --create-default-database and --database-name from `flexible-server create`; migration/provisioning scripts must use `az postgres flexible-server db create` instead.",
+    "az CLI v2.73.0 (May 2025) removed PG12 support and changed default --create-default-database to Disabled, then v2.75.0 (Jul 2025) extended EOL support for PG11/12 again — version-pinning logic in scripts should not assume a fixed default PG version across CLI releases.",
+    "az CLI v2.87.0 (Jun 2026) stopped flexible-server create/restore/replica-create/revive-dropped from creating or altering networking components and removed --address-prefixes/--subnet-prefixes — Bicep/CLI provisioning must pre-create the subnet/VNet separately.",
+    "The pgvector extension's own name is 'vector', not 'pgvector' — using the wrong name in allowlist or CREATE EXTENSION commands will fail silently with a not-found error.",
+    "Techcommunity 'What's new 2026' blog content (Premium SSDv2 64TB, new regions, Grafana dashboards) could not be opened/verified in this session; treat those specific claims as unconfirmed until re-checked."
+  ],
+  "uncertain": []
+}

@@ -1,36 +1,42 @@
 import logging
+import mimetypes
 import threading
 import httpx
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Header, Query, HTTPException, Depends
-from fastapi.responses import PlainTextResponse, Response
-from pydantic import ValidationError
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
-from google.cloud import storage
 
 from app.config import settings
 from app.logging_setup import setup_logging
+from app.providers import get_object_store, get_embedder
 from app import db
 from app.deps import get_session
 from app.schemas import WAWebhookPayload, TextReply
 from app import whatsapp
-from app import pipeline
 from app import serve_v1
 from app import retrieval
+from app.inbound import handle_inbound
+from app.channels import whatsapp as whatsapp_channel
 from app.errors import DuplicateMessage
+from app import signing
+from app.auth import require_tool_token
 
 log = logging.getLogger(__name__)
 
-def _warmup() -> None:
+def _warmup(embedder) -> None:
     """Fire-and-forget at boot: pay the cold-init costs OFF the first user message's critical path.
-    The embedding model's first call is ~11s cold (gemini-embedding-001) — force it here; also
-    preload the in-memory title vectors. Behaviour-unchanged: this only moves WHEN init happens.
-    NEVER fatal — warmup is an optimisation, not a dependency (a boot-time Vertex hiccup is logged
+    Force the embedder's first (cold) call here and preload the in-memory title vectors.
+    Behaviour-unchanged: this only moves WHEN init happens. Routes through the ACTIVE embedder
+    (`app.state.embedder`) — the local CPU model under provider=local (no network, loads from the
+    baked cache), or the Vertex adapter under provider=gcp (the ~11s gemini-embedding cold init) —
+    so a credential-free local boot never reaches Vertex.
+    NEVER fatal — warmup is an optimisation, not a dependency (a boot-time hiccup is logged
     and swallowed; the bot starts and serves regardless)."""
     try:
-        from app.embeddings import embed_query
         try:
-            embed_query("warmup")                    # forces the ~11s gemini-embedding cold init
+            embedder.embed_query("warmup")           # forces the active embedder's cold init
         except Exception:
             log.warning("warmup_embed_failed", extra={"phase": "warmup"}, exc_info=True)
         try:
@@ -51,10 +57,17 @@ def _warmup() -> None:
 async def lifespan(app: FastAPI):
     setup_logging(settings.log_level)
     app.state.http = httpx.Client(timeout=httpx.Timeout(connect=5, read=30, write=30, pool=5))
-    app.state.gcs = storage.Client(project=settings.gcp_project)
+    # Self-hosted object store via the provider seam. No GCS client is ever constructed;
+    # a credential-free provider=local boot reaches no GCP service, so `docker compose up`
+    # starts healthy without credentials (E1).
+    app.state.store = get_object_store(settings)
+    # Build the active local-CPU embedder once (mirrors app.state.store); from_settings is
+    # lazy so this stays cheap.
+    app.state.embedder = get_embedder(settings)
     # NON-BLOCKING: start warmup in a daemon thread so readiness is NOT delayed (the startup probe
-    # passes immediately; the ~11s embed-init runs in the background, not before 'ready').
-    threading.Thread(target=_warmup, name="warmup", daemon=True).start()
+    # passes immediately; the embed-init runs in the background, not before 'ready'). Warmup goes
+    # through the ACTIVE embedder at app.state.embedder.
+    threading.Thread(target=_warmup, args=(app.state.embedder,), name="warmup", daemon=True).start()
     yield
     app.state.http.close()
     db.dispose()
@@ -64,6 +77,119 @@ app = FastAPI(lifespan=lifespan, title="msa-paperbank", version="0.1.0")
 @app.get("/healthz")
 def healthz() -> dict:
     return {"ok": True}
+
+
+def _download_headers(key: str) -> tuple[str, str]:
+    """Return (media_type, content_disposition) for an object key.
+
+    The filename is the key's last path segment reduced to printable ASCII with
+    quotes, backslashes and slashes removed, so it cannot inject header characters.
+    The media type is guessed from that filename (.pdf -> application/pdf), else
+    application/octet-stream.
+    """
+    name = key.replace("\\", "/").rsplit("/", 1)[-1]
+    safe_name = "".join(
+        c for c in name if 0x20 <= ord(c) <= 0x7E and c not in '"\\/'
+    ).strip() or "download"
+    media_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+    return media_type, f'inline; filename="{safe_name}"'
+
+
+@app.get("/download")
+def download(
+    request: Request,
+    key: str = Query(...),
+    exp: int = Query(...),
+    sig: str = Query(...),
+) -> Response:
+    """Stateless signed-URL download (Phase 3, AC 6).
+
+    The HMAC signature over (key, exp) IS the capability: accept iff it verifies and has
+    not expired, else 403. No DB lookup and no auth header — the ~15-min TTL bounds
+    exposure. On success stream the object bytes from the active object store.
+    """
+    if not signing.verify(key, exp, sig):
+        raise HTTPException(status_code=403, detail="invalid or expired signature")
+    try:
+        data = request.app.state.store.download_bytes(key)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="object not found")
+    media_type, cd = _download_headers(key)
+    return Response(content=data, media_type=media_type, headers={"Content-Disposition": cd})
+
+
+class ToolRetrieveRequest(BaseModel):
+    query: str = Field(..., description="What the student asked for, in their own words.")
+    prefer_courses: list[str] | None = Field(
+        None, description="Optional course codes to prefer; leave empty if unspecified."
+    )
+
+
+class PaperModel(BaseModel):
+    id: int | None = Field(None, description="Internal paper identifier.")
+    course_code: str | None = Field(None, description="PAU course code, e.g. MTH102.")
+    course_title: str | None = Field(None, description="Human-readable course title.")
+    year: int | None = Field(None, description="Academic year of the paper.")
+    semester: str | None = Field(None, description="Semester, e.g. 'harmattan' or 'rain'.")
+    exam_session: str | None = Field(None, description="Exam session, e.g. CA1, CA2, exam.")
+
+
+class RetrieveResponse(BaseModel):
+    found: bool | None = Field(None, description="True when a matching paper was found.")
+    intent: str | None = Field(None, description="Routed intent for the request.")
+    course_code: str | None = Field(None, description="Course code parsed from the query (not-found case).")
+    course_known: bool | None = Field(None, description="Whether the course code is in the catalog (not-found case).")
+    paper: PaperModel | None = Field(None, description="The matched paper's metadata (found case).")
+    signed_url: str | None = Field(None, description="Download link to the paper PDF, valid for about 15 minutes.")
+
+
+@app.post(
+    "/tool/retrieve",
+    operation_id="RetrievePaper",
+    response_model=RetrieveResponse,
+    summary="Find a past paper",
+    description="Searches the past-paper collection for the paper that best "
+                "matches the student's request and returns its course, year and "
+                "semester plus a short-lived download link. Call it when a student "
+                "asks for a past paper or exam questions for a course. If nothing "
+                "matches, found is false.",
+    responses={401: {"description": "The bearer token was missing, malformed, or wrong."}},
+)
+def tool_retrieve(
+    body: ToolRetrieveRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+    _: None = Depends(require_tool_token),
+):
+    """Authed single-call retrieval seam for the future Copilot Studio agent (Phase 3).
+
+    Minimal JSON `{query, prefer_courses?}` -> `retrieval.answer_query`; returns the
+    matched paper's metadata plus a short-lived `signed_url` for its object. Guarded by
+    the bearer dependency; imports no WhatsApp types.
+    """
+    result = retrieval.answer_query(session, body.query, prefer_courses=body.prefer_courses)
+    paper = result.paper
+    if paper is None:
+        return JSONResponse(content={
+            "found": False,
+            "intent": result.intent,
+            "course_code": result.course_code,
+            "course_known": result.course_known,
+        })
+    serve_key = paper.served_object_key or paper.object_key
+    return JSONResponse(content={
+        "found": True,
+        "intent": result.intent,
+        "paper": {
+            "id": paper.id,
+            "course_code": paper.course_code,
+            "course_title": paper.course_title,
+            "year": paper.year,
+            "semester": paper.semester,
+            "exam_session": paper.exam_session,
+        },
+        "signed_url": request.app.state.store.signed_url(serve_key),
+    })
 
 @app.get("/webhook")
 def webhook_verify(
@@ -96,18 +222,20 @@ async def webhook_inbound(
                 try:
                     if settings.serve_v1_enabled:
                         reply = serve_v1.handle_message_v1(
-                            session, msg, request.app.state.http, request.app.state.gcs
+                            session, msg, request.app.state.http, request.app.state.store
                         )
                         paper_loader = lambda pid: retrieval.load_served_cached(
-                            session, pid, request.app.state.gcs, settings.gcs_bucket
+                            session, pid, request.app.state.store
                         )
                     else:
-                        reply = pipeline.handle_message(
-                            session, msg, request.app.state.http, request.app.state.gcs
+                        inbound = whatsapp_channel.to_inbound(msg)
+                        reply = handle_inbound(
+                            session, inbound, request.app.state.http, request.app.state.store
                         )
                         paper_loader = lambda pid: retrieval.load_pdf_bytes(
-                            session.get(db.Paper, pid), request.app.state.gcs, settings.gcs_bucket
+                            session.get(db.Paper, pid), request.app.state.store
                         )
+                    reply = whatsapp_channel.from_reply(reply)
                     if not (isinstance(reply, TextReply) and reply.body == ""):
                         whatsapp.send_reply(
                             http_client=request.app.state.http,

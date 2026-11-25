@@ -1,14 +1,42 @@
 import logging
 import time
+from dataclasses import dataclass
 from sqlalchemy.orm import Session
 from sqlalchemy import select, or_, func
 from pgvector.sqlalchemy import Vector
 from app.db import Paper, PaperChunk, Course
 from app.config import settings
-from app import embeddings
-from google.cloud import storage
+from app.ports import ObjectStore, Embedder
+from app.providers import get_embedder
+from app.errors import EmbeddingError
 
 log = logging.getLogger(__name__)
+
+# Phase 4 seam: obtain the active embedder via the factory instead of importing
+# the provider setting selects the embedder (local by
+# default — identical behaviour — or the local CPU model). Cached for non-request
+# callers; request paths may pass `request.app.state.embedder` explicitly.
+_default_embedder: Embedder | None = None
+
+
+def _get_default_embedder() -> Embedder:
+    global _default_embedder
+    if _default_embedder is None:
+        _default_embedder = get_embedder(settings)
+    return _default_embedder
+
+
+@dataclass
+class RetrievalResult:
+    """Channel-neutral retrieval outcome. Carries the matched paper (if any) plus the routed
+    intent/course so the future tool endpoint (Phase 3) and the handler core share one shape.
+    Imports no WhatsApp types."""
+    paper: Paper | None
+    intent: str
+    course_code: str | None = None
+    year: int | None = None
+    semester: str | None = None
+    course_known: bool | None = None
 
 _courses_cache = None
 _courses_cache_time = 0
@@ -62,8 +90,9 @@ def find_paper_by_semantic_query(
     query_text: str,
     top_k: int | None = None,
     prefer_courses: list[str] | None = None,
+    embedder: Embedder | None = None,
 ) -> Paper | None:
-    qvec = embeddings.embed_query(query_text)
+    qvec = (embedder or _get_default_embedder()).embed_query(query_text)
     
     limit_k = top_k or settings.semantic_fallback_top_k
     fetch_k = limit_k * 2 if prefer_courses else limit_k
@@ -97,6 +126,49 @@ def find_paper_by_semantic_query(
             return paper
             
     return results[0][0]
+
+def answer_query(
+    session: Session,
+    query: str,
+    *,
+    prefer_courses: list[str] | None = None,
+) -> RetrievalResult:
+    """Channel-neutral retrieval: route a plain text query, apply the course guard, and look up
+    the paper (with the semantic fallback), returning a `RetrievalResult`. Composes the existing
+    `find_paper` / `find_paper_by_semantic_query` so the future tool endpoint (Phase 3) and the
+    channel-neutral handler core can share one callable. Imports no WhatsApp types.
+
+    `llm` is imported lazily so this module stays free of import-time vendor coupling and the
+    retrieval helpers remain callable without routing."""
+    from app import llm
+
+    routed, _in_tok, _out_tok = llm.route(query)
+
+    if routed.intent != "paper_request":
+        return RetrievalResult(paper=None, intent=routed.intent)
+
+    course_code = (routed.course_code or "").upper().replace(" ", "")
+    known = known_courses(session)
+    if not course_code or course_code not in known:
+        return RetrievalResult(
+            paper=None, intent="paper_request", course_code=course_code or None,
+            year=routed.year, semester=routed.semester, course_known=False,
+        )
+
+    paper = find_paper(session, course_code, routed.year, routed.semester)
+    if paper is None and routed.confidence >= settings.semantic_fallback_min_router_confidence:
+        try:
+            paper = find_paper_by_semantic_query(
+                session, course_code, query, prefer_courses=prefer_courses
+            )
+        except EmbeddingError:
+            paper = None
+
+    return RetrievalResult(
+        paper=paper, intent="paper_request", course_code=course_code,
+        year=routed.year, semester=routed.semester, course_known=True,
+    )
+
 
 def render_served_pdf(raw_pdf_bytes: bytes) -> bytes:
     """Transform the stored RAW paper PDF into the human-display version: rasterize each page,
@@ -144,10 +216,8 @@ def render_served_pdf(raw_pdf_bytes: bytes) -> bytes:
     return stitch_images_to_pdf(out)
 
 
-def load_pdf_bytes(paper: Paper, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
-    bucket = gcs_client.bucket(bucket_name)
-    blob = bucket.blob(paper.gcs_object)
-    raw_pdf_bytes = blob.download_as_bytes()        # RAW ground truth in GCS — never overwritten
+def load_pdf_bytes(paper: Paper, store: ObjectStore) -> tuple[bytes, str]:
+    raw_pdf_bytes = store.download_bytes(paper.gcs_object)   # RAW ground truth — never overwritten
     filename = f"{paper.course_code}_{paper.semester}_{paper.year}.pdf"
     served = render_served_pdf(raw_pdf_bytes) if settings.serve_enhance_enabled else raw_pdf_bytes
     return served, filename
@@ -173,7 +243,7 @@ def _image_to_enhanced_png(raw: bytes, ext: str) -> bytes:
     return img
 
 
-def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
+def load_served_bytes_v1(session, pending_id: int, store: ObjectStore) -> tuple[bytes, str]:
     """V1 serve loader over the corpus-index `pending_papers`. Returns (served_pdf_bytes, filename).
 
     V1.2: if `pending_id` is a logical_exam_id in exam_group, assemble ALL its page rows in
@@ -186,7 +256,7 @@ def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, b
     # --- grouped multi-page exam? ---
     if settings.serve_multipage_enabled:
         grp = session.execute(text(
-            "SELECT pp.gcs_object, pp.course_code FROM exam_group eg "
+            "SELECT pp.object_key, pp.course_code FROM exam_group eg "
             "JOIN pending_papers pp ON pp.id = eg.page_row_id "
             "WHERE eg.logical_exam_id = :lex ORDER BY eg.page_order"
         ), {"lex": pending_id}).mappings().all()
@@ -194,20 +264,20 @@ def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, b
             code = grp[0]["course_code"]
             pages = []
             for r in grp:
-                praw = gcs_client.bucket(bucket_name).blob(r["gcs_object"]).download_as_bytes()
-                pext = r["gcs_object"].rsplit(".", 1)[-1].lower() if "." in r["gcs_object"] else ""
+                praw = store.download_bytes(r["object_key"])
+                pext = r["object_key"].rsplit(".", 1)[-1].lower() if "." in r["object_key"] else ""
                 pages.append(_image_to_enhanced_png(praw, pext))
             return stitch_images_to_pdf(pages), f"{(code or 'paper').replace('/', '_')}.pdf"
 
     # --- single row ---
     row = session.execute(
-        text("SELECT course_code, gcs_object FROM pending_papers WHERE id = :id"),
+        text("SELECT course_code, object_key FROM pending_papers WHERE id = :id"),
         {"id": pending_id},
     ).mappings().first()
     if row is None:
         raise ValueError(f"pending_paper {pending_id} not found")
-    course_code, gcs_object = row["course_code"], row["gcs_object"]
-    raw = gcs_client.bucket(bucket_name).blob(gcs_object).download_as_bytes()
+    course_code, gcs_object = row["course_code"], row["object_key"]
+    raw = store.download_bytes(gcs_object)
     filename = f"{(course_code or 'paper').replace('/', '_')}.pdf"
     ext = gcs_object.rsplit(".", 1)[-1].lower() if "." in gcs_object else ""
 
@@ -217,7 +287,7 @@ def load_served_bytes_v1(session, pending_id: int, gcs_client: storage.Client, b
     return stitch_images_to_pdf([_image_to_enhanced_png(raw, ext)]), filename
 
 
-def precompute_served_pdf(session, served_id: int, gcs_client: storage.Client, bucket_name: str) -> tuple[str, str]:
+def precompute_served_pdf(session, served_id: int, store: ObjectStore) -> tuple[str, str]:
     """Render the served PDF for `served_id` ONCE (reusing the EXACT live render path,
     load_served_bytes_v1) and store it at served/<id>.pdf, recording (served_object, served_filename)
     on the pending_papers row. Idempotent: re-running overwrites the GCS object and the columns.
@@ -227,15 +297,14 @@ def precompute_served_pdf(session, served_id: int, gcs_client: storage.Client, b
     The caller commits. Heavy (does the full rasterize/enhance/stitch) -> call OFFLINE or at approval,
     never in the serve request path."""
     from sqlalchemy import text
-    pdf_bytes, filename = load_served_bytes_v1(session, served_id, gcs_client, bucket_name)
+    pdf_bytes, filename = load_served_bytes_v1(session, served_id, store)
     obj = f"{settings.serve_precompute_prefix}{served_id}.pdf"
-    blob = gcs_client.bucket(bucket_name).blob(obj)
     # Some multi-page image exams render to tens of MB -> resumable upload + a generous timeout and a
     # single retry so a slow/flaky link doesn't abort the (one-time) precompute. timeout is per-chunk.
     last_err = None
     for attempt in range(3):
         try:
-            blob.upload_from_string(pdf_bytes, content_type="application/pdf", timeout=600)
+            store.upload_bytes(obj, pdf_bytes, content_type="application/pdf", timeout=600)
             last_err = None
             break
         except Exception as e:                       # transient write/socket timeout -> retry
@@ -244,13 +313,13 @@ def precompute_served_pdf(session, served_id: int, gcs_client: storage.Client, b
     if last_err is not None:
         raise last_err
     session.execute(
-        text("UPDATE pending_papers SET served_object = :o, served_filename = :f WHERE id = :id"),
+        text("UPDATE pending_papers SET served_object_key = :o, served_filename = :f WHERE id = :id"),
         {"o": obj, "f": filename, "id": served_id},
     )
     return obj, filename
 
 
-def load_served_cached(session, served_id: int, gcs_client: storage.Client, bucket_name: str) -> tuple[bytes, str]:
+def load_served_cached(session, served_id: int, store: ObjectStore) -> tuple[bytes, str]:
     """Serve-path loader: if a pre-rendered served/ PDF exists for `served_id`, DOWNLOAD it (~0.5s,
     no rasterize) and return it — this is the hardening fast path (kills render latency AND the
     concurrency OOM/SIGABRT risk, since no live render runs). Otherwise FALL BACK to the live render
@@ -260,12 +329,12 @@ def load_served_cached(session, served_id: int, gcs_client: storage.Client, buck
         from sqlalchemy import text
         try:
             row = session.execute(
-                text("SELECT served_object, served_filename FROM pending_papers WHERE id = :id"),
+                text("SELECT served_object_key, served_filename FROM pending_papers WHERE id = :id"),
                 {"id": served_id},
             ).mappings().first()
-            if row and row["served_object"]:
-                data = gcs_client.bucket(bucket_name).blob(row["served_object"]).download_as_bytes()
+            if row and row["served_object_key"]:
+                data = store.download_bytes(row["served_object_key"])
                 return data, (row["served_filename"] or f"paper.pdf")
         except Exception:
             log.warning("served_cache_miss_fallback", extra={"served_id": served_id}, exc_info=True)
-    return load_served_bytes_v1(session, served_id, gcs_client, bucket_name)
+    return load_served_bytes_v1(session, served_id, store)

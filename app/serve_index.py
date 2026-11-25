@@ -23,7 +23,7 @@ _CODE_RE = re.compile(r"[A-Z]{2,}\s?\d{2,}")     # a real-looking course code, e
 _LEVEL_RE = re.compile(r"\b([1-6])00\s*(?:level|lvl|l)?\b|\bl\s?([1-6])00\b", re.I)
 
 _SELECT_COLS = ("id, course_code, course_title, dept, school, level, semester, year, "
-                "exam_session, gcs_object")
+                "exam_session, object_key")
 
 
 @dataclass
@@ -91,7 +91,7 @@ def _row_to_candidate(r, score: float = 0.0) -> Candidate:
     return Candidate(
         id=r["id"], course_code=r["course_code"], course_title=r["course_title"],
         dept=r["dept"], school=r["school"], level=r["level"], semester=r["semester"],
-        year=r["year"], exam_session=r["exam_session"], gcs_object=r["gcs_object"], score=score,
+        year=r["year"], exam_session=r["exam_session"], gcs_object=r["object_key"], score=score,
     )
 
 

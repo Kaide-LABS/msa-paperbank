@@ -1,0 +1,56 @@
+{
+  "summary": "Azure OpenAI's embeddings API (now unified under the `/openai/v1/embeddings` endpoint, confirmed current as of 2026-07-22/2026-07-09) accepts a `dimensions` integer request field (min: 1, no stated max in the REST schema) that is supported for `text-embedding-3-large`, `text-embedding-3-small`, and later models; passing `dimensions=768` returns a 768-float vector directly from the API via Matryoshka-style truncation, so the app never has to truncate/renormalize client-side. pgvector's `vector` column type supports up to 16,000 dimensions for storage, but its HNSW (and IVFFlat) index caps out at 2,000 dimensions for the plain `vector` type -- 768 is well inside that cap, so `Vector(768)` with an HNSW index is valid with no index-type change needed. Parity is confirmed by asserting `len(response.data[0].embedding) == 768` on the API response and checking it matches the SQLAlchemy column's `Vector(768)` dimension used by the existing pgvector/pg_trgm schema. Older date-versioned (classic, non-v1) Azure OpenAI api-version strings almost certainly also support `dimensions` since it shipped alongside the text-embedding-3 model family, but I could not open a classic-version-pinned reference page confirming the exact earliest date-based api-version string that supports it, so that specific compatibility claim is [uncertain].",
+  "key_findings": [
+    "Azure OpenAI v1 Create Embedding REST reference (learn.microsoft.com, doc dated 2026-05-27/updated 2026-07-09) lists request field `dimensions: integer, min:1, No` -- 'The number of dimensions the resulting output embeddings should have. Only supported in text-embedding-3 and later models.'",
+    "Azure 'Generate embeddings' how-to (learn.microsoft.com, updated 2026-07-22) documents the current recommended call path as `{endpoint}/openai/v1/embeddings` using Microsoft Entra ID (DefaultAzureCredential) or API-key auth; SDK call is `openai.embeddings.create(model=..., input=...)` and a `dimensions=768` kwarg can be added to the same call.",
+    "pgvector README (github.com/pgvector/pgvector, fetched directly) states HNSW/IVFFlat index support: 'vector - up to 2,000 dimensions; halfvec - up to 4,000 dimensions; bit - up to 64,000 dimensions; sparsevec - up to 1,000 non-zero elements', and separately 'Vectors can have up to 16,000 dimensions' for the base `vector` type.",
+    "768 < 2,000, so a plain `vector(768)` column with a standard HNSW index (no `halfvec` cast needed) is within pgvector's supported range -- no schema/index-type change required versus the existing Vector(768) definition.",
+    "text-embedding-3-large has a default output of 3072 dimensions and a documented supported `dimensions` range of 1-3072 per multiple vendor/secondary pages (Zilliz model card, Azure AI Search truncate-dimensions doc); Azure's own truncate-dimensions doc (learn.microsoft.com, ms.date 2026-01-31) notes it allows truncation 'as low as 256' for -large under its Azure AI Search-specific MRL/quantization feature.",
+    "The Azure AI Search 'Truncate Dimensions' MRL feature (learn.microsoft.com) is a different mechanism from the raw embeddings API `dimensions` param: it operates at the Azure AI Search vector-index level (`truncationDimension` + scalar/binary quantization) and is NOT what this build needs, since the build stores vectors directly in Postgres/pgvector, not Azure AI Search.",
+    "Microsoft's own Azure SQL dev blog (devblogs.microsoft.com, article) recommends 1024 dims as a 'sweet spot' for text-embedding-3-large (4KB vs 12KB storage) and cites MTEB benchmark data showing usable quality even at 256 dims for -large, supporting that 768 is a safe, quality-preserving reduction.",
+    "Embedding request limits per the same official REST reference: max 8,192 input tokens per item, max 2,048 items per array input, and a 300,000-token aggregate cap per request across all inputs."
+  ],
+  "recommendations": [
+    "Call the embeddings endpoint with `model=<deployment-name>` and `dimensions=768` in the request body (SDK: `client.embeddings.create(model=..., input=..., dimensions=768)`); verify output length is exactly 768 in a unit test before any DB write.",
+    "Keep the Postgres column as `Vector(768)` with a standard HNSW index unchanged -- no `halfvec` migration is needed since 768 is far under pgvector's 2,000-dim HNSW cap.",
+    "Do NOT use the Azure AI Search 'truncationDimension' / MRL quantization feature for this build -- that's an Azure AI Search index-level concept, unrelated to the direct-to-Postgres pgvector path this build uses.",
+    "Add a parity test asserting `len(embedding) == 768` and, ideally, a cosine-similarity sanity check between an Azure-produced 768-dim vector and a fixed reference query vs. the prior GCP/Vertex embedding ranking, to satisfy the before/after top-k comparison acceptance criterion.",
+    "Prefer the current `/openai/v1/embeddings` endpoint/SDK surface (Entra ID or API key) shown in the 2026-07-22 how-to doc over a hardcoded legacy date-based api-version, since Microsoft documents v1 as the forward path; if a classic date-versioned api-version is already pinned elsewhere in the codebase, explicitly re-verify the `dimensions` field is accepted on that pinned version before relying on it in production."
+  ],
+  "as_of": "2026-07-22 (Azure 'Generate embeddings' how-to) / 2026-07-09 (Azure OpenAI v1 Embeddings REST reference) / 2026-01-31 (Azure AI Search truncate-dimensions doc); pgvector README fetched live, version not dated on page",
+  "sources": [
+    {
+      "title": "Microsoft Foundry REST Reference - Azure OpenAI - Embeddings",
+      "url": "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/embeddings",
+      "type": "official-docs",
+      "quote": "dimensions | integer | The number of dimensions the resulting output embeddings should have. Only supported in text-embedding-3 and later models. Constraints: min: 1"
+    },
+    {
+      "title": "Generate embeddings with Azure OpenAI - Microsoft Foundry",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/embeddings",
+      "type": "official-docs",
+      "quote": "response = openai.embeddings.create(model=\"text-embedding-3-small\", input=\"The quick brown fox jumped over the lazy dog.\") ... Embedding dimensions: <number>"
+    },
+    {
+      "title": "pgvector GitHub repository",
+      "url": "https://github.com/pgvector/pgvector",
+      "type": "repo",
+      "quote": "Supported types are: vector - up to 2,000 dimensions; halfvec - up to 4,000 dimensions; bit - up to 64,000 dimensions; sparsevec - up to 1,000 non-zero elements ... Vectors can have up to 16,000 dimensions."
+    },
+    {
+      "title": "Truncate Dimensions - Azure AI Search",
+      "url": "https://learn.microsoft.com/en-us/azure/search/vector-search-how-to-truncate-dimensions",
+      "type": "official-docs",
+      "quote": "On Azure OpenAI, text-embedding-3 models are retrained on the Matryoshka Representation Learning (MRL) technique... If you're using the text-embedding-3-large model, you can set it as low as 256."
+    },
+    {
+      "title": "Embedding models and dimensions: optimizing the performance to resource-usage ratio - Azure SQL Dev Corner",
+      "url": "https://devblogs.microsoft.com/azure-sql/embedding-models-and-dimensions-optimizing-the-performance-resource-usage-ratio/",
+      "type": "article",
+      "quote": "developers can shorten embeddings... by passing in the dimensions API parameter... 1024 dimensions... uses 4KB of storage (versus 12KB for the full 3072 dimensions) while delivering pretty much the same performance."
+    }
+  ],
+  "uncertain": [
+    "summary"
+  ]
+}

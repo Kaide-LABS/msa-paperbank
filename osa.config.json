@@ -1,0 +1,9 @@
+{
+  "providers": {
+    "pair": ["claude-code", "opencode-cli"],
+    "seatModels": [null, "anthropic/claude-sonnet-5-5"],
+    "independence": "off",
+    "rolePins": { "opencode-cli": "executor", "claude-code": "reviewer" }
+  },
+  "research": { "enabled": false }
+}

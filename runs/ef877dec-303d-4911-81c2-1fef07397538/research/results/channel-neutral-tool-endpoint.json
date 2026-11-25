@@ -1,0 +1,44 @@
+{
+  "summary": "Build a pure, channel-agnostic core: an InboundMessage/OutboundMessage pydantic model plus a handle_inbound(message) function and a retrieve(query, top_k) callable that import no WhatsApp or Teams types; WhatsApp becomes a thin FastAPI webhook adapter that translates Meta/Twilio payloads into InboundMessage and translates replies back. For Copilot Studio, expose the same retrieval callable twice from one FastAPI app: as a normal authed REST route, and as an MCP tool mounted on the app (via FastMCP's from_fastapi/http_app mount or the fastapi_mcp library), secured with FastAPI Depends()-based API-key auth so it matches Copilot Studio's built-in 'API key' MCP auth option. Copilot Studio only speaks the Streamable HTTP MCP transport (SSE support was dropped after August 2025), making one POST per tool call to /mcp -- consistent with the one-tool-call-per-request requirement. A future Teams adapter can be added later as another thin adapter producing the same InboundMessage, with zero changes to handle_inbound or the retrieval callable.",
+  "key_findings": [
+    "FastMCP supports generating an MCP server from an existing FastAPI app via FastMCP.from_fastapi(app=app) (new in FastMCP 2.0.0), using the app's OpenAPI spec (v3.0.0+) to build tools.",
+    "FastMCP supports mounting an MCP server INTO a FastAPI app (new in FastMCP 2.3.1): mcp_app = mcp.http_app(path='/mcp'); app = FastAPI(lifespan=mcp_app.lifespan); app.mount('/analytics', mcp_app) -- the FastAPI app's lifespan must wrap the MCP app's lifespan to initialize the session manager.",
+    "fastapi_mcp (tadata-org/fastapi_mcp on GitHub) mounts as a native ASGI extension of FastAPI (no extra HTTP hop) via FastApiMCP(app).mount(), exposing the server at /mcp, and lets you secure MCP endpoints with the same FastAPI Depends() auth used for REST routes.",
+    "Microsoft Learn (updated 2026-11-02): Copilot Studio currently supports only the MCP 'Streamable' transport; SSE transport is deprecated and Copilot Studio stopped supporting SSE for MCP after August 2025.",
+    "Copilot Studio's MCP onboarding wizard offers three auth types for an existing MCP server: None, API key (header or query), and OAuth 2.0 (dynamic discovery, dynamic, or manual) -- API key via header is the simplest fit for a single authed FastAPI-hosted tool.",
+    "When Copilot Studio connects to an MCP server, it generates a Power Platform custom connector with a single OpenAPI action (e.g. operationId InvokeMCP/InvokeServer) tagged x-ms-agentic-protocol: mcp-streamable-1.0, which issues one Streamable-HTTP POST to the server's /mcp path per tool list/call -- matching a 'one tool call per request' design.",
+    "fastapi_mcp documentation states it preserves FastAPI request/response schemas and Swagger descriptions when converting routes to MCP tools, so a single well-typed retrieval endpoint (query, top_k, filters in; ranked results out) converts cleanly into one MCP tool without extra glue code."
+  ],
+  "recommendations": [
+    "Define InboundMessage/OutboundMessage as pydantic models (channel enum, sender_id, text, attachments, metadata) in a channel-neutral module; handle_inbound(msg: InboundMessage) -> OutboundMessage must not import whatsapp_* or teams_* types.",
+    "Extract the retrieval logic into a single pure callable, e.g. retrieve(query: str, top_k: int, filters) -> list[Result], with no FastAPI Request/Response or WhatsApp types in its signature so it is directly reusable by handle_inbound and by the MCP/REST tool.",
+    "Keep WhatsApp integration as a thin adapter: a FastAPI webhook route that parses the Meta/Twilio payload into InboundMessage, calls handle_inbound, and formats the OutboundMessage back into the WhatsApp-specific reply shape; this is the only place WhatsApp-specific types may appear.",
+    "Expose retrieval twice from the same FastAPI app for the future Copilot Studio agent: a plain authed REST endpoint, and an MCP tool mounted at /mcp using FastMCP.from_fastapi or fastapi_mcp's FastApiMCP(app).mount(), reusing the same FastAPI Depends()-based auth for both.",
+    "Secure the MCP/REST tool with a simple header API key (not OAuth) initially, since Copilot Studio's wizard supports API-key auth out of the box and it is the lowest-friction match for a single internal tool; add OAuth later only if multi-tenant access control is required.",
+    "Ensure the MCP mount uses Streamable HTTP (FastMCP's default http_app transport) since Copilot Studio no longer accepts SSE for MCP connections (deprecated after August 2025).",
+    "Design the retrieval tool as one coarse-grained call (query in, ranked results out) rather than several fine-grained endpoints, so Copilot Studio's 'one tool call per request' constraint and simpler LLM tool-selection both hold.",
+    "When adding a future Teams channel, mirror the WhatsApp adapter pattern exactly (webhook in, InboundMessage out, OutboundMessage in, Teams payload out) and add zero new logic to handle_inbound or retrieve."
+  ],
+  "as_of": "2026-11-11; FastMCP docs reflect features added through v2.3.1 (fetched gofastmcp.com, undated version notes only); Microsoft Learn MCP page dated updated 2026-11-02 (ms.date 2026-10-30); fastapi_mcp GitHub README fetched live, no explicit version tag observed on the page",
+  "sources": [
+    {
+      "title": "FastAPI 🤝 FastMCP - FastMCP",
+      "url": "https://gofastmcp.com/docs/integrations/fastapi",
+      "type": "official-docs",
+      "quote": "New in version 2.0.0 ... New in version 2.3.1 ... mcp_app = mcp.http_app(path='/mcp'); app = FastAPI(lifespan=mcp_app.lifespan); app.mount('/analytics', mcp_app)"
+    },
+    {
+      "title": "Connect your agent to an existing Model Context Protocol (MCP) server - Microsoft Copilot Studio",
+      "url": "https://learn.microsoft.com/en-us/microsoft-copilot-studio/mcp-add-existing-server-to-agent",
+      "type": "official-docs",
+      "quote": "Currently, Copilot Studio supports the Streamable transport type ... Given that SSE transport is deprecated, Copilot Studio no longer supports SSE for MCP after August 2025."
+    },
+    {
+      "title": "GitHub - tadata-org/fastapi_mcp: Expose your FastAPI endpoints as Model Context Protocol (MCP) tools, with Auth!",
+      "url": "https://github.com/tadata-org/fastapi_mcp",
+      "type": "repo",
+      "quote": "FastAPI-MCP operates as a native extension of FastAPI ... secure your MCP endpoints using familiar FastAPI Depends() for authentication and authorization."
+    }
+  ],
+  "uncertain": []
+}

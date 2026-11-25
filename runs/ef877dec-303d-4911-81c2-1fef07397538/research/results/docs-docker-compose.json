@@ -1,0 +1,79 @@
+{
+  "summary": "Docker Compose (current major line v5, a Go-based successor to v2, invoked as `docker compose`) is the orchestration tool this build will use to start the FastAPI bot, local Postgres (pgvector + pg_trgm), and optional MinIO from a single compose.yaml, matching acceptance criterion 10. The Compose Specification (no numbered 'version' key needed) defines services, healthcheck, depends_on.condition, volumes and networks; `depends_on: condition: service_healthy` is the documented mechanism for making the bot wait on Postgres/MinIO health checks. Install via the `docker compose` CLI plugin (bundled with modern Docker Engine) rather than the legacy Python `docker-compose` v1 binary, which is now only kept for backward compatibility.",
+  "key_findings": [
+    "Current stable release is Docker Compose v5.7.0, released 2026-11-02, per the official GitHub releases page.",
+    "Compose v5 (first released 2025-12-02 as v5.0.0) deliberately skipped version numbers 3 and 4 to avoid confusion with the legacy Compose file format versions '2.x'/'3.x'; it is functionally equivalent to v2 plus a new official Go SDK, per docs.docker.com/compose/intro/history/.",
+    "Compose v2 (2020) is written in Go and invoked as `docker compose`; the old Python-based `docker-compose` (v1, hyphenated command) is legacy and only supported for backward compatibility, per docs.docker.com/compose/install/.",
+    "The Compose Specification (merging legacy file format versions 2.x and 3.x) is the current/recommended compose.yaml schema, implemented by Compose CLI 1.27.0+, per docs.docker.com/reference/compose-file/.",
+    "The top-level `version:` key in compose.yaml is obsolete: Compose always parses with the most recent schema regardless of this field, and using it now prints a warning, per docs.docker.com/reference/compose-file/version-and-name/.",
+    "healthcheck supports test, interval, timeout, retries, start_period, and start_interval (the last added in Compose 2.20.2); depends_on supports condition: service_healthy to gate a service's startup on another service's healthcheck passing, per docs.docker.com/reference/compose-file/services/#healthcheck.",
+    "Recent release notes (v5.5.0) warn that upgrading Compose can cause existing containers to be recreated on the first `compose up` after upgrade because image digests are re-evaluated with new logic, per github.com/docker/compose/releases."
+  ],
+  "recommendations": [
+    "Use the `docker compose` CLI plugin (bundled with current Docker Engine on Linux) rather than the deprecated standalone `docker-compose` v1 binary, for long-term support on the school's servers.",
+    "Write compose.yaml using the Compose Specification with no top-level `version:` key, since it is obsolete and only produces a warning.",
+    "Define explicit `healthcheck` blocks for Postgres (e.g. pg_isready) and MinIO, and the bot's own HTTP health endpoint, then use `depends_on: <service>: condition: service_healthy` so the bot container only starts after Postgres (and MinIO, if used) report healthy -- this directly satisfies acceptance criterion 10.",
+    "Pin or verify the Docker Engine/Compose version on the target school Linux servers supports the healthcheck keys used (start_interval needs Compose >= 2.20.2); do not assume a bare 'docker compose' install meets this without checking `docker compose version`.",
+    "Treat Compose Go-SDK/library API changes noted in v5.5.0-5.7.0 release notes as irrelevant to this build, since the project only needs the CLI/YAML surface (`docker compose up`, `down`, `ps`, `logs`), not the library."
+  ],
+  "as_of": "2026-11-11 (latest Compose release checked: v5.7.0, 2026-11-02)",
+  "sources": [
+    {
+      "title": "Docker Compose overview",
+      "url": "https://docs.docker.com/compose/",
+      "type": "official-docs",
+      "quote": "Compose works in all environments - production, staging, development, testing, as well as CI workflows."
+    },
+    {
+      "title": "Compose file reference",
+      "url": "https://docs.docker.com/reference/compose-file/",
+      "type": "official-docs",
+      "quote": "The Compose Specification is the latest and recommended version of the Compose file format."
+    },
+    {
+      "title": "Compose file - services (healthcheck)",
+      "url": "https://docs.docker.com/reference/compose-file/services/#healthcheck",
+      "type": "official-docs",
+      "quote": "start_interval: 5s ... (introduced in Docker Compose 2.20.2)"
+    },
+    {
+      "title": "Install Docker Compose",
+      "url": "https://docs.docker.com/compose/install/",
+      "type": "official-docs",
+      "quote": "The standalone Compose binary ... is not recommended and is only supported for backward compatibility purposes."
+    },
+    {
+      "title": "docker/compose Releases",
+      "url": "https://github.com/docker/compose/releases",
+      "type": "repo",
+      "quote": "v5.7.0 ... Existing containers may be recreated the first time you run compose up after upgrading, as image digests are re-evaluated using the new logic."
+    },
+    {
+      "title": "Compose file - Version and name top-level elements",
+      "url": "https://docs.docker.com/reference/compose-file/version-and-name/",
+      "type": "official-docs",
+      "quote": "The top-level version property is defined by the Compose Specification for backward compatibility. It is only informative."
+    },
+    {
+      "title": "History and development of Docker Compose",
+      "url": "https://docs.docker.com/compose/intro/history/",
+      "type": "official-docs",
+      "quote": "Compose v5 emerged in 2025 as functionally identical to Compose v2, but with a critical addition: the introduction of an official Go SDK."
+    }
+  ],
+  "current_version": "Docker Compose v5.7.0 (released 2026-11-02); compose.yaml uses the Compose Specification file format (no numbered 'version' key required)",
+  "api_surface": [
+    "docker compose up -d / docker compose down",
+    "docker compose ps / docker compose logs -f",
+    "compose.yaml: services, healthcheck (test, interval, timeout, retries, start_period, start_interval)",
+    "depends_on: <service>: condition: service_healthy",
+    "volumes (named volumes for Postgres data / MinIO data), networks"
+  ],
+  "pitfalls": [
+    "Top-level `version:` key in compose.yaml is obsolete and triggers a warning; omit it and rely on the Compose Specification.",
+    "Legacy standalone `docker-compose` (v1, hyphenated) is backward-compatibility-only; use the `docker compose` plugin instead.",
+    "start_interval healthcheck key requires Compose >= 2.20.2; verify the target server's installed Compose version supports it before relying on it.",
+    "Upgrading Compose versions can cause unrelated container recreation on the next `up` due to image digest re-evaluation logic changes (noted in v5.5.0)."
+  ],
+  "uncertain": []
+}

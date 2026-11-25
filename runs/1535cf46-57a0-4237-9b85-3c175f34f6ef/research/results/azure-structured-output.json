@@ -1,0 +1,49 @@
+{
+  "summary": "Azure OpenAI's Chat Completions API (and the newer Responses API) support strict JSON Schema structured outputs natively via response_format={type:'json_schema', json_schema:{..., strict:true}}, or more simply via the Python SDK's client.beta.chat.completions.parse(response_format=PydanticModel) -- this is the direct 1:1 replacement for google-genai's response_schema. Minimum API version is 2024-08-01-preview (also available on the GA /openai/v1/ surface). Azure enforces a stricter JSON Schema subset than raw OpenAI (additionalProperties:false, all fields required, no minLength/pattern/minimum/etc., max 100 properties / 5 nesting levels). Vision input uses the OpenAI-standard message shape with an image_url content block (base64 data URI or remote URL); combining vision with structured outputs on a gpt-4o-2024-08-06+ deployment appears to be supported per a Microsoft blog title, but this combination and the exact vision message shape could not be independently confirmed from a fully-read primary source this session.",
+  "key_findings": [
+    "response_format={'type':'json_schema','json_schema':{'name':...,'strict':true,'schema':{...}}} works unchanged on Azure OpenAI Chat Completions and Responses APIs; confirmed by fully reading learn.microsoft.com 'How to use structured outputs with Azure OpenAI', page dated 2026-08-24.",
+    "Python SDK shortcut: client.beta.chat.completions.parse(model=DEPLOYMENT_NAME, messages=[...], response_format=PydanticModel) returns completion.choices[0].message.parsed; Microsoft's tested versions were openai 1.42.0 / pydantic 2.8.2.",
+    "Responses API equivalent (OpenAI Python 2.x): openai.responses.parse(model=..., input=..., text_format=PydanticModel) -> response.output_parsed.",
+    "Minimum API version for structured outputs is 2024-08-01-preview; also supported on the GA /openai/v1/ endpoint surface.",
+    "Azure's JSON Schema subset requires additionalProperties:false and every property listed under required (optional fields must be emulated with a nullable union type, e.g. ['string','null']); unsupported keywords include minLength/maxLength/pattern/format for strings, minimum/maximum/multipleOf for numbers, and minItems/maxItems/uniqueItems for arrays.",
+    "Schema limits: max 100 total object properties, max 5 levels of nesting; the root schema cannot be type anyOf; $defs and recursive $ref schemas are explicitly supported.",
+    "parallel_tool_calls must be set to false when combining structured outputs with function/tool calling, per the same doc.",
+    "Supported-models list (doc dated 2026-08-24) includes gpt-4o-2024-08-06, gpt-4o-2024-11-20, gpt-4o-mini-2024-07-18, the gpt-4.1 family, o1/o3/o4-mini, and the gpt-5 family; explicitly NOT supported for Bring-your-own-data, Assistants/Foundry Agents Service, or gpt-audio/gpt-audio-mini models.",
+    "[uncertain] Vision input appears to use the OpenAI-compatible shape {'type':'image_url','image_url':{'url':'data:image/<mime>;base64,<data>'}} with an optional 'detail' (low/high/auto) field -- seen only in search-engine summaries of the official gpt-with-vision doc; repeated attempts to fetch the page body this session returned only front-matter metadata, so the exact code sample was not independently read.",
+    "[uncertain] A Microsoft Tech Community post titled 'Introducing GPT-4o-2024-08-06 API with Structured Outputs on Azure' implies gpt-4o-2024-08-06 can combine multimodal image input with json_schema structured outputs for extracting structured data from images, but the fetch tool returned only the page title, not the body or code sample, so this combination is not independently confirmed from a fully-read primary source."
+  ],
+  "recommendations": [
+    "Replace google-genai's response_schema with response_format={'type':'json_schema','json_schema':{'name':...,'strict':true,'schema':...}} on chat.completions.create, or the more ergonomic client.beta.chat.completions.parse(response_format=PydanticModel) path, as the direct equivalent.",
+    "Write every Pydantic/JSON schema with additionalProperties=False and all fields required (model optional fields as nullable unions, not omitted keys) to satisfy Azure's stricter JSON Schema subset.",
+    "Pin the Azure OpenAI API version to 2024-08-01-preview or later (or move to the /openai/v1/ GA endpoint) before relying on structured outputs.",
+    "Deploy a gpt-4o-2024-08-06 (or newer gpt-4.1/gpt-5 family) snapshot specifically, since structured outputs are not available on every deployed model version.",
+    "Set parallel_tool_calls=False whenever structured outputs are combined with function/tool calling.",
+    "[uncertain] For the OCR/vision extraction path, prototype sending the scanned-paper image as a base64 data-URI image_url content block alongside response_format json_schema on a gpt-4o-2024-08-06+ deployment, and verify this combination empirically as part of the OCR A/B gate, since it was not confirmed from a fully-read primary source this session.",
+    "Disregard older forum/Q&A reports claiming gpt-4o-mini lacks json_schema support -- the current Microsoft Learn page (checked 2026-08-24) lists gpt-4o-mini-2024-07-18 as a supported model."
+  ],
+  "as_of": "Primary source fully read: Microsoft Learn 'How to use structured outputs with Azure OpenAI' page, ms.date 2026-08-24 (structured outputs / JSON schema facts). The gpt-with-vision page carries ms.date 2026-07-29 per its metadata, but its body could not be fully retrieved this session, so vision-specific facts rely on secondary search summaries of that same page.",
+  "sources": [
+    {
+      "title": "How to use structured outputs with Azure OpenAI in Microsoft Foundry Models",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/structured-outputs",
+      "type": "official-docs",
+      "quote": "response_format is set to json_schema with strict: true set... Structured outputs are not supported with parallel function calls. When using structured outputs set parallel_tool_calls to false."
+    },
+    {
+      "title": "How to use vision-enabled chat models - Microsoft Foundry",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/gpt-with-vision",
+      "type": "official-docs",
+      "quote": "Learn how to use vision-enabled chat models in Azure OpenAI, including how to call the Chat Completion API and process images."
+    },
+    {
+      "title": "Introducing GPT-4o-2024-08-06 API with Structured Outputs on Azure",
+      "url": "https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/introducing-gpt-4o-2024-08-06-api-with-structured-outputs-on-azure/4232684",
+      "type": "article",
+      "quote": "Introducing GPT-4o-2024-08-06 API with Structured Outputs on Azure | Microsoft Community Hub"
+    }
+  ],
+  "uncertain": [
+    "key_findings",
+    "recommendations"
+  ]
+}

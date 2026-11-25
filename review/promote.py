@@ -32,7 +32,7 @@ def promote(session, gcs, http, cid: int, filing: dict, dedup_choice: str, revie
         "SELECT gcs_object, page_order FROM contribution_pages WHERE contribution_id=:c ORDER BY page_order"
     ), {"c": cid}).mappings().all()
     school = contrib["contributor_school"]
-    bucket = gcs.bucket(settings.gcs_bucket)
+    bucket = gcs.bucket(settings.object_store_bucket)
 
     new_ids = []
     for k, pg in enumerate(pages, 1):
@@ -41,7 +41,7 @@ def promote(session, gcs, http, cid: int, filing: dict, dedup_choice: str, revie
         bucket.copy_blob(src, bucket, dst_name)            # served copy (raw contribution kept intact)
         sha = hashlib.sha256(f"contrib-{cid}-{k}-{dst_name}".encode()).hexdigest()[:32]
         nid = session.execute(text(
-            "INSERT INTO pending_papers (source, sha, gcs_object, course_code, course_title, school, "
+            "INSERT INTO pending_papers (source, sha, object_key, course_code, course_title, school, "
             "year, exam_session, outcome, curation_tier, filing_source, filing_confidence, "
             "student_visible, contribution_id) VALUES "
             "('corpus_full', :sha, :obj, :code, :title, :school, :year, :sess, 'approved_contribution', "
@@ -86,7 +86,8 @@ def promote(session, gcs, http, cid: int, filing: dict, dedup_choice: str, revie
         served_id = min(new_ids) if len(new_ids) > 1 else new_ids[0]
         try:
             from app import retrieval
-            retrieval.precompute_served_pdf(session, served_id, gcs, settings.gcs_bucket)
+            from app.providers import get_object_store
+            retrieval.precompute_served_pdf(session, served_id, get_object_store(settings))
             session.commit()
         except Exception:
             session.rollback()

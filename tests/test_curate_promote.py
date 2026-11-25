@@ -44,8 +44,8 @@ def test_curate_promote(db_session, monkeypatch):
     assert len(chunks) == 1
     assert chunks[0].text == "q1"
 
-@patch('admin.curate.storage.Client')
-def test_curate_reject(mock_storage, db_session, monkeypatch):
+@patch('admin.curate.get_object_store')
+def test_curate_reject(mock_get_object_store, db_session, monkeypatch):
     pending = PendingPaper(
         course_code="MTH102",
         semester="harmattan",
@@ -62,20 +62,19 @@ def test_curate_reject(mock_storage, db_session, monkeypatch):
         return inputs.pop(0)
     monkeypatch.setattr('builtins.input', mock_input)
     
-    mock_bucket = MagicMock()
-    mock_storage.return_value.bucket.return_value = mock_bucket
-    
+    mock_store = MagicMock()
+    mock_get_object_store.return_value = mock_store
+
     with pytest.raises(SystemExit) as e:
         curate_main()
     assert e.value.code == 0
-    
+
     db_session.refresh(pending)
     assert pending.review_status == 'rejected'
-    
+
     # Verify paper was not promoted
     paper = db_session.execute(select(Paper).where(Paper.sha256 == "hash2")).scalar_one_or_none()
     assert paper is None
-    
-    # Verify GCS delete was called
-    mock_bucket.blob.assert_called_with("obj_to_delete")
-    mock_bucket.blob.return_value.delete.assert_called_once()
+
+    # Verify the object-store delete was called
+    mock_store.delete.assert_called_once_with("obj_to_delete")

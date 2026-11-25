@@ -1,0 +1,56 @@
+{
+  "summary": "pg_trgm is a trusted PostgreSQL contrib extension providing trigram-based text similarity functions, operators, and GiST/GIN index operator classes; it is enabled per-database with `CREATE EXTENSION pg_trgm` and does not require superuser privileges. The current official docs (PostgreSQL 18, with the module also documented identically for 14-17) show stable API surface: similarity()/word_similarity()/strict_word_similarity() functions, the %, <->, <%, %>, <<%, %>> operators, and gin_trgm_ops/gist_trgm_ops index classes, configurable via pg_trgm.similarity_threshold and related GUCs. No breaking API changes occurred in the last 3 years; the main relevant event was a security/bug fix (CVE-2026-14678) in the GiST picksplit function patched in e.g. PostgreSQL 16.15, which could cause bad index splits or crashes on affected point releases. For this build, pg_trgm is used for trigram similarity/fuzzy matching alongside pgvector HNSW search, and the pre-existing GIN/GiST trigram index and extension declaration should carry over unchanged into the Dockerized Postgres image.",
+  "key_findings": [
+    "Official docs confirm pg_trgm is enabled via `CREATE EXTENSION pg_trgm;` and is a 'trusted' extension installable by non-superusers with CREATE privilege on the database (verified on postgresql.org/docs/current/pgtrgm.html, PostgreSQL 18 docs).",
+    "Core functions per official docs (PG17/PG18): similarity(text,text)->real, word_similarity(text,text)->real, strict_word_similarity(text,text)->real, show_trgm(text)->text[]; show_limit()/set_limit() exist but are documented as deprecated in favor of the pg_trgm.similarity_threshold GUC.",
+    "Operators per official docs: % (similarity threshold), <-> (distance), <%/%> (word similarity), <<-> / <->> (word similarity distance), <<%/%>> (strict word similarity), <<<-> / <->>> (strict word similarity distance).",
+    "GUC parameters with documented defaults: pg_trgm.similarity_threshold = 0.3, pg_trgm.word_similarity_threshold = 0.6, pg_trgm.strict_word_similarity_threshold = 0.5.",
+    "Index support is via GiST (gist_trgm_ops, optional siglen parameter) or GIN (gin_trgm_ops) operator classes, both of which also accelerate LIKE/ILIKE/regex (~ , ~*) and equality, in addition to similarity operators.",
+    "The documented API surface (functions, operators, GUCs) is identical across PostgreSQL 14 through 18 per the official docs pages opened for versions 17 and current/18 -- no breaking changes to pg_trgm's SQL-level interface in this window.",
+    "A confirmed security/bug fix exists: PostgreSQL 16.15 release notes (opened directly) document 'Fix datatype error in contrib/pg_trgm's GiST picksplit function... reading past the end of the buffer, typically causing bad split decisions; but a crash could ensue if very unlucky' (CVE-2026-14678). This affects pg_trgm GiST indexes on unpatched point releases prior to the fix."
+  ],
+  "recommendations": [
+    "Declare `CREATE EXTENSION IF NOT EXISTS pg_trgm;` in the Docker-based migration/init scripts alongside pgvector and pg_trgm requires no superuser, so it is safe to run as part of normal app migrations in Compose.",
+    "Pin the self-hosted Postgres Docker image to a patched point release (>=16.15, or the corresponding patched 17.x/18.x/15.x/14.x) to avoid the GiST picksplit bug (CVE-2026-14678) affecting pg_trgm GiST indexes.",
+    "If the existing schema uses a GiST trigram index, prefer GIN (gin_trgm_ops) for the new self-hosted deployment if index build time/update throughput allow, since GIN is generally faster for static/batch-loaded text and was not implicated in the picksplit CVE; otherwise simply ensure the patched Postgres version is used.",
+    "Do not rely on the deprecated show_limit()/set_limit() functions in new code; use `SET pg_trgm.similarity_threshold = ...` instead, matching current official documentation.",
+    "Since pg_trgm's API surface has been stable for 3+ years, no migration risk is expected for this extension itself -- scope the Phase 1/2 migration risk to pgvector/HNSW and GCP removal, not pg_trgm."
+  ],
+  "as_of": "PostgreSQL 18 official documentation (current docs, retrieved 2026-11-11); fix details confirmed from PostgreSQL 16.15 release notes (released per postgresql.org docs/release/16.15)",
+  "sources": [
+    {
+      "title": "PostgreSQL: Documentation: current (18): F.35. pg_trgm — support for similarity of text using trigram matching",
+      "url": "https://www.postgresql.org/docs/current/pgtrgm.html",
+      "type": "official-docs",
+      "quote": "The pg_trgm module provides functions and operators for determining the similarity of alphanumeric text based on trigram matching... This module is considered 'trusted', that is, it can be installed by non-superusers who have CREATE privilege on the current database."
+    },
+    {
+      "title": "PostgreSQL: Documentation: 17: F.33. pg_trgm — support for similarity of text using trigram matching",
+      "url": "https://www.postgresql.org/docs/17/pgtrgm.html",
+      "type": "official-docs",
+      "quote": "similarity(text, text) -> real ... show_limit() -> real (deprecated) ... pg_trgm.similarity_threshold (real) default 0.3"
+    },
+    {
+      "title": "PostgreSQL 16.15 release notes",
+      "url": "https://www.postgresql.org/docs/release/16.15/",
+      "type": "official-docs",
+      "quote": "Fix datatype error in contrib/pg_trgm's GiST picksplit function (Heikki Linnakangas). This mistake resulted in reading past the end of the buffer, typically causing bad split decisions; but a crash could ensue if you're very unlucky. (CVE-2026-14678)"
+    }
+  ],
+  "current_version": "pg_trgm as documented for PostgreSQL 18 (current stable); same API surface documented unchanged back through PostgreSQL 14",
+  "api_surface": [
+    "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
+    "similarity(text, text) -> real",
+    "word_similarity(text, text) -> real",
+    "strict_word_similarity(text, text) -> real",
+    "Operators: %, <->, <%, %>, <<%, %>>",
+    "CREATE INDEX ... USING GIN (col gin_trgm_ops) / USING GIST (col gist_trgm_ops)",
+    "SET pg_trgm.similarity_threshold = 0.3 (and word_similarity_threshold, strict_word_similarity_threshold GUCs)"
+  ],
+  "pitfalls": [
+    "CVE-2026-14678: datatype error in contrib/pg_trgm's GiST picksplit function could read past buffer end, causing bad splits or crashes; fixed in PostgreSQL 16.15 (and corresponding patched releases of other major versions) -- pin to a patched point release.",
+    "show_limit() and set_limit() functions are deprecated in favor of GUC parameters (pg_trgm.similarity_threshold etc.); avoid using the deprecated functions in new code.",
+    "pg_trgm is a 'trusted' extension installable without superuser, but this depends on the Postgres version/packaging used in the Docker base image having the extension marked trusted and available -- ensure the chosen Postgres Docker image includes contrib modules (e.g. the official postgres image or a pgvector-bundled image that also ships pg_trgm)."
+  ],
+  "uncertain": []
+}

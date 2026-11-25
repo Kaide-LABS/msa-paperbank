@@ -2,19 +2,30 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, or_
-from google.cloud import storage
 import httpx
 from app.db import Uploader, ImageBatch, ImageBatchItem, IntakeNotification, PendingPaper, PendingPaperChunk
+from app.ports import ObjectStore, Embedder
 from app.schemas import WAMessage, Reply, TextReply
 from app.config import settings
 from app import whatsapp
 from app.preprocess import prepare_images_for_ocr
 from app.ocr import ocr_paper
-from app.embeddings import embed_many
+from app.providers import get_embedder
 from app.pdfgen import stitch_images_to_pdf
 import logging
 
 log = logging.getLogger(__name__)
+
+# Phase 4 seam: the intake chunk-embedding path goes through the active embedder
+# selected by the provider setting, not a direct `app.embeddings` import.
+_default_embedder: Embedder | None = None
+
+
+def _get_default_embedder() -> Embedder:
+    global _default_embedder
+    if _default_embedder is None:
+        _default_embedder = get_embedder(settings)
+    return _default_embedder
 
 def is_whitelisted(session: Session, phone_number: str) -> bool:
     return session.execute(
@@ -24,11 +35,32 @@ def is_whitelisted(session: Session, phone_number: str) -> bool:
 def handle_image(
     session: Session,
     http_client: httpx.Client,
-    gcs_client: storage.Client,
+    store: ObjectStore,
     msg: WAMessage,
 ) -> Reply:
-    phone = msg.from_
-    
+    """Backward-compatible WhatsApp entrypoint. Delegates to the channel-neutral
+    ``handle_image_inbound`` so callers holding a channel-agnostic envelope (the Phase-2
+    ``InboundMessage`` path) do not need WhatsApp wire types."""
+    return handle_image_inbound(
+        session,
+        http_client,
+        store,
+        phone=msg.from_,
+        media_id=msg.image.id,
+        message_id=msg.id,
+    )
+
+
+def handle_image_inbound(
+    session: Session,
+    http_client: httpx.Client,
+    store: ObjectStore,
+    *,
+    phone: str,
+    media_id: str,
+    message_id: str,
+) -> Reply:
+
     if not is_whitelisted(session, phone):
         log.warning("image_from_non_whitelisted", extra={"wa_from": phone, "phase": "intake"})
         # Outcome will be set in pipeline.py
@@ -65,7 +97,7 @@ def handle_image(
     
     if items_count >= settings.ocr_max_images_per_paper:
         # Force seal
-        sweep_and_seal_single(session, gcs_client, batch.id)
+        sweep_and_seal_single(session, store, batch.id)
         
         batch = ImageBatch(phone_number=phone)
         session.add(batch)
@@ -76,24 +108,23 @@ def handle_image(
         reply_prefix = ""
         
     try:
-        download_url, mime, size = whatsapp.get_media_metadata(http_client, msg.image.id)
+        download_url, mime, size = whatsapp.get_media_metadata(http_client, media_id)
         if size > settings.ocr_max_image_bytes:
             return TextReply(body="That image is too large. Try a smaller photo.")
-            
+
         pdf_bytes = whatsapp.download_media(http_client, download_url)
         sha = hashlib.sha256(pdf_bytes).hexdigest()
-        
+
         ext = "jpg" if mime in ["image/jpeg", "image/jpg"] else "png" if mime == "image/png" else "bin"
-        key = f"{settings.media_gcs_prefix}{msg.id}.{ext}"
-        
-        bucket = gcs_client.bucket(settings.gcs_bucket)
-        bucket.blob(key).upload_from_string(pdf_bytes, content_type=mime)
-        
+        key = f"{settings.media_prefix}{message_id}.{ext}"
+
+        store.upload_bytes(key, pdf_bytes, content_type=mime)
+
         ord_val = items_count + 1
         item = ImageBatchItem(
             batch_id=batch.id,
-            wa_media_id=msg.image.id,
-            wa_message_id=msg.id,
+            wa_media_id=media_id,
+            wa_message_id=message_id,
             gcs_object=key,
             mime_type=mime,
             sha256=sha,
@@ -105,23 +136,23 @@ def handle_image(
         return TextReply(body=f"{reply_prefix}got page {ord_val}")
         
     except Exception as e:
-        log.error("handle_image_error", extra={"wa_message_id": msg.id, "wa_from": phone, "phase": "intake", "err": str(e)})
+        log.error("handle_image_error", extra={"wa_message_id": message_id, "wa_from": phone, "phase": "intake", "err": str(e)})
         session.rollback()
         # Ensure we don't crash the pipeline, let the IntegrityError or other bubble up if it's dedupe
         raise
 
-def sweep_and_seal_single(session: Session, gcs_client: storage.Client, batch_id: int):
+def sweep_and_seal_single(session: Session, store: ObjectStore, batch_id: int):
     # This is a helper to force seal one batch inline
     batch = session.execute(
         select(ImageBatch).where(ImageBatch.id == batch_id).with_for_update(skip_locked=True)
     ).scalar_one_or_none()
-    
+
     if not batch or batch.status != 'open':
         return
-        
-    _process_batch(session, gcs_client, batch)
 
-def sweep_and_seal(session: Session, gcs_client: storage.Client) -> int:
+    _process_batch(session, store, batch)
+
+def sweep_and_seal(session: Session, store: ObjectStore) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.image_batch_seal_seconds)
     
     candidates = session.execute(
@@ -135,14 +166,19 @@ def sweep_and_seal(session: Session, gcs_client: storage.Client) -> int:
     
     for batch in candidates:
         try:
-            _process_batch(session, gcs_client, batch)
+            _process_batch(session, store, batch)
         except Exception as e:
             log.exception("sweep_and_seal_batch_failed", extra={"batch_id": batch.id, "phase": "sealer"})
             session.rollback()
             
     return len(candidates)
 
-def _process_batch(session: Session, gcs_client: storage.Client, batch: ImageBatch):
+def _process_batch(
+    session: Session,
+    store: ObjectStore,
+    batch: ImageBatch,
+    embedder: Embedder | None = None,
+):
     items = session.execute(
         select(ImageBatchItem).where(ImageBatchItem.batch_id == batch.id).order_by(ImageBatchItem.ord)
     ).scalars().all()
@@ -164,12 +200,11 @@ def _process_batch(session: Session, gcs_client: storage.Client, batch: ImageBat
         session.commit()
         return
         
-    bucket = gcs_client.bucket(settings.gcs_bucket)
     raw_bytes_list = []
 
     try:
         for item in items:
-            b = bucket.blob(item.gcs_object).download_as_bytes()
+            b = store.download_bytes(item.gcs_object)
             raw_bytes_list.append(b)
 
         # Decision 2: preprocessing off by default; raw images go straight to OCR.
@@ -186,13 +221,15 @@ def _process_batch(session: Session, gcs_client: storage.Client, batch: ImageBat
             session.commit()
             return
             
-        vectors = embed_many([q.text for q in ocr_result.questions])
+        vectors = (embedder or _get_default_embedder()).embed_documents(
+            [q.text for q in ocr_result.questions]
+        )
         
         pdf_bytes = stitch_images_to_pdf(images)
         # Use first item sha for the object name suffix
         sha_part = items[0].sha256[:8]
         gcs_object = f"papers/_intake/{batch.id}-{sha_part}.pdf"
-        bucket.blob(gcs_object).upload_from_string(pdf_bytes, content_type="application/pdf")
+        store.upload_bytes(gcs_object, pdf_bytes, content_type="application/pdf")
         
         from app.retrieval import known_courses
         known = known_courses(session)

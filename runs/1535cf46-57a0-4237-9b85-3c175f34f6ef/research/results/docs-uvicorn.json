@@ -1,0 +1,85 @@
+{
+  "summary": "Uvicorn is the ASGI server this FastAPI bot runs on, confirmed via PyPI and the project's own GitHub docs (encode/uvicorn). Current stable is 0.54.0, installed with `pip install 'uvicorn[standard]'` for uvloop/httptools/websockets extras. The build will use the CLI entrypoint (`uvicorn app:app --host 0.0.0.0 --port 8000`) or `uvicorn.run()`, plus `--proxy-headers`/`--forwarded-allow-ips` for Azure Container Apps' front-door proxy. Recent versions dropped Python 3.8 (0.34.0) and Python 3.9 (0.40.0) support and changed default WebSocket implementation and startup-failure exit codes, which matter for container health checks.",
+  "key_findings": [
+    "Current stable version is 0.54.0 per PyPI package metadata (pypi.org/pypi/uvicorn/json) and the encode/uvicorn GitHub release notes.",
+    "Install: `pip install uvicorn` (minimal) or `pip install 'uvicorn[standard]'` (adds uvloop, httptools, websockets, watchfiles, python-dotenv, PyYAML) per README.md.",
+    "CLI usage: `uvicorn example:app` serves an ASGI callable `app(scope, receive, send)`; default bind is 127.0.0.1:8000 unless --host/--port given.",
+    "`--workers` (default from $WEB_CONCURRENCY or 1) is incompatible with `--reload`; relevant for Container Apps scaling vs in-process workers.",
+    "`--proxy-headers` (on by default) honors X-Forwarded-Proto/X-Forwarded-For only from IPs listed in `--forwarded-allow-ips` (default 127.0.0.1, ::1) [uncertain].",
+    "v0.34.0 (per release notes) dropped Python 3.8 support; v0.40.0 dropped Python 3.9 support -- both [uncertain] on exact dates due to conflicting date strings across tool summaries.",
+    "v0.50.0 changed default `--ws auto` resolution to the `websockets-sansio` implementation and deprecated the legacy `websockets` implementation [uncertain].",
+    "v0.50.0 also changed behavior to exit with dedicated code 3 on any startup failure, which can affect orchestrator/health-check logic [uncertain].",
+    "v0.53.0 introduced experimental HTTP/2 support [uncertain exact version/date due to conflicting fetch summaries].",
+    "SSL options (`--ssl-keyfile`, `--ssl-certfile`, `--ssl-ca-certs`, `--ssl-ciphers`) exist but are typically unneeded on Container Apps since Azure terminates TLS at the ingress."
+  ],
+  "recommendations": [
+    "Install with the `standard` extra (`uvicorn[standard]`) in the container image for uvloop/httptools performance, matching current FastAPI defaults.",
+    "Run a single uvicorn process per container and rely on Container Apps replica scaling rather than uvicorn's own `--workers`, to keep restart/health semantics simple.",
+    "Enable `--proxy-headers` and set `--forwarded-allow-ips='*'` (or the Container Apps internal proxy CIDR) so X-Forwarded-Proto/For from the platform ingress is trusted correctly.",
+    "Pin a Python version >= 3.10 in the Dockerfile since recent uvicorn releases have dropped 3.8 and 3.9 support.",
+    "Do not use `--reload` in the production container image; only use it for local dev.",
+    "Avoid relying on experimental HTTP/2 (`--http h2`/zttp) given its experimental status; keep default HTTP/1.1 for the retrieval API."
+  ],
+  "as_of": "0.54.0, per pypi.org/pypi/uvicorn/json and encode/uvicorn docs/release-notes.md (fetched 2026-11-02); exact release date varied across tool summaries (Sept 2024 vs Dec 2024 vs Sept 2026) and could not be independently pinned down, so treat as [uncertain]",
+  "sources": [
+    {
+      "title": "uvicorn · PyPI JSON API",
+      "url": "https://pypi.org/pypi/uvicorn/json",
+      "type": "official-docs",
+      "quote": "Version: \"0.54.0\" ... described as \"The lightning-fast ASGI server.\""
+    },
+    {
+      "title": "uvicorn PyPI project page",
+      "url": "https://pypi.org/project/uvicorn/",
+      "type": "official-docs",
+      "quote": "pip install uvicorn ... pip install 'uvicorn[standard]'"
+    },
+    {
+      "title": "encode/uvicorn README.md (raw)",
+      "url": "https://raw.githubusercontent.com/encode/uvicorn/master/README.md",
+      "type": "official-docs",
+      "quote": "uvicorn example:app ... Uvicorn supports HTTP/1.1, HTTP/2 and WebSockets."
+    },
+    {
+      "title": "encode/uvicorn release notes (raw)",
+      "url": "https://raw.githubusercontent.com/encode/uvicorn/master/docs/release-notes.md",
+      "type": "official-docs",
+      "quote": "Drop support for Python 3.9 ... Exit with the dedicated code 3 on any startup failure"
+    },
+    {
+      "title": "encode/uvicorn settings docs (fetched via raw markdown)",
+      "url": "https://raw.githubusercontent.com/encode/uvicorn/master/docs/settings.md",
+      "type": "official-docs",
+      "quote": "--proxy-headers: Enable/disable X-Forwarded-Proto and X-Forwarded-For headers ... --forwarded-allow-ips"
+    },
+    {
+      "title": "encode/uvicorn releases (GitHub)",
+      "url": "https://github.com/encode/uvicorn/releases",
+      "type": "official-docs",
+      "quote": "Introduces experimental HTTP/2 support via zttp ... Requires websockets>=13.0"
+    }
+  ],
+  "current_version": "0.54.0",
+  "api_surface": [
+    "CLI: uvicorn <module>:<app> --host 0.0.0.0 --port 8000",
+    "ASGI app callable: async def app(scope, receive, send)",
+    "uvicorn.run(app, host=..., port=...) programmatic entrypoint",
+    "--workers (process count; not combinable with --reload)",
+    "--proxy-headers / --forwarded-allow-ips (trust upstream proxy headers)",
+    "--log-level (critical|error|warning|info|debug|trace)",
+    "--ssl-keyfile / --ssl-certfile / --ssl-ca-certs / --ssl-ciphers (likely unused since Container Apps terminates TLS)"
+  ],
+  "pitfalls": [
+    "Python 3.8 support dropped (reported as v0.34.0) and Python 3.9 support dropped (reported as v0.40.0) [uncertain exact dates] -- base image must use a supported Python version.",
+    "--workers cannot be combined with --reload; plan container entrypoint accordingly.",
+    "Default --ws implementation switched to websockets-sansio starting v0.50.0, with the legacy websockets implementation deprecated [uncertain].",
+    "Since v0.50.0, uvicorn exits with code 3 specifically on startup failure, which can change how Container Apps/health probes interpret crash-loop vs normal exit [uncertain].",
+    "HTTP/2 support is experimental and requires an extra dependency (zttp per release notes); do not treat as production-ready [uncertain].",
+    "Conflicting/garbled release dates across fetched sources for the same version numbers indicate the fetch summarizer may be unreliable on exact dates -- version numbers were corroborated across two sources, dates were not."
+  ],
+  "uncertain": [
+    "key_findings",
+    "as_of",
+    "pitfalls"
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "summary": "The current stable PostgreSQL major version is 18 (released 2025-09-25, docs at 18.6), but prior stable lines 17/16/15 remain supported and are common pins for Docker-based self-hosted deployments like this one. For this build, PostgreSQL is run via the official Docker image, configured through environment variables and initdb-style options, with pg_trgm and pgvector enabled as extensions via CREATE EXTENSION, and pg_isready used for the Compose health check. Over the last 3 years the main pitfalls are the PG18 full-text-search/pg_trgm collation-provider behavior change (reindex needed on non-libc clusters), data checksums now defaulting to on, and the Docker image's PG18 data directory path change to /var/lib/postgresql/<version>/docker versus the older /var/lib/postgresql/data layout used in 17 and earlier.",
+  "key_findings": [
+    "Current stable major version: PostgreSQL 18 (docs version 18.6); supported branches are 15-18 per the pg_trgm docs page [as of docs 'current'].",
+    "Official Docker image (hub.docker.com/_/postgres) supports tags including 19rc1, 18.6, 17.11, 16.15, 15.19, 14.24 in Debian and Alpine variants.",
+    "POSTGRES_PASSWORD is required by the official image; POSTGRES_USER/POSTGRES_DB are optional and create a matching superuser/database; POSTGRES_HOST_AUTH_METHOD defaults to scram-sha-256 in PG14+.",
+    "PG18 Docker image changed data volume layout to /var/lib/postgresql/<version>/docker; PG17 and earlier use /var/lib/postgresql/data -- this affects which path to mount as a volume in docker-compose.yml.",
+    "initdb enables data checksums by default as of PG18 (new --no-data-checksums flag to opt out); default auth for local connections historically 'trust' unless overridden.",
+    "pg_trgm is enabled with CREATE EXTENSION pg_trgm; it supports GIN and GiST indexes (gin_trgm_ops / gist_trgm_ops) and exposes similarity(), %, <-> operators used for fuzzy/typo-tolerant search alongside pgvector.",
+    "PG18 full-text search / pg_trgm behavior change: full text search and pg_trgm now use the cluster's default collation provider (not always libc) to read config/dictionaries; clusters on non-libc providers (ICU, builtin) may see different trigram/matching behavior and should REINDEX affected indexes after upgrade.",
+    "pg_isready exit codes: 0 = accepting connections, 1 = rejecting, 2 = no response, 3 = no attempt (bad args); it needs no credentials, making it suitable for an unauthenticated Compose healthcheck.",
+    "Scripts in /docker-entrypoint-initdb.d/ only run on first container start when the data directory is empty -- relevant for applying CREATE EXTENSION vector/pg_trgm and initial schema on fresh deploys."
+  ],
+  "recommendations": [
+    "Pin to a specific recent LTS-style minor (e.g. 16.x or 17.x) rather than tracking 'latest'/18 blindly, since pgvector HNSW and extension compatibility should be verified against the pinned version before relying on PG18's new defaults.",
+    "If pinning to PG18, mount the volume at the versioned path (/var/lib/postgresql/18/docker) rather than the pre-18 /var/lib/postgresql/data path, or stay on 17.x to keep the old, simpler path used in most existing Compose examples.",
+    "Use pg_isready (no auth required) as the Postgres healthcheck command in docker-compose.yml; gate dependent services (bot, re-embed job) on service_healthy.",
+    "Enable both extensions explicitly in migration/init SQL: CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm; do not rely on image defaults.",
+    "Never put POSTGRES_PASSWORD or other secrets directly in docker-compose.yml or the Dockerfile; use an .env file (gitignored) or the project's secrets provider port per acceptance criterion 7.",
+    "If upgrading an existing cluster across major versions later, remember to REINDEX pg_trgm/full-text indexes post-upgrade on PG18 due to the collation-provider behavior change -- plan this into the RUNBOOK's restore/upgrade drill."
+  ],
+  "as_of": "PostgreSQL docs 'current' branch, PG 18.6 release notes (2025-09-25); pg_trgm docs page states supported versions 15-18 as of fetch date 2026-11-11",
+  "sources": [
+    {
+      "title": "PostgreSQL 18.0 Release Notes",
+      "url": "https://www.postgresql.org/docs/current/release-18.html",
+      "type": "official-docs",
+      "quote": "Change initdb default to enable data checksums (Greg Sabino Mullane)... Change full text search to use the default collation provider of the cluster to read configuration files and dictionaries, rather than always using libc"
+    },
+    {
+      "title": "initdb",
+      "url": "https://www.postgresql.org/docs/current/app-initdb.html",
+      "type": "official-docs",
+      "quote": "Must run as the database user (not root) - the user who will own the server process"
+    },
+    {
+      "title": "pg_trgm",
+      "url": "https://www.postgresql.org/docs/current/pgtrgm.html",
+      "type": "official-docs",
+      "quote": "CREATE EXTENSION pg_trgm; ... CREATE INDEX trgm_idx ON test_trgm USING GIST (t gist_trgm_ops);"
+    },
+    {
+      "title": "postgres - Official Image | Docker Hub",
+      "url": "https://hub.docker.com/_/postgres",
+      "type": "official-docs",
+      "quote": "POSTGRES_PASSWORD ... It must not be empty or undefined ... Current versions include PostgreSQL 19rc1, 18.6, 17.11, 16.15, 15.19, and 14.24"
+    },
+    {
+      "title": "pg_isready",
+      "url": "https://www.postgresql.org/docs/current/app-pg-isready.html",
+      "type": "official-docs",
+      "quote": "Exit Codes: 0 Server is accepting connections normally ... No credentials needed for connection status check"
+    }
+  ],
+  "current_version": "PostgreSQL 18 (docs at 18.6); actively supported branches 15 through 18",
+  "api_surface": [
+    "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;",
+    "initdb options: -D/--pgdata, -U/--username, -E/--encoding, --locale, -A/--auth, --no-data-checksums",
+    "Docker image env vars: POSTGRES_PASSWORD, POSTGRES_USER, POSTGRES_DB, POSTGRES_INITDB_ARGS, POSTGRES_HOST_AUTH_METHOD",
+    "/docker-entrypoint-initdb.d/*.sql|*.sh for first-run init (schema, extensions)",
+    "pg_isready -h <host> -p <port> -U <user> -q for Compose healthcheck",
+    "pg_trgm operators/functions: %, <->, similarity(), word_similarity() for fuzzy matching alongside pgvector similarity search"
+  ],
+  "pitfalls": [
+    "PG18: full-text search and pg_trgm now honor the cluster's default collation provider instead of always libc; non-libc clusters need REINDEX on affected indexes after upgrade.",
+    "PG18: data checksums enabled by default via initdb; pg_upgrade requires matching checksum settings between old and new clusters.",
+    "PG18 Docker image volume path changed to /var/lib/postgresql/<version>/docker, differing from the /var/lib/postgresql/data path used on 17 and earlier -- a silent trap when copy-pasting older Compose files.",
+    "PG18: COPY FROM no longer treats a bare '\\.' as EOF in CSV files read server-side (psql STDIN behavior differs), which can break older \\copy-based import scripts.",
+    "MD5 password authentication is deprecated with warnings in recent PostgreSQL releases and scheduled for future removal -- use scram-sha-256 for any DB auth configured in this build.",
+    "/docker-entrypoint-initdb.d/ scripts only execute when the data directory is empty on first container start, so re-running init SQL on an existing volume will silently no-op -- migrations must be applied separately (e.g. via the project's own apply_migrations.py), not relied on at container init."
+  ],
+  "uncertain": []
+}

@@ -1,0 +1,98 @@
+{
+  "summary": "Bicep is Microsoft's open-source, free DSL that compiles to ARM JSON templates; current CLI is in the v0.48.x line (v0.48.1, Oct 2026) per the official GitHub releases page, auto-installed by Azure CLI (>=2.20.0) via `az bicep install`/`az bicep upgrade`, or manually via winget/choco/brew/direct download per Microsoft Learn. For this build, the relevant API surface is `az bicep` CLI subcommands plus `az deployment group create/validate/what-if` consuming .bicep/.bicepparam files targeting Microsoft.App (Container Apps + Jobs), Microsoft.ContainerRegistry/registries, and Microsoft.DBforPostgreSQL/flexibleServers resource types. Recent (2025-2026) changes include GA of `@retryOn` and `@nullIfNotFound()` decorators, GA of extendable .bicepparam files, a new local `bicep snapshot` diff command, and a breaking restriction requiring OCI module registries to be on a trusted list.",
+  "key_findings": [
+    "Official install doc (ms.date 2026-07-23) confirms Azure CLI >=2.20.0 auto-installs a self-contained Bicep CLI via `az bicep install`/`az bicep upgrade`/`az bicep version`; manual install via winget 'Microsoft.Bicep', choco, brew, or GitHub release binaries adds `bicep` to PATH separately.",
+    "Bicep CLI releases page (github.com/Azure/bicep/releases) lists v0.48.1 (Oct 5, 2026), v0.47.16 (Sep 8, 2026), v0.46.1 (Jul 30, 2026) as the most recent entries at time of research [uncertain: exact patch/date mapping from tool summary, not manually re-verified line-by-line].",
+    "Bicep CLI commands doc (ms.date 2026-05-14) enumerates the full command set: build, build-params, console (v0.42.1+), decompile, decompile-params, format, generate-params, install (az-only), jsonrpc, lint, list-versions (az-only), publish, restore, snapshot (v0.41.2+), upgrade (az-only), version.",
+    "az deployment group docs (ms.date 2026-08-20) confirm `az deployment group create/validate/what-if` all accept `--template-file` pointing directly at a .bicep file (Bicep CLI invoked automatically) and `--parameters` accepting a .bicepparam file directly.",
+    "Microsoft.App/containerApps latest GA API version is 2026-07-01 per the official Azure resource reference page opened directly; version history runs back through 2025-07-01, 2025-10-02-preview, 2026-01-01, 2026-03-02-preview to 2026-07-01.",
+    "Microsoft.DBforPostgreSQL/flexibleServers latest GA API version appears to be 2025-08-01 with 2026-04-01-preview as newest preview [uncertain: derived from search result snippets, not a fully re-opened page table].",
+    "Microsoft.ContainerRegistry/registries latest GA API version appears to be 2025-04-01 with 2026-09-01-preview as newest preview [uncertain: derived from search result snippets, not a fully re-opened page table].",
+    "Official overview page (ms.date 2026-01-08) states Bicep immediately supports all preview and GA API versions as soon as a resource provider publishes them -- no separate tooling lag.",
+    "Overview page explicitly notes Microsoft Customer Support does not cover Bicep experimental features; use at own risk.",
+    "GitHub releases summary indicates a breaking change in v0.43.1 blocking custom domains for Azure Container Registry, and a more recent change enforcing a trusted-registry list for OCI module restore."
+  ],
+  "recommendations": [
+    "Pin a specific Bicep CLI version in CI (via `az bicep install --version vX.Y.Z` or a pinned Azure CLI image) rather than relying on 'latest', since Azure CLI auto-upgrades Bicep silently and the project targets reproducible `az deployment` runs for acceptance criterion 9.",
+    "Use `az deployment group create --template-file main.bicep --parameters main.bicepparam` (typed .bicepparam, not legacy JSON params) to match current Microsoft Learn guidance and get compile-time parameter validation.",
+    "Explicitly declare resource API versions in Bicep (e.g. Microsoft.App/containerApps@2026-07-01, Microsoft.App/jobs@<matching version>, Microsoft.DBforPostgreSQL/flexibleServers@2025-08-01, Microsoft.ContainerRegistry/registries@2025-04-01) rather than trusting defaults, and re-verify these exact strings against the live resource reference pages before locking the Bicep templates, since two of them were only confirmed via search snippets here.",
+    "Run `az deployment group what-if` (or local `bicep snapshot` for fast offline diffing) before any apply against the fresh subscription required by acceptance criterion 9, to catch unintended resource replacement (e.g. Postgres Flexible Server or ACR SKU changes that force recreation).",
+    "If publishing shared Bicep modules to ACR, confirm the registry is on an allowed/trusted list given the OCI module-restore trust restriction introduced in recent Bicep versions; avoid relying on implicit trust of arbitrary registries.",
+    "Do not depend on Bicep experimental features (e.g. OCI publishing to non-ACR registries) for production IaC in this build, since Microsoft Support explicitly excludes experimental features from assistance."
+  ],
+  "as_of": "Install and CLI-commands docs dated 2026-07-23 and 2026-05-14 respectively; overview doc dated 2026-01-08; az deployment group doc dated 2026-08-20; GitHub releases observed October 2026",
+  "sources": [
+    {
+      "title": "Install Bicep tools - Azure Resource Manager | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/install",
+      "type": "official-docs",
+      "quote": "You must have Azure CLI version 2.20.0 or later installed... To verify your current version, run: az --version... To upgrade to the latest version, use: az bicep upgrade"
+    },
+    {
+      "title": "What is Bicep? - Azure Resource Manager | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/overview",
+      "type": "official-docs",
+      "quote": "Bicep immediately supports all preview and GA versions for Azure services... Microsoft Customer Support doesn't provide assistance for issues resulting from the use of Bicep experimental features"
+    },
+    {
+      "title": "Bicep CLI commands - Azure Resource Manager | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/bicep-cli",
+      "type": "official-docs",
+      "quote": "By using Bicep CLI v0.41.2 or newer, you can use the snapshot command to create a normalized, deterministic representation of a Bicep deployment"
+    },
+    {
+      "title": "az deployment group | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/cli/azure/deployment/group",
+      "type": "official-docs",
+      "quote": "Create a deployment at resource group scope from a bicepparam parameter file: az deployment group create --resource-group testrg --parameters parameters.bicepparam"
+    },
+    {
+      "title": "Releases · Azure/bicep · GitHub",
+      "url": "https://github.com/Azure/bicep/releases",
+      "type": "repo",
+      "quote": "v0.48.1 (October 5, 2026)... retryOn() decorator GA... extendable parameter files are now GA"
+    },
+    {
+      "title": "Microsoft.App/containerApps - Bicep, ARM template & Terraform AzAPI reference",
+      "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.app/containerapps",
+      "type": "official-docs",
+      "quote": "resource symbolicname 'Microsoft.App/containerApps@2026-07-01' = { ... }"
+    },
+    {
+      "title": "Microsoft.DBforPostgreSQL/flexibleServers - Bicep, ARM template & Terraform AzAPI reference",
+      "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.dbforpostgresql/flexibleservers",
+      "type": "official-docs",
+      "quote": "API version latest ... ms.date 2024-12-09 ... updated_at 2026-10-20"
+    },
+    {
+      "title": "Microsoft.ContainerRegistry/registries - Bicep, ARM template & Terraform AzAPI reference",
+      "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.containerregistry/registries",
+      "type": "official-docs",
+      "quote": "Microsoft.ContainerRegistry/registries 2025-04-01 - Bicep, ARM template & Terraform AzAPI reference"
+    }
+  ],
+  "current_version": "Bicep CLI v0.48.1 (Oct 2026 release line) [uncertain]",
+  "api_surface": [
+    "az bicep install / az bicep upgrade / az bicep version / az bicep list-versions",
+    "bicep build | build-params | lint | format | decompile | decompile-params | generate-params | restore | publish | snapshot | console",
+    "az deployment group create --template-file <main.bicep> --parameters <main.bicepparam>",
+    "az deployment group validate / what-if --template-file ... --parameters ...",
+    "Microsoft.App/containerApps@2026-07-01 (Container Apps)",
+    "Microsoft.App/jobs@<matching current API version> (Container Apps Jobs) [uncertain]",
+    "Microsoft.ContainerRegistry/registries@2025-04-01 (ACR) [uncertain]",
+    "Microsoft.DBforPostgreSQL/flexibleServers@2025-08-01 (Postgres Flexible Server) [uncertain]"
+  ],
+  "pitfalls": [
+    "Azure CLI's bundled Bicep CLI instance is separate from any manually installed one and is NOT added to PATH -- Azure PowerShell deployments fail unless Bicep CLI is installed manually and separately (per install doc).",
+    "`bicep install`/`bicep upgrade` do not work in air-gapped environments; the executable must be manually placed in $HOME/.azure/bin (or Windows equivalent) -- relevant if the school's Azure tenant has restricted network egress.",
+    "OCI module restore now enforces a trusted-registry list; publishing/consuming Bicep modules from arbitrary registries can silently fail post-upgrade.",
+    "v0.43.1 blocked usage of custom domains for Azure Container Registry -- avoid relying on ACR custom domain names in templates.",
+    "Resource API versions move fast (monthly-ish); hardcoding an old API version in checked-in Bicep can silently miss new required properties or hit deprecated-field warnings at `az deployment` time -- re-pin versions near ship date, not from this research alone.",
+    "Bicep snapshot is local/offline and will fail or return placeholders for environment functions (subscription().id, resourceGroup().name) unless context flags are passed -- it is not a substitute for `az deployment group what-if` as a final pre-deploy check."
+  ],
+  "uncertain": [
+    "current_version",
+    "api_surface",
+    "key_findings"
+  ]
+}

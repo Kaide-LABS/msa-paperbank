@@ -1,0 +1,82 @@
+{
+  "summary": "pydantic-settings is the official Pydantic v2 companion package providing BaseSettings, which loads strongly-typed config from env vars, .env files, secrets files/dirs (e.g. Docker secrets at /run/secrets), and other sources, with precedence init > env > dotenv > secrets. Current stable release is 2.16.2, requiring Python >=3.11 and pydantic>=2.7.0, matching this build's Python 3.12/pydantic-settings stack. For this project, use SettingsConfigDict with env_prefix, env_nested_delimiter, and secrets_dir to back the new ObjectStore/Embedder/Secrets/DB provider ports while keeping the existing GCP_* env var names resolvable via validation_alias/AliasChoices, satisfying the requirement that pre-existing env variable names still resolve after the gcs_* rename.",
+  "key_findings": [
+    "Current stable version is 2.16.2 (confirmed from pydantic_settings/version.py in the main branch of the official GitHub repo).",
+    "pyproject.toml on main specifies requires-python = '>=3.11' and pydantic>=2.7.0 as the core dependency.",
+    "Install via `pip install pydantic-settings`; BaseSettings and SettingsConfigDict are the primary public API (SettingsConfigDict replaces the legacy inner Config class from pydantic v1 style).",
+    "Source precedence order is: init arguments > environment variables > dotenv (.env) file variables > secrets directory variables > default field values.",
+    "secrets_dir (e.g. SettingsConfigDict(secrets_dir='/run/secrets')) reads one secret per file, with the filename treated as the field/env name -- directly maps onto Docker/Compose secrets for the 'ports for secrets, selectable by provider' requirement.",
+    "env_nested_delimiter (e.g. '__') allows flattening nested Pydantic models from env vars, useful for grouping provider-specific settings (e.g. OBJECTSTORE__BUCKET).",
+    "validation_alias plus AliasChoices lets a single field accept multiple historical env var names (e.g. Field(validation_alias=AliasChoices('GCS_BUCKET', 'OBJECT_STORE_BUCKET'))), which is the mechanism to keep old GCP_*/gcs_* env names resolving after a rename.",
+    "settings_customise_sources() can be overridden to add or reorder custom settings sources (e.g. a secrets-manager source), relevant if a future provider needs a non-file secrets backend.",
+    "v2.16.0 (most recent minor) dropped Python 3.10 support (now 3.11+ only) and bumped the required python-dotenv to >=1.2.2 to address a CVE; also changed alias precedence semantics (validation_alias now takes precedence over alias in file/CLI sources) and made JSON/YAML config files read as UTF-8 by default instead of locale encoding. [uncertain: exact release date/version attribution for this change log, since two fetches of the GitHub releases page gave conflicting dates for the same version]",
+    "BaseSettings validates default values by default (unlike BaseModel), controllable via validate_default=False -- worth noting since it can surprise tests if required-looking defaults silently fail validation."
+  ],
+  "recommendations": [
+    "Pin pydantic-settings to 2.16.2 (or the latest 2.16.x) alongside pydantic>=2.7.0, both compatible with the project's Python 3.12 requirement.",
+    "Define one SettingsConfigDict-based Settings class per provider port (ObjectStore, Embedder, Secrets, DBEngine) or a composed settings object with env_prefix per section, so each provider's config is swappable via a 'provider' field (e.g. object_store_provider: Literal['gcs','local','minio']).",
+    "Use validation_alias=AliasChoices(...) on renamed fields so legacy GCS_* / gcs_* env var names keep resolving after the SQLAlchemy synonym rename, satisfying acceptance criterion 5 at the settings layer too.",
+    "Use secrets_dir='/run/secrets' (or a configurable path) for the Secrets port in Docker Compose, so no plaintext DB password or GCP project id needs to live in env files or the Dockerfile, satisfying acceptance criterion 7.",
+    "Avoid hand-rolling .env parsing or os.environ lookups elsewhere in the codebase; centralize all config access through the pydantic-settings Settings object so unit tests can inject values via init kwargs (no network/env dependency), supporting the 'no network calls in unit tests' criterion.",
+    "Do not rely on Python 3.10-era assumptions or pre-2.7 pydantic patterns; verify CI/Docker base images use Python 3.11+ to satisfy pydantic-settings' own requires-python floor."
+  ],
+  "as_of": "2.16.2, verified against pydantic_settings/version.py on the main branch, accessed 2026-11-11",
+  "sources": [
+    {
+      "title": "Settings Management — Pydantic documentation",
+      "url": "https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/",
+      "type": "official-docs",
+      "quote": "BaseSettings... allowing values to be overridden by environment variables... Priority order: init arguments > environment variables > dotenv files > secrets files"
+    },
+    {
+      "title": "pydantic-settings docs/index.md (GitHub, main branch)",
+      "url": "https://github.com/pydantic/pydantic-settings/blob/main/docs/index.md",
+      "type": "official-docs",
+      "quote": "pip install pydantic-settings"
+    },
+    {
+      "title": "pydantic-settings pyproject.toml (GitHub, main branch)",
+      "url": "https://raw.githubusercontent.com/pydantic/pydantic-settings/main/pyproject.toml",
+      "type": "repo",
+      "quote": "requires-python = '>=3.11' ... pydantic>=2.7.0"
+    },
+    {
+      "title": "pydantic_settings/version.py (GitHub, main branch)",
+      "url": "https://raw.githubusercontent.com/pydantic/pydantic-settings/main/pydantic_settings/version.py",
+      "type": "repo",
+      "quote": "VERSION = '2.16.2'"
+    },
+    {
+      "title": "pydantic-settings releases",
+      "url": "https://github.com/pydantic/pydantic-settings/releases",
+      "type": "repo",
+      "quote": "Python 3.10 is no longer supported; python-dotenv>=1.2.2 is now required"
+    },
+    {
+      "title": "pydantic-settings · PyPI",
+      "url": "https://pypi.org/project/pydantic-settings/",
+      "type": "official-docs",
+      "quote": "Current Version: 2.16.2"
+    }
+  ],
+  "current_version": "2.16.2",
+  "api_surface": [
+    "BaseSettings (base class for all settings models)",
+    "SettingsConfigDict(env_prefix=..., env_nested_delimiter=..., secrets_dir=..., case_sensitive=..., env_file=...)",
+    "pydantic.Field(validation_alias=AliasChoices('OLD_NAME','NEW_NAME'))",
+    "settings_customise_sources() override for custom/ordered settings sources",
+    "secrets_dir / Docker secrets file-based loading (/run/secrets)",
+    "env_nested_delimiter for nested provider-config models"
+  ],
+  "pitfalls": [
+    "Python 3.10 support dropped as of the 2.16.x line; minimum is now Python 3.11, so Docker base images must be 3.11+ (project targets 3.12, which is fine).",
+    "BaseSettings validates default values by default, unlike plain BaseModel -- can cause unexpected validation errors on fields with 'unsafe' defaults unless validate_default=False is set.",
+    "Alias precedence semantics changed across 2.15/2.16: validate_by_alias=False now causes aliases to be ignored across all sources, and validation_alias now takes precedence over plain alias in file/CLI sources -- verify behavior explicitly with a test when relying on AliasChoices for legacy GCS_* env names.",
+    "Case-sensitivity default changed in 2.15.0 for InitSettingsSource and config-file sources (now case-insensitive by default) -- could silently change matching behavior for renamed env vars if not pinned/tested.",
+    "[uncertain] Exact release dates for 2.16.x versions were inconsistent between two independent fetches of the GitHub releases page (PyPI listed 2.16.2 as Oct 28, 2026; a GitHub releases summary listed it as Nov 6, 2024) -- treat specific dates as unverified; only the version number and changelog content claims were cross-checked against source files."
+  ],
+  "uncertain": [
+    "key_findings",
+    "pitfalls"
+  ]
+}

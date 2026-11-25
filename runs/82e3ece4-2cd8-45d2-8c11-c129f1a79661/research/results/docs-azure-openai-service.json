@@ -1,0 +1,89 @@
+{
+  "summary": "Azure OpenAI Service's officially documented current state (as of docs dated through mid/late 2026) centers on the new 'v1' data-plane API (GA since August 2025), which drops the monthly dated `api-version` query parameter in favor of a stable `/openai/v1/` base path, while the older dated-version API (latest GA `2024-10-21` for image/audio, `2024-06-01` historically for chat/embeddings/completions) remains supported for backward compatibility. For this build, the relevant surface is `chat.completions.create`/`responses.create` with `image_url` content parts on a vision-capable model (e.g. gpt-4o-class) for OCR of scanned past papers, and `embeddings.create` with a `text-embedding-3-small`/`-large` deployment plus the `dimensions` request parameter set to 768 to match the existing pgvector column. Authentication is via API key (`api-key` header) or Microsoft Entra ID (`Cognitive Services OpenAI User` role + bearer token), both documented in the official Microsoft Learn reference. The most significant recent breaking change is the v1 API's new base_url/client pattern (OpenAI() client instead of AzureOpenAI(), no api-version needed) introduced in Aug 2025; the older SDK/date-versioned pattern still works but is the 'classic' path.",
+  "key_findings": [
+    "The Azure OpenAI 'v1' data-plane API became GA starting August 2025, removing the need for monthly dated `api-version` values and allowing use of the plain `OpenAI()` client pointed at `https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1/` [learn.microsoft.com/azure/foundry/openai/api-version-lifecycle, ms.date 2026-05-13].",
+    "Dated API versioning still exists in parallel: latest GA dated release for image/audio is `2024-10-21`; a `v1 preview` track also exists for newer preview-only features [learn.microsoft.com/azure/foundry/openai/reference].",
+    "Embeddings endpoint (`POST {endpoint}/openai/v1/embeddings`) officially documents a `dimensions` integer parameter, 'Only supported in text-embedding-3 and later models', min constraint 1 — confirms 768-dim output is achievable via `dimensions=768` on text-embedding-3-small/large without re-architecting the Vector(768) column [learn.microsoft.com/rest/api/microsoft-foundry/azureopenai/embeddings].",
+    "Embeddings limits: 8,192 max input tokens per item, max 2,048 items per array request, and a hard 300,000-token aggregate cap per request (HTTP 400 if exceeded) [learn.microsoft.com/azure/foundry/openai/how-to/embeddings, ms.date 2026-07-22].",
+    "Vision-enabled chat models use the standard chat completions endpoint with image content parts; dedicated doc page 'How to use vision-enabled chat models' covers calling the Chat Completion API and processing images [learn.microsoft.com/azure/foundry/openai/how-to/gpt-with-vision, ms.date 2026-07-29].",
+    "Breaking change (within the broader lifecycle, pre-dating 18mo window but still load-bearing): the `2024-04-01-preview` spec removed the `enhancements` parameter, impacting the `gpt-4` `vision-preview` model — anything still depending on that legacy vision-preview param path breaks [learn.microsoft.com/azure/foundry/openai/api-version-lifecycle].",
+    "Known API Management issue: the `2025-04-01-preview` Azure OpenAI spec uses OpenAPI 3.1, which Azure API Management doesn't fully support yet — relevant if fronting Azure OpenAI with APIM [learn.microsoft.com/azure/foundry/openai/api-version-lifecycle].",
+    "Authentication: API key via `api-key` header, or Microsoft Entra ID via bearer token with `Cognitive Services OpenAI User` RBAC role; the v1 API client supports automatic token refresh natively without a separate Azure-specific client class [learn.microsoft.com/azure/foundry/openai/api-version-lifecycle].",
+    "Control-plane (resource/deployment management, e.g. for Bicep) latest GA is `2025-06-01`; this is the ARM-facing API, distinct from the data-plane inference API [learn.microsoft.com/azure/foundry/openai/reference]."
+  ],
+  "recommendations": [
+    "Build the Azure LLM/vision/embedding adapter against the v1 API (`base_url=.../openai/v1/`, plain `OpenAI()` client) rather than the legacy dated `AzureOpenAI()` client, since it is now the GA, forward-looking surface and simplifies auth/token-refresh code.",
+    "Use Microsoft Entra ID (`DefaultAzureCredential` + `get_bearer_token_provider`) for the secrets/config seam instead of static API keys, matching the officially recommended pattern and avoiding a secret in the repo/config.",
+    "For embeddings, explicitly pass `model=\"text-embedding-3-small\"` (or `-large`) and `dimensions=768` to preserve the existing Vector(768)/HNSW schema — do not assume a different model's default dimension matches.",
+    "Batch embedding calls to respect the 300,000-token aggregate and 2,048-item array limits; chunk the re-embedding backfill job accordingly.",
+    "For the OCR A/B gate, implement the Azure path via chat completions with image content parts on a vision-capable deployment per the official 'gpt-with-vision' how-to, not via a deprecated `vision-preview`/`enhancements`-parameter path (removed in `2024-04-01-preview`).",
+    "If any component fronts Azure OpenAI through Azure API Management, avoid relying on the `2025-04-01-preview` spec import until APIM's OpenAPI 3.1 support matures; prefer GA/v1 specs for APIM import.",
+    "Treat the `dimensions`/embeddings-limits facts as verified-current (opened official docs); treat anything about GPT-5-class vision model names/pricing as needing a fresh check against the Models/pricing page close to implementation time, since model catalogs change faster than the API surface."
+  ],
+  "as_of": "Documentation pages fetched carry ms.date/updated_at stamps from 2026-05-13 through 2026-07-29; v1 API went GA August 2025. Treat as current for Nov 2026.",
+  "sources": [
+    {
+      "title": "Azure OpenAI in Microsoft Foundry Models v1 API (API evolution / lifecycle)",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle",
+      "type": "official-docs",
+      "quote": "Starting in August 2025, you can opt in to the next generation v1 Azure OpenAI APIs which add support for: Ongoing access to the latest features with no need to specify new api-version's each month..."
+    },
+    {
+      "title": "Azure OpenAI image and audio REST API reference (2024-10-21) - Microsoft Foundry",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/reference",
+      "type": "official-docs",
+      "quote": "There is now a new preview inference API... | Data plane | v1 preview | v1 | ... | The data plane API controls inference and authoring operations."
+    },
+    {
+      "title": "Microsoft Foundry REST Reference - Azure OpenAI - Embeddings",
+      "url": "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/embeddings",
+      "type": "official-docs",
+      "quote": "dimensions | integer | The number of dimensions the resulting output embeddings should have. Only supported in text-embedding-3 and later models. Constraints: min: 1"
+    },
+    {
+      "title": "Generate embeddings with Azure OpenAI - Microsoft Foundry",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/embeddings",
+      "type": "official-docs",
+      "quote": "Embedding requests return HTTP 400 when the sum of input tokens exceeds 300,000... The maximum input length for the current embedding models is 8,192 tokens... maximum array size is 2,048."
+    },
+    {
+      "title": "How to use vision-enabled chat models - Microsoft Foundry",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/gpt-with-vision",
+      "type": "official-docs",
+      "quote": "Learn how to use vision-enabled chat models in Azure OpenAI, including how to call the Chat Completion API and process images."
+    },
+    {
+      "title": "Azure OpenAI API version changelog (within api-version-lifecycle)",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle",
+      "type": "official-docs",
+      "quote": "Breaking Change: Enhancements parameters removed. This change impacts the gpt-4 Version: vision-preview model."
+    },
+    {
+      "title": "How to migrate to OpenAI Python v1.x (classic) - Microsoft Foundry (classic)",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry-classic/openai/how-to/migration",
+      "type": "official-docs",
+      "quote": "Upgrading from version 0.28.1 to version 1.x is a breaking change, you'll need to test and update your code... This guidance is no longer recommended. To take advantage of the latest v1 API refer to the Python programming language guide."
+    }
+  ],
+  "current_version": "v1 (GA, opt-in since August 2025) for the data-plane inference API; legacy dated API versions remain supported with latest GA dated release 2024-10-21 (image/audio) — [uncertain] exact latest dated GA for chat/embeddings text ops beyond what's superseded by v1",
+  "api_surface": [
+    "POST {endpoint}/openai/v1/chat/completions (or client.chat.completions.create / client.responses.create) with image_url content parts for vision OCR",
+    "POST {endpoint}/openai/v1/embeddings (client.embeddings.create) with model=text-embedding-3-small|large and dimensions=768",
+    "Auth: api-key header, or Authorization: Bearer <Entra ID token> via DefaultAzureCredential + get_bearer_token_provider, scope https://ai.azure.com/.default or https://cognitiveservices.azure.com/.default",
+    "RBAC role 'Cognitive Services OpenAI User' for Entra ID callers",
+    "Control-plane ARM/Bicep deployment API (latest GA 2025-06-01) for provisioning the Foundry/Azure OpenAI resource and model deployments"
+  ],
+  "pitfalls": [
+    "v1 API (Aug 2025 GA) changes the client pattern entirely (OpenAI() instead of AzureOpenAI(), base_url with /openai/v1/, no api-version needed) — mixing old and new patterns in the same codebase will confuse the provider-neutral seam; pick one pattern per adapter.",
+    "`dimensions` parameter on embeddings only works on text-embedding-3-and-later models; using it against an older/unsupported embedding model returns a 422 [uncertain, sourced from secondary summary, not directly quoted from an opened official page listing the 422 behavior].",
+    "Embeddings aggregate 300,000-token-per-request and 2,048-items-per-array limits can silently break large backfill/re-embed batch jobs if not chunked.",
+    "`enhancements` parameters were removed in 2024-04-01-preview, breaking the old gpt-4 vision-preview flow — don't follow stale blog examples using that parameter for OCR.",
+    "OpenAI Python SDK 0.x -> 1.x was itself a breaking rewrite (engine= -> model=, openai.ChatCompletion.create -> client.chat.completions.create, embeddings_utils.py removed); any older code samples/snippets found online may target the pre-1.x SDK and silently fail.",
+    "Azure API Management has a known compatibility gap with the 2025-04-01-preview spec's OpenAPI 3.1 — avoid importing that spec version into APIM if the bot is fronted by APIM.",
+    "Control-plane (ARM/Bicep) API versioning is separate from data-plane inference versioning — don't conflate the two when writing Bicep for Container Apps/ACR vs. runtime SDK calls."
+  ],
+  "uncertain": [
+    "current_version",
+    "pitfalls"
+  ]
+}

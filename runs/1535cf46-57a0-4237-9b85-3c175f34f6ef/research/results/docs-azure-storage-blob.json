@@ -1,0 +1,64 @@
+{
+  "summary": "azure-storage-blob is Microsoft's official Python SDK for Azure Blob Storage, used here as the storage adapter to replace google-cloud-storage. Current stable release is 12.31.1 (2026-10-29), installed via `pip install azure-storage-blob`, requiring Python 3.10+. The build will use BlobServiceClient/ContainerClient/BlobClient with DefaultAzureCredential (Managed Identity on Container Apps) for upload_blob/download_blob/list_blobs, plus the azure.storage.blob.aio async variants if the handler is async. The main 2025-2026 pitfall is the Python 3.9 support drop in 12.31.0 (2026-09-30); no other breaking API-shape changes were found for the basic upload/download/list surface in this window.",
+  "key_findings": [
+    "Current stable PyPI version: azure-storage-blob 12.31.1, released 2026-10-29 (confirmed on PyPI and Microsoft Learn page metadata).",
+    "Install: pip install azure-storage-blob; package requires Python 3.10 or later for 12.31.x (dropped Python 3.9 support in 12.31.0, 2026-09-30).",
+    "12.27.0b1 (2025-06-12) had dropped Python 3.8 support, requiring 3.9+ at that time.",
+    "Four main clients: BlobServiceClient (account-level), ContainerClient (container-level), BlobClient (blob-level), BlobLeaseClient (lease ops).",
+    "Auth options: DefaultAzureCredential/AAD token credential (azure-identity), SAS token string, account shared key, connection string, or anonymous for public containers.",
+    "Async support exists under azure.storage.blob.aio, requiring an async HTTP transport such as aiohttp to be installed separately.",
+    "12.24.1 (2025-01-22) changed stream iteration guidance: iterate via StorageStreamDownloader.chunks rather than the raw downloader object.",
+    "Client-side encryption v2.0 tamper-detection and SAS timezone-aware datetime handling bugs were fixed as late as 12.30.1/12.31.1 (2026).",
+    "12.19.0b1 deprecated passing BlobProperties objects directly as blob-name parameters in several APIs (still relevant if upgrading from older pinned versions)."
+  ],
+  "recommendations": [
+    "Pin azure-storage-blob>=12.28,<13 (or latest 12.31.x) and require Python 3.10+ in the Azure adapter's dependency file to match current support policy.",
+    "Authenticate with DefaultAzureCredential via Managed Identity for Container Apps/Container Apps Jobs rather than account keys or connection strings, to satisfy the 'no plaintext secrets' acceptance criterion.",
+    "Use BlobServiceClient.get_container_client()/get_blob_client() pattern rather than always constructing fresh clients from connection strings, since the build avoids hardcoded connection strings.",
+    "If the retrieval handler is async (FastAPI), use azure.storage.blob.aio clients and add aiohttp as an explicit dependency; do not mix sync and async clients in the same module.",
+    "When writing the storage adapter interface, wrap upload_blob/download_blob/list_blobs only — this is the minimal API surface needed to mirror the existing GCS adapter's behavior.",
+    "Do not rely on StorageStreamDownloader being directly iterable for chunks; use `.chunks` explicitly per the 12.24.1 change to avoid silent behavior differences versus older SDK docs/tutorials."
+  ],
+  "as_of": "2026-10-29 (azure-storage-blob 12.31.1); changelog history reviewed from 2024-05 through 2026-10",
+  "sources": [
+    {
+      "title": "azure-storage-blob · PyPI",
+      "url": "https://pypi.org/project/azure-storage-blob/",
+      "type": "official-docs",
+      "quote": "The latest stable release is 12.31.1, released October 29, 2026. pip install azure-storage-blob. Python 3.10 or later is required."
+    },
+    {
+      "title": "Azure Storage Blobs client library for Python | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/python/api/overview/azure/storage-blob-readme?view=azure-python",
+      "type": "official-docs",
+      "quote": "Python 3.10 or later is required to use this package... Four different clients are provided to interact with the various components of the Blob Service: BlobServiceClient, ContainerClient, BlobClient, BlobLeaseClient."
+    },
+    {
+      "title": "azure-sdk-for-python CHANGELOG.md (azure-storage-blob)",
+      "url": "https://github.com/Azure/azure-sdk-for-python/blob/main/sdk/storage/azure-storage-blob/CHANGELOG.md",
+      "type": "official-docs",
+      "quote": "Version 12.31.0 requires Python 3.10+. Python 3.9 is no longer supported. ... 12.24.1 (2025-01-22): to iterate over the blob data stream, use StorageStreamDownloader.chunks."
+    }
+  ],
+  "current_version": "12.31.1 (released 2026-10-29)",
+  "api_surface": [
+    "pip install azure-storage-blob",
+    "from azure.storage.blob import BlobServiceClient, ContainerClient, BlobClient",
+    "BlobServiceClient(account_url=..., credential=DefaultAzureCredential())",
+    "service.get_container_client(name) / service.get_blob_client(container, blob)",
+    "blob_client.upload_blob(data, overwrite=...)",
+    "blob_client.download_blob() -> StorageStreamDownloader; use .readall() or .chunks",
+    "container_client.list_blobs()",
+    "from azure.storage.blob.aio import BlobServiceClient (async variant, requires aiohttp)",
+    "from azure.identity import DefaultAzureCredential"
+  ],
+  "pitfalls": [
+    "12.31.0 (2026-09-30) dropped Python 3.9 support; pipeline/base images must be on Python 3.10+.",
+    "12.27.0b1 (2025-06-12) previously dropped Python 3.8 support — ensure CI isn't still pinned to an older interpreter.",
+    "12.24.1 (2025-01-22) changed recommended stream-iteration pattern to StorageStreamDownloader.chunks instead of iterating the downloader directly.",
+    "Async clients require installing a separate async HTTP transport (e.g., aiohttp); omitting it causes runtime errors, not import-time errors.",
+    "BlobProperties objects as direct blob-name arguments were deprecated (12.19.0b1); older sample code using this pattern may silently misbehave on current versions.",
+    "Client-side encryption v1.0 is deprecated in favor of v2.0 — avoid using require_encryption/encryption_version='1.0' in new code."
+  ],
+  "uncertain": []
+}

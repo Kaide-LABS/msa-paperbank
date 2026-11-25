@@ -1,0 +1,65 @@
+{
+  "summary": "pgvector is the official Postgres extension providing vector similarity search; current stable release is v0.8.7 (2026-10-01), with a `vector(n)` type supporting up to 16,000 dimensions, L2/inner-product/cosine distance operators, and both HNSW and IVFFlat approximate-index types. The build's Vector(768) + HNSW index usage is squarely within supported limits and stable API territory. Official Docker images (`pgvector/pgvector:<ver>-pg<major>-<debian-codename>`) are published per Postgres major version and are the simplest path for the school's no-GPU Linux servers. The only breaking changes in the last 3 years are dropped support for old Postgres majors (12, then 13/14 in the unreleased 0.9.0) and some HNSW/IVFFlat vacuuming bug fixes — nothing affects the `vector(768)` + HNSW code path this build relies on.",
+  "key_findings": [
+    "Current stable release: v0.8.7, released 2026-10-01, per the GitHub CHANGELOG.md.",
+    "Enable via `CREATE EXTENSION vector;` after installing the extension binary (apt: `postgresql-<ver>-pgvector`, source build, or Docker image).",
+    "`vector(n)` column type supports up to 16,000 dimensions for storage; HNSW indexing of plain `vector` is practically limited to 2,000 dimensions per the README (768 is well within this limit).",
+    "HNSW index type was added in v0.5.0 (2023-08-28) — this is the index type the build retains unchanged.",
+    "v0.7.0 (2024-04-29) added `halfvec`, `sparsevec`, bit-vector Hamming/Jaccard distances — not used by this build but confirms the extension has actively evolved in-range.",
+    "v0.8.0 (2024-10-30) added iterative index scans and dropped support for Postgres 12 (breaking change for anyone on PG12).",
+    "Unreleased v0.9.0 will drop support for Postgres 13 and 14 — relevant only if the school picks an old Postgres major.",
+    "Official Docker images are published as `pgvector/pgvector:<version>-pg<major>-<debian-codename>` (e.g. `0.8.7-pg18-trixie`), confirmed on Docker Hub.",
+    "Distance operators relevant to this build: `<->` (L2), `<#>` (negative inner product), `<=>` (cosine) — cosine is the typical choice for embedding similarity search.",
+    "Index creation syntax used by this build: `CREATE INDEX ON items USING hnsw (embedding vector_cosine_ops);` (or `vector_l2_ops` depending on chosen distance metric) — operator class must match the query's distance operator or the index won't be used.",
+    "NULL and zero vectors are not indexed by HNSW/IVFFlat (zero vectors specifically excluded for cosine distance) — relevant if any chunk/title ends up with an empty embedding."
+  ],
+  "recommendations": [
+    "Pin an explicit pgvector version in the Dockerfile/compose (e.g. `pgvector/pgvector:0.8.7-pg16-<codename>` or whichever Postgres major the project already uses) rather than tracking `latest`, since minor releases have included index-build bug fixes that matter for data integrity.",
+    "Create the HNSW index with the operator class matching the distance operator actually used in queries (e.g. `vector_cosine_ops` if using `<=>`), and verify queries use `ORDER BY embedding <=> $1 LIMIT k` so the planner uses the index.",
+    "Keep `Vector(768)` as-is — 768 dimensions is well under both the 16,000 storage limit and the ~2,000 practical HNSW indexing limit, so no schema or index-type change is required for parity acceptance criterion #8.",
+    "Before the parity/re-embed job (criterion #9), confirm no chunk or title embedding is a zero/NULL vector, since those rows silently won't be indexed and would skew a before/after top-k comparison.",
+    "If picking the Postgres major for self-hosting, avoid Postgres 12 (unsupported since pgvector 0.8.0) and be aware that a future pgvector 0.9.0 will drop 13/14 — prefer Postgres 15+ for longevity.",
+    "pg_trgm (needed per the build's constraints) is a standard Postgres contrib module distributed with Postgres itself, not part of pgvector — enable separately with `CREATE EXTENSION pg_trgm;`; verify it's present in whichever base Postgres image is chosen. [uncertain]"
+  ],
+  "as_of": "2026-11 (pgvector v0.8.7, released 2026-10-01)",
+  "sources": [
+    {
+      "title": "pgvector/pgvector GitHub README",
+      "url": "https://github.com/pgvector/pgvector",
+      "type": "official-docs",
+      "quote": "CREATE EXTENSION vector; ... CREATE INDEX ON items USING hnsw (embedding vector_l2_ops);"
+    },
+    {
+      "title": "pgvector CHANGELOG.md",
+      "url": "https://github.com/pgvector/pgvector/blob/master/CHANGELOG.md",
+      "type": "official-docs",
+      "quote": "0.5.0 (2023-08-28) Added HNSW index type ... 0.8.0 (2024-10-30) Dropped support for Postgres 12"
+    },
+    {
+      "title": "pgvector/pgvector Docker Hub page",
+      "url": "https://hub.docker.com/r/pgvector/pgvector",
+      "type": "official-docs",
+      "quote": "docker pull pgvector/pgvector:0.8.7-pg18-trixie"
+    }
+  ],
+  "current_version": "0.8.7 (released 2026-10-01); 0.9.0 unreleased/in development",
+  "api_surface": [
+    "CREATE EXTENSION vector;",
+    "vector(768) column type",
+    "CREATE INDEX ... USING hnsw (embedding vector_cosine_ops) [or vector_l2_ops to match distance metric]",
+    "Distance operators: <-> (L2), <#> (negative inner product), <=> (cosine)",
+    "ORDER BY embedding <=> query_vector LIMIT k (index-eligible query pattern)",
+    "Standard Postgres: CREATE EXTENSION pg_trgm; (separate contrib module, not pgvector itself)"
+  ],
+  "pitfalls": [
+    "pgvector 0.8.0 (2024-10-30) dropped support for Postgres 12 — breaking for anyone on that major.",
+    "Unreleased pgvector 0.9.0 will drop support for Postgres 13 and 14 — a forward-looking constraint when choosing the self-hosted Postgres version.",
+    "Multiple 2025-2026 patch releases (0.8.2 through 0.8.7) fixed buffer overflows and index-corruption bugs in HNSW/IVFFlat builds — pin a recent patch version rather than an old 0.8.x.",
+    "Index usage requires the query's ORDER BY distance operator and operator class to match; mismatches silently fall back to sequential scan.",
+    "NULL vectors are never indexed, and zero vectors are excluded from indexing specifically for cosine distance — can cause silent gaps in HNSW recall if any embedding is zero/null.",
+    "Standard `vector` type HNSW indexing is effectively capped around 2,000 dimensions per the README despite the type supporting storage up to 16,000 — not a concern for this build's 768-dim vectors but a relevant ceiling if dimensions ever change."
+  ],
+  "uncertain": [
+    "recommendations"
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "summary": "pydantic-settings is the official, separately-distributed package providing BaseSettings for Pydantic v2 (it was split out of core pydantic). Install via `pip install pydantic-settings`; the API the build needs (BaseSettings, SettingsConfigDict with env_file/env_nested_delimiter/secrets_dir/env_prefix, and the settings_customise_sources hook) has been stable since pydantic-settings 2.x and is documented on the official pydantic.dev site. Notably, the library ships a built-in AzureKeyVaultSettingsSource, which is directly usable for the planned Azure secrets adapter. The main breaking change in the last 2 years is the v2.16.0 bump to require Python 3.11+ and python-dotenv>=1.2.2 (security fix), plus alias-resolution behavior changes.",
+  "key_findings": [
+    "pydantic-settings is a standalone PyPI package (not part of core pydantic) — required separately since pydantic v2.0; `from pydantic import BaseSettings` no longer works under pydantic v2.",
+    "Official docs confirm install command: `pip install pydantic-settings` (pydantic.dev/docs/validation/latest/concepts/pydantic_settings).",
+    "PyPI project page reports current version 2.16.2 [uncertain — exact release date conflicted between sources, see below].",
+    "GitHub releases listing (as fetched) shows v2.16.1 and v2.16.0 as the most recent entries visible, with v2.16.0 requiring Python 3.11+ and python-dotenv>=1.2.2 (CVE mitigation), and changing alias-ignore behavior when validate_by_alias=False [uncertain — dates shown by the two fetches for the same version numbers disagreed, so exact release dates are not reliable].",
+    "v2.15.0 made case_sensitive apply to init kwargs and config-file sources (previously only env vars).",
+    "v2.14.2 was a security patch preventing symlink-following in the nested secrets settings source (relevant to secrets_dir usage).",
+    "Source priority order (official docs): init settings > environment variables > dotenv file > secrets_dir file > custom sources (environment overrides dotenv; dotenv overrides secrets file).",
+    "Official docs confirm a built-in AzureKeyVaultSettingsSource(settings_cls, vault_url, credential) that reads secrets from Azure Key Vault and can be composed via settings_customise_sources, with options to convert dash/kebab-case secret names to snake_case field names.",
+    "settings_customise_sources(cls, init_settings, env_settings, dotenv_settings, file_secret_settings) is the official extension point for adding/reordering custom sources such as AzureKeyVaultSettingsSource."
+  ],
+  "recommendations": [
+    "Pin pydantic-settings>=2.x (2.16+ family) and verify the project's Python runtime is >=3.11 before upgrading past 2.16.0, since that version raised the minimum Python requirement.",
+    "Use SettingsConfigDict(env_file='.env', env_nested_delimiter='__', case_sensitive=False) to keep parity with the existing plain-pydantic-settings style already used in the codebase.",
+    "For the Azure secrets adapter, use the official AzureKeyVaultSettingsSource wired in via settings_customise_sources rather than hand-rolling Key Vault calls — this keeps the storage/secrets abstraction swappable per the build's adapter pattern.",
+    "If currently on python-dotenv <1.2.2, upgrade it alongside any pydantic-settings bump >=2.16.0 to pick up the CVE fix noted in that release.",
+    "Re-check any field aliases after upgrading to 2.16.0+: the alias-ignore behavior under validate_by_alias=False changed and could silently stop env vars from populating aliased fields — add/adjust a settings test to confirm.",
+    "Do not rely on secrets_dir with symlinked secret files on older pydantic-settings (<2.14.2); upgrade past that patch if using file-based secrets mounts (e.g., Container Apps secret volumes)."
+  ],
+  "as_of": "PyPI listing fetched 2026-11-02, reporting current version 2.16.2; exact release date for that version is [uncertain] due to conflicting fetch results",
+  "sources": [
+    {
+      "title": "pydantic-settings · PyPI",
+      "url": "https://pypi.org/project/pydantic-settings/",
+      "type": "official-docs",
+      "quote": "Current Version: 2.16.2 — pip install pydantic-settings"
+    },
+    {
+      "title": "Settings Management - Pydantic",
+      "url": "https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/",
+      "type": "official-docs",
+      "quote": "pip install pydantic-settings ... SettingsConfigDict ... env_prefix, env_file, env_nested_delimiter, secrets_dir ... AzureKeyVaultSettingsSource(settings_cls, os.environ['AZURE_KEY_VAULT_URL'], DefaultAzureCredential())"
+    },
+    {
+      "title": "pydantic-settings Releases · GitHub",
+      "url": "https://github.com/pydantic/pydantic-settings/releases",
+      "type": "repo",
+      "quote": "pydantic-settings now requires Python 3.11+ ... python-dotenv>=1.2.2 ... Aliases are ignored in every source when validate_by_alias=False"
+    }
+  ],
+  "current_version": "2.16.2 [uncertain — exact release date not independently confirmed; two fetches of version history gave inconsistent dates]",
+  "api_surface": [
+    "BaseSettings (subclass for app config; replaces pydantic v1's built-in BaseSettings)",
+    "SettingsConfigDict(env_file, env_prefix, env_nested_delimiter, secrets_dir, case_sensitive)",
+    "model_config = SettingsConfigDict(...) on settings classes",
+    "settings_customise_sources(cls, init_settings, env_settings, dotenv_settings, file_secret_settings) classmethod for adding/reordering sources",
+    "PydanticBaseSettingsSource base class for custom sources",
+    "AzureKeyVaultSettingsSource(settings_cls, vault_url, credential, snake_case_conversion=True) for Key Vault-backed secrets",
+    "Default source priority: init > env vars > dotenv file > secrets_dir file > custom sources"
+  ],
+  "pitfalls": [
+    "pydantic-settings is a separate package from core pydantic (post pydantic v2.0) — any legacy `from pydantic import BaseSettings` import will break and must be migrated (older than 2-year window but still a common gotcha when porting code).",
+    "v2.16.0 raises minimum Python to 3.11+ — check runtime compatibility before bumping the pin in Container Apps base image.",
+    "v2.16.0 mandates python-dotenv>=1.2.2 for a security fix; older dotenv pins may conflict.",
+    "v2.16.0 changed alias resolution: aliases are ignored across all sources when validate_by_alias=False, which can silently break env-var-driven aliased fields after upgrade.",
+    "v2.15.0 extended case-insensitive matching to init kwargs and config-file sources, a subtle behavior change for any code relying on case-sensitive init overrides.",
+    "v2.14.2 was a security patch for symlink-following in secrets_dir/NestedSecretsSettingsSource — ensure any Container Apps secret-mount approach is on a patched version.",
+    "GitHub vs PyPI version/date reporting was inconsistent across fetches in this research session — treat exact release dates with caution and re-verify directly against the official changelog before relying on a specific date."
+  ],
+  "uncertain": [
+    "current_version",
+    "as_of",
+    "key_findings"
+  ]
+}

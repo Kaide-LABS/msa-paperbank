@@ -1,0 +1,76 @@
+{
+  "summary": "pg_trgm is a core PostgreSQL contrib module (official docs at postgresql.org/docs/current/pgtrgm.html) providing trigram-based text similarity and fuzzy LIKE/ILIKE/regex matching via GiST or GIN indexes; it is installed with a plain `CREATE EXTENSION pg_trgm;` since it is a 'trusted' extension. On Azure Database for PostgreSQL Flexible Server it is fully supported on all current major versions (11-18) but must first be allow-listed via the `azure.extensions` server parameter (restart required) before `CREATE EXTENSION` will succeed — unlike `vector`/pgvector it does not need `shared_preload_libraries`. The API surface this build needs (similarity scoring for fuzzy query matching alongside pgvector HNSW search) is unchanged in the last 2 years; the only notable recent change is a correctness/crash bug (CVE-2026-2007, fixed in PG 18.2 with a follow-up fix in 18.3) affecting strict_word_similarity() under ICU locales with single-byte encodings, which does not affect typical UTF8 setups.",
+  "key_findings": [
+    "Official docs confirm pg_trgm is documented for PostgreSQL 14 through 18 (current) at postgresql.org/docs/current/pgtrgm.html; installed with `CREATE EXTENSION pg_trgm;`, usable by non-superusers with CREATE privilege because it is a 'trusted' module.",
+    "Core API: functions `similarity(text,text)`, `word_similarity`, `strict_word_similarity`, `show_trgm`; operators `%`, `<%`/`%>`, `<<%`/`%>>`, distance operators `<->`, `<<->`/`<->>`, `<<<->`/`<->>>`; GUCs `pg_trgm.similarity_threshold` (default 0.3), `word_similarity_threshold` (0.6), `strict_word_similarity_threshold` (0.5).",
+    "`show_limit()`/`set_limit()` functions are deprecated in favor of the `pg_trgm.similarity_threshold` GUC (long-standing deprecation, not a recent change).",
+    "GiST and GIN operator classes (`gist_trgm_ops`, `gin_trgm_ops`) support `%`/`<%`/`<<%` similarity operators, `LIKE`/`ILIKE` (since PG 9.1), regex `~`/`~*` (since PG 9.3), and equality.",
+    "On Azure Flexible Server, pg_trgm is in the official extensions-by-version list (learn.microsoft.com/.../concepts-extensions-versions) at module version 1.6 for PostgreSQL 14-18, 1.5 for PG 13, 1.4 for PG 11-12; no `shared_preload_libraries` flag required (no asterisk in the table).",
+    "Azure requires allow-listing pg_trgm in the `azure.extensions` server parameter (Portal: Settings > Parameters, or `az postgres flexible-server parameter set --name azure.extensions --value pg_trgm,...`) before `CREATE EXTENSION pg_trgm;` will work; a server restart/deployment is triggered when this parameter changes.",
+    "If pg_trgm is not allow-listed first, Azure returns the specific error: \"extension 'pg_trgm' is not allow-listed for users in Azure Database for PostgreSQL\" (per Microsoft Q&A thread, consistent with the official how-to-allow-extensions doc).",
+    "Recent correctness fix: CVE-2026-2007, with an oversight/follow-up fix shipped in PostgreSQL 18.3 (released 2026-02-26) — `generate_trgm_only` could fail to return an expanded 'bounds' array pointer, causing incorrect `strict_word_similarity()` output or rare crashes; only triggered when ICU locale + certain single-byte encodings cause lower-casing to lengthen the string.",
+    "PostgreSQL 18.0 changed full text search to use the cluster's default collation provider (rather than always libc) to read configuration/dictionaries, which can indirectly affect pg_trgm behavior in clusters defaulting to a non-libc collation provider [uncertain — found via search summary, not opened directly in primary release notes].",
+    "pgvector (`vector` extension, used alongside pg_trgm for the HNSW Vector(768) column) is listed in the same official Azure table at version 0.8.2 across PostgreSQL 11-18, confirming both extensions coexist on the same supported version matrix."
+  ],
+  "recommendations": [
+    "In Bicep/deployment automation, set the `azure.extensions` server parameter to include `pg_trgm,vector` (plus any others) BEFORE running migration SQL that issues `CREATE EXTENSION pg_trgm;` — the create will fail otherwise, and the parameter change itself triggers a restart, so do it early in provisioning, not interleaved with app deploys.",
+    "No `shared_preload_libraries` change is needed for pg_trgm itself (unlike e.g. pg_cron or pgaudit), simplifying the Bicep parameter set versus other Azure PG extensions.",
+    "Use `CREATE EXTENSION IF NOT EXISTS pg_trgm;` in migrations for idempotency; it is safe to run as the migration-owning role since it's a trusted extension.",
+    "Keep using the standard `%` operator / `similarity()` and GIN (`gin_trgm_ops`) index exactly as today — no API changes are required for the port; this is config/allow-listing work only, not a code port.",
+    "If targeting PostgreSQL 18 specifically, pin to at least 18.3 (or apply the equivalent minor-version patch) to pick up the CVE-2026-2007 follow-up fix, especially if any ICU locale with a single-byte encoding is in use; UTF8-only deployments are effectively unaffected.",
+    "Document the allow-list step explicitly in the RUNBOOK/README since it is an Azure-specific gotcha with no equivalent on self-managed Postgres or the current GCP Cloud SQL setup."
+  ],
+  "as_of": "PostgreSQL docs: current (PostgreSQL 18) as of page fetch 2026-11-02; Azure extensions-by-version and allow-extensions docs carry ms.date 2026-07-10 (updated 2026-07-13); PG 18.3 release notes dated 2026-02-26",
+  "sources": [
+    {
+      "title": "PostgreSQL: Documentation: current: F.35. pg_trgm",
+      "url": "https://www.postgresql.org/docs/current/pgtrgm.html",
+      "type": "official-docs",
+      "quote": "pg_trgm module provides functions and operators for determining the similarity of alphanumeric text based on trigram matching, as well as index operator classes that support fast searching for similar strings... CREATE EXTENSION pg_trgm;"
+    },
+    {
+      "title": "Allow Extensions in Azure Database for PostgreSQL Flexible Server - Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/how-to-allow-extensions",
+      "type": "official-docs",
+      "quote": "Before creating extensions for an Azure Database for PostgreSQL flexible server, add them to the allow list... az postgres flexible-server parameter set ... --name azure.extensions --value \"<extension_name>,<extension_name>\""
+    },
+    {
+      "title": "List of Extensions and Modules by Name in Azure Database for PostgreSQL Flexible Server - Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/concepts-extensions-versions",
+      "type": "official-docs",
+      "quote": "pg_trgm provides text similarity measurement and index searching based on trigrams. | PostgreSQL version | Extension or module version | | 18 | 1.6 | | 17 | 1.6 | | 16 | 1.6 | | 15 | 1.6 | | 14 | 1.6 | | 13 | 1.5 | | 12 | 1.4 | | 11 | 1.4 |"
+    },
+    {
+      "title": "PostgreSQL: Release Notes 18.3",
+      "url": "https://www.postgresql.org/docs/release/18.3/",
+      "type": "official-docs",
+      "quote": "Fix oversight in the fix for CVE-2026-2007 ... If the \"bounds\" array needed to be expanded ... generate_trgm_only didn't return the modified array pointer to its caller. That would lead to incorrect output from strict_word_similarity() and related functions, or in rare cases a crash."
+    },
+    {
+      "title": "pg_trgm Extension Not Allowed on Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/answers/questions/5537068/pg-trgm-extension-not-allowed-on-azure-database-fo",
+      "type": "forum",
+      "quote": "extension 'pg_trgm' is not allow-listed for users in Azure Database for PostgreSQL"
+    }
+  ],
+  "current_version": "pg_trgm module version 1.6 (bundled with PostgreSQL 14-18 on Azure Flexible Server per official Azure extensions-versions table); PostgreSQL itself currently at major version 18 (patch 18.3)",
+  "api_surface": [
+    "CREATE EXTENSION pg_trgm;",
+    "similarity(text, text) -> real",
+    "word_similarity(text, text) / strict_word_similarity(text, text) -> real",
+    "% operator (similarity match) and <-> distance operator for ORDER BY ... LIMIT nearest-match queries",
+    "CREATE INDEX ... USING GIN (col gin_trgm_ops); for fast LIKE/ILIKE/regex and % search",
+    "SET pg_trgm.similarity_threshold = <float>; (and word/strict word threshold GUCs)",
+    "Azure-only: az postgres flexible-server parameter set --name azure.extensions --value pg_trgm,... (or Portal > Parameters > azure.extensions)"
+  ],
+  "pitfalls": [
+    "Azure Flexible Server blocks CREATE EXTENSION pg_trgm unless it is first added to the azure.extensions allow-list parameter; this is Azure-specific and not present on self-hosted Postgres or (per this build's prior stack) Cloud SQL",
+    "Changing azure.extensions triggers a server parameter deployment/restart — must be sequenced before running app migrations in automation",
+    "CVE-2026-2007 / its 18.3 follow-up fix: strict_word_similarity() could return incorrect results or rarely crash under ICU locale + single-byte encoding combinations where lower-casing lengthens the string; irrelevant for standard UTF8 deployments but worth noting if locale config changes",
+    "show_limit()/set_limit() are deprecated long-standing API (predates the 2-year window) — use the pg_trgm.similarity_threshold GUC instead, not a recent break but still a common trap in older sample code",
+    "PG18's switch to using the cluster's default collation provider (rather than always libc) for some text-processing paths can subtly change behavior on non-libc-default clusters [uncertain — summarized from search results, not confirmed by directly reading PG18 release notes in full]"
+  ],
+  "uncertain": [
+    "pitfalls"
+  ]
+}

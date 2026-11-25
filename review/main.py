@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request, Form, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, PlainTextResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from google.cloud import storage
+from app.providers import get_object_store
 
 from app.config import settings
 from app.db import SessionLocal
@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.http = httpx.Client(timeout=httpx.Timeout(connect=5, read=30, write=30, pool=5))
-    app.state.gcs = storage.Client(project=settings.gcp_project)
+    app.state.store = get_object_store(settings)
     yield
     app.state.http.close()
 
@@ -354,7 +354,7 @@ def history(request: Request, s: Session = Depends(get_session)):
 def _serve_object(request: Request, gcs_object: str | None):
     if not gcs_object:
         return Response(status_code=404)
-    raw = request.app.state.gcs.bucket(settings.gcs_bucket).blob(gcs_object).download_as_bytes()
+    raw = request.app.state.gcs.bucket(settings.object_store_bucket).blob(gcs_object).download_as_bytes()
     ext = gcs_object.rsplit(".", 1)[-1].lower() if "." in gcs_object else "jpg"
     mt = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "heic": "image/heic"}.get(ext, "image/jpeg")
     return Response(content=raw, media_type=mt)
@@ -372,5 +372,5 @@ def img_contrib(page_id: int, request: Request, s: Session = Depends(get_session
 def img_paper(pid: int, request: Request, s: Session = Depends(get_session)):
     if not _me(request):
         return Response(status_code=401)
-    obj = s.execute(text("SELECT gcs_object FROM pending_papers WHERE id=:i"), {"i": pid}).scalar()
+    obj = s.execute(text("SELECT object_key FROM pending_papers WHERE id=:i"), {"i": pid}).scalar()
     return _serve_object(request, obj)

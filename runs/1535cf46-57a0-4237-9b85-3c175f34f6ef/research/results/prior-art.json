@@ -1,0 +1,19 @@
+{
+  "queries": [
+    "FastAPI pgvector Azure PostgreSQL Flexible Server HNSW retrieval example",
+    "Azure Container Apps Bicep FastAPI gunicorn deployment template",
+    "Microsoft Graph SharePoint drive download Python sha256 dedupe",
+    "storage abstraction interface GCS Azure Blob Python adapter"
+  ],
+  "repos": [],
+  "summary": null,
+  "notes": [
+    "No public repositories matched the prior-art queries."
+  ],
+  "problems": [
+    "search \"FastAPI pgvector Azure PostgreSQL Flexible Server HNSW retrieval example\": HTTP 401: {\r\n  \"message\": \"Bad credentials\",\r\n  \"documentation_url\": \"https://docs.github.com/rest\",\r\n  \"status\": \"401\"\r\n}",
+    "search \"Azure Container Apps Bicep FastAPI gunicorn deployment template\": HTTP 401: {\r\n  \"message\": \"Bad credentials\",\r\n  \"documentation_url\": \"https://docs.github.com/rest\",\r\n  \"status\": \"401\"\r\n}",
+    "search \"Microsoft Graph SharePoint drive download Python sha256 dedupe\": HTTP 401: {\r\n  \"message\": \"Bad credentials\",\r\n  \"documentation_url\": \"https://docs.github.com/rest\",\r\n  \"status\": \"401\"\r\n}",
+    "search \"storage abstraction interface GCS Azure Blob Python adapter\": HTTP 401: {\r\n  \"message\": \"Bad credentials\",\r\n  \"documentation_url\": \"https://docs.github.com/rest\",\r\n  \"status\": \"401\"\r\n}"
+  ]
+}

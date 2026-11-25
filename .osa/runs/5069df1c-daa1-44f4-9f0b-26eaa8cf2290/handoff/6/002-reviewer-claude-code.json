@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "run_id": "5069df1c-daa1-44f4-9f0b-26eaa8cf2290",
+  "phase": 6,
+  "turn_index": 2,
+  "role": "reviewer",
+  "provider": "claude-code",
+  "model_tier": "verification-grade",
+  "started_at": "2026-11-16T12:00:00Z",
+  "completed_at": "2026-11-16T12:05:00Z",
+  "repo": {
+    "branch": "school-migration",
+    "head_before": "8e049fb4417b053a624d1fe631aad308c55cd791",
+    "head_after": "8e049fb4417b053a624d1fe631aad308c55cd791",
+    "commits": []
+  },
+  "spec_ref": {
+    "path": "runs/ef877dec-303d-4911-81c2-1fef07397538/spec/PHASE_6_SPEC.md",
+    "sha256": "29786909f0db1340f2fd74a3431f3482db3eb02041eca0325e807a3f62fb765f"
+  },
+  "artifacts_read": [
+    {"path": "runs/ef877dec-303d-4911-81c2-1fef07397538/spec/PHASE_6_SPEC.md", "sha256": "29786909f0db1340f2fd74a3431f3482db3eb02041eca0325e807a3f62fb765f"},
+    {"path": "runs/ef877dec-303d-4911-81c2-1fef07397538/baby-prd.md", "sha256": "bafc3520baaf01479aebaa0e4d4bc6a6801fe4843d49f75a3d70db3dfdccc05a"},
+    {"path": "runs/ef877dec-303d-4911-81c2-1fef07397538/spec/context.md", "sha256": "ec8a49f7263d47b0711975c963c12c6bb14e94c1b5fa4bc1d4dc3c8d7c1e9059"},
+    {"path": "cutover/01_dump_cloudsql.sh", "sha256": "84749d58cf45ce57ad04ed52186c8f03e4d906e59eaa79be4eb089b7210fd165"},
+    {"path": "cutover/02_copy_bucket.sh", "sha256": "0c215aea91f5ced03e460098c2ede5559a3e60b5bebc2c9ce9eaeaa22aba6a1c"},
+    {"path": "cutover/03_restore_selfhosted.sh", "sha256": "715b0c30b9da61caf58f6201ac56f4f01f192d37dc77d03f1b270cc880ecd723"},
+    {"path": "cutover/05_parity.sh", "sha256": "a1ed5b48951fceaa2514d4c8d8aee862051e313fdb9d07b465b2cf64ef8d4d84"},
+    {"path": "tests/test_cutover_tooling.py", "sha256": "c59bd35e284b7ff8ed5a286b59784b85f0289ea339601ae03fb6e331f5efe723"}
+  ],
+  "artifacts_written": [
+    {"path": "BUILD_COMPLETE.md", "sha256": "e98a136cfbe56a795e0022a10c84d9ff26b4c3e481598018e01ab2e058855866"}
+  ],
+  "status": "completed",
+  "work_done": "Reviewed the Phase 6 executor output (cutover tooling + GCP teardown) against PHASE_6_SPEC.md and the diff. Read every prior-turn artifact_written (cutover/01,02,03,05 and tests/test_cutover_tooling.py) and matched each SHA-256 to the prior handoff. Verified Part A: all eight cutover steps present (cutover/01-07 + CUTOVER.md + docs/SIGNOFF.md), every prod-touching script dry-run-by-default and gated on --confirm plus a committed docs/SIGNOFF.md GRANTED marker, read-only prod access (export/rsync), no secret literals, 06_side_by_side.py pure and importing no google.*/app.providers.gcp symbol. Verified Part B teardown: provider default flipped to local in app/config.py, app/providers/__init__.py gcp branches removed (raises ValueError for gcp), app/providers/gcp/ and the Vertex/GCS modules (admin/health.py, admin/upload.py, app/embeddings.py, app/build_title_embeddings.py, etc.) deleted, requirements.txt free of the GCP/Vertex packages, app/main.py constructs no GCS client. Confirmed AC 12 (tests/test_no_gcp_imports.py repo-wide scan + requirements check + removed-provider ValueError) and AC 13 (scripts exist, gated, none executed; code teardown git-reversible, prod untouched). Ran focused suites under sandbox Python 3.14: tests/test_cutover_tooling.py + tests/test_no_gcp_imports.py = 34 passed; tests/test_deploy_compose.py + tests/test_secrets_engine_auth.py + tests/test_local_embedder.py + tests/test_reembed.py + tests/test_parity.py = 27 passed. Confirmed carried-over cleanup state: README privacy/opt-out note restored, restore.sh createdb --if-exists corrected (flag now only on the dropdb line), MinIO healthcheck still uses mc ready local (optional, off-by-default, not addressed). Flagged non-blocking: the MinIO healthcheck and a stale app/config.py provider comment. Authored BUILD_COMPLETE.md as the build completion record (per-phase summary, AC 1-13 verification table, test status, run/operate instructions, deferred items).",
+  "next_steps": [
+    "Confirm the full pytest suite is green in the project's real Python 3.12 environment (the sandbox Python 3.14 reportlab-mock collection error blocks app.pdfgen-importing modules).",
+    "On an operator Docker host, verify docker compose up brings db and app to healthy under provider=local with no GCP credentials and no outbound internet at container start, and that --profile minio starts MinIO healthy.",
+    "Execute the operational cutover (dump, bucket copy, re-embed, parity, side-by-side, webhook move) on the owner timeline only after docs/SIGNOFF.md reads Status: GRANTED.",
+    "Optional non-blocking cleanup: switch the MinIO healthcheck to an HTTP liveness probe and correct the stale provider comment in app/config.py."
+  ],
+  "open_questions": [],
+  "halt": null
+}

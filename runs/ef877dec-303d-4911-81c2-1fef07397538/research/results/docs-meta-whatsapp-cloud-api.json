@@ -1,0 +1,61 @@
+{
+  "summary": "This item covers the Meta WhatsApp Cloud API, which the build already uses for the WhatsApp channel and must keep working unchanged behind a thin adapter. Meta's primary documentation host (developers.facebook.com) was unreachable from this research environment due to a DNS resolution failure on every path tested, so verified facts here come from Meta's own mirror domain (developers.meta.com), which resolved for its homepage, blog index, and a resource page. Those confirm the API is actively maintained (current Graph API version v27.0, announced 2026-11-04) and that the Cloud API's core `/messages` endpoint remains the integration surface going forward (used for the new \"Direct Send\" feature). Deeper mechanics of the send/webhook endpoints (exact request/response shapes, signature verification) could not be independently opened in this environment and are flagged accordingly; they should be re-confirmed against developers.facebook.com directly before implementation.",
+  "key_findings": [
+    "Current Graph API version is v27.0, announced on Meta's developer blog dated 2026-11-04, described as including \"new capabilities, deprecations, and breaking changes\" (opened via developers.meta.com/blog/).",
+    "Marketing messages sent via WhatsApp Cloud API are scheduled to sunset 2027-10-13; businesses must migrate marketing-template sends to the separate Marketing Messages API by then (opened via developers.meta.com/blog/). This does not affect this build's utility/retrieval-bot messaging.",
+    "Meta added a \"Direct Send\" capability on Cloud API (announced 2026-06-16 per a Meta developer resource page) that still uses the existing Cloud API `/messages` endpoint plus one new field, removing the template-approval requirement for utility messages — confirms `/messages` remains the stable send endpoint (opened via developers.meta.com/resources/videos/whatsapp-direct-send-api/).",
+    "[uncertain] The send endpoint is reported (by secondary, non-primary sources only — not opened directly) as `POST https://graph.facebook.com/{version}/{PHONE_NUMBER_ID}/messages` with a JSON body shaped `{\"messaging_product\":\"whatsapp\",\"to\":...,\"type\":...}`.",
+    "[uncertain] Webhook setup is reported (secondary sources only) to require a GET handshake where Meta sends `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge`, and the receiver must echo `hub.challenge` back after validating the token.",
+    "[uncertain] Inbound webhook POSTs are reported (secondary sources only) to carry an `X-Hub-Signature-256` header, an HMAC-SHA256 digest of the raw request body keyed with the Meta App Secret, intended for timing-safe verification.",
+    "[uncertain] Per secondary aggregator reporting, older Graph API versions are retired roughly every ~2 years (v15 removed 2024-11-20, v16 removed 2025-05-14), and the legacy On-Premises API was fully sunset 2025-10-23, leaving Cloud API as the only supported path.",
+    "The primary documentation domain developers.facebook.com returned DNS resolution failures (ENOTFOUND) for every path attempted in this research environment, including the root domain and graph.facebook.com; only the Meta-owned mirror developers.meta.com was reachable, and only for a subset of pages (homepage, blog index, a video resource page) — most deep doc paths on that mirror also 404."
+  ],
+  "recommendations": [
+    "Before implementing the WhatsApp adapter, re-verify the exact `/messages` send endpoint, webhook verification handshake, and `X-Hub-Signature-256` signing details directly against developers.facebook.com from a network that can reach it — this research could not open those pages itself.",
+    "Keep the Graph API version pinned explicitly in config (e.g. as an env var) rather than relying on an implicit default, since Meta deprecates versions on a roughly 2-year cycle.",
+    "Implement inbound webhook signature verification (HMAC-SHA256 over the raw body) in the thin WhatsApp adapter only, so handle_inbound and the retrieval callable stay free of WhatsApp-specific signing logic, consistent with acceptance criterion 4.",
+    "Do not build against the deprecated Messaging Events API; use the standard Cloud API webhook model for receiving messages and status updates.",
+    "No action needed regarding the Marketing Messages API sunset (2027-10-13) — this bot sends session/utility-style replies, not marketing templates — but note the date once in RUNBOOK as a future watch-item."
+  ],
+  "as_of": "2026-11-04 (Graph API v27.0, per Meta's developer blog on developers.meta.com)",
+  "sources": [
+    {
+      "title": "Meta for Developers (homepage navigation to WhatsApp Business Platform docs)",
+      "url": "https://developers.meta.com/",
+      "type": "official-docs",
+      "quote": "WhatsApp Business Platform ... documentation ... alongside other Meta platforms like Facebook Login, Instagram Platform, and Threads API."
+    },
+    {
+      "title": "Meta Developer News / Blog",
+      "url": "https://developers.meta.com/blog/",
+      "type": "official-docs",
+      "quote": "Graph API v27.0 and Marketing API v27.0 include new capabilities, deprecations, and breaking changes. ... Marketing messages on WhatsApp sent through the Cloud API will sunset on October 13, 2027."
+    },
+    {
+      "title": "WhatsApp Direct Send API (Meta developer resource)",
+      "url": "https://developers.meta.com/resources/videos/whatsapp-direct-send-api/",
+      "type": "official-docs",
+      "quote": "Direct Send ... eliminates the need to create and wait for template approval when sending utility messages ... using the existing Cloud API /messages endpoint, requiring only one additional field."
+    }
+  ],
+  "current_version": "Graph API v27.0 (as of 2026-11-04, per Meta's own developer blog)",
+  "api_surface": [
+    "POST /{PHONE_NUMBER_ID}/messages — send outbound WhatsApp messages [uncertain: endpoint shape reported by secondary sources, not opened directly by this research]",
+    "GET webhook callback endpoint — handshake verification via hub.mode/hub.verify_token/hub.challenge [uncertain: secondary-source only]",
+    "POST webhook callback endpoint — receive inbound messages/delivery status; verify X-Hub-Signature-256 HMAC over raw body [uncertain: secondary-source only]",
+    "Graph API version path segment (e.g. v27.0) embedded in all request URLs",
+    "Bearer access token in Authorization header for authenticating outbound Graph API calls [uncertain: secondary-source only]"
+  ],
+  "pitfalls": [
+    "[uncertain, secondary-source only] Graph API versions are retired on a roughly 2-year cadence (v15 retired 2024-11-20, v16 retired 2025-05-14) — pin a version and track Meta's deprecation calendar.",
+    "[uncertain, secondary-source only] v21.0 reportedly changed one-tap/zero-tap authentication template button parameters (package_name/signature_hash moved into a supported_apps array) — irrelevant unless this bot ever adopts WhatsApp auth templates.",
+    "[uncertain, secondary-source only] The Messaging Events API was deprecated around September 2024/2025 — do not build new integrations against it; use standard Cloud API webhooks instead.",
+    "[uncertain, secondary-source only] The legacy On-Premises API was fully sunset 2025-10-23 — not relevant since this build already targets Cloud API, but confirms no on-prem fallback exists.",
+    "Methodological pitfall for this research: developers.facebook.com (the primary official docs host) was fully unreachable (DNS failure) from this environment, so any endpoint/webhook mechanics not explicitly marked as opened above should be independently re-verified against the primary docs before implementation."
+  ],
+  "uncertain": [
+    "key_findings",
+    "api_surface",
+    "pitfalls"
+  ]
+}

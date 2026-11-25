@@ -1,0 +1,73 @@
+{
+  "summary": "Use the official pgvector/pgvector Docker image (adds pgvector to the stock postgres image) as the Compose db service, enable both `vector` and `pg_trgm` via CREATE EXTENSION (both are standard/trusted contrib extensions, no superuser needed for pg_trgm), and set shm_size for parallel HNSW index builds. Health-check the db with pg_isready forced over TCP (-h 127.0.0.1) rather than the default socket probe, because the official Postgres image listens only on a Unix socket during initdb and a socket-based pg_isready can report healthy before the real TCP listener exists, releasing dependents into ECONNREFUSED. For backups, run a scheduled pg_dump (custom format, -Fc) from a sidecar/cron job or host cron into mounted/object storage, and periodically prove restorability by loading the newest dump into a throwaway Postgres container rather than trusting dump success alone. For HTTPS, front the bot container with a reverse proxy (e.g. Caddy) that terminates TLS automatically via Let's Encrypt and forwards to the app's internal port.",
+  "key_findings": [
+    "pgvector ships prebuilt Docker images pgvector/pgvector:pgXX (Postgres 13-18, e.g. pg18-trixie/pg18-bookworm) that layer the extension onto the official postgres image; enable with `CREATE EXTENSION vector;` (pgvector GitHub README, build example references pgvector v0.8.7).",
+    "pgvector README recommends sizing Docker shared memory (e.g. --shm-size or shm_size in compose) to at least the configured maintenance_work_mem when doing parallel HNSW index builds, to avoid build errors.",
+    "pg_trgm is a 'trusted' contrib extension per PostgreSQL docs (checked against the Postgres 18 docs page): any DB user with CREATE privilege can run `CREATE EXTENSION pg_trgm;` without superuser; typical indexes use GIST/GIN with gist_trgm_ops/gin_trgm_ops.",
+    "Official postgres Docker image docs (docker-library/docs) state the data volume must be mounted at /var/lib/postgresql/data for Postgres 17 and earlier (mounting at the parent /var/lib/postgresql will not persist data across recreation); Postgres 18+ moved PGDATA under a version-specific path and the mount point changed to /var/lib/postgresql.",
+    "docker-library/postgres PR #440 documents that the official image sets listen_addresses='' during initdb so the server is reachable only via a Unix socket at that stage, specifically to stop healthchecks from passing on a not-yet-ready server; the final server does listen on TCP.",
+    "Multiple 2025-era GitHub fix PRs (e.g. docker-library/postgres#440 and several app-repo compose fixes found via search) converge on the same remedy: run pg_isready with an explicit host flag, e.g. `pg_isready -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\"`, so the healthcheck only passes once the real TCP listener is accepting connections; a bare `pg_isready` (which defaults to the socket) can report ready during the init-only socket phase.",
+    "A commonly cited compose healthcheck pattern is `test: [\"CMD-SHELL\", \"pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}\"]` with `start_period` set (e.g. 10s) to tolerate normal first-boot init time without flapping to unhealthy [uncertain].",
+    "Standard single-database backup/restore commands: `pg_dump -U <user> -Fc <db> > backup.dump` for a custom-format dump, and `pg_restore --clean --if-exists -U <user> -d <db> backup.dump` (or plain-SQL `pg_dump ... > backup.sql` / `psql ... < backup.sql`) to restore.",
+    "docker-postgres-cron-backup (mentos1386/docker-postgres-cron-backup, GitHub) is a sidecar image that runs scheduled pg_dump jobs via cron inside Compose, configured through POSTGRES_HOST/PORT/USER/PASS (or PASS_FILE for Docker secrets), CRON_TIME (default Sundays 03:00 UTC, adjustable to nightly), MAX_BACKUPS for retention, and ships a restore.sh for restoring a chosen backup back into Postgres.",
+    "A widely-recommended restore-drill pattern (multiple 2025-2026 blog posts, e.g. dev.to restore-drill articles) is to spin up a disposable Postgres container of the same major version, restore the latest backup into it, and run validation queries/errors-fatal checks, scheduled (e.g. monthly or nightly) via cron/CI rather than assuming a successful dump implies a restorable backup.",
+    "Caddy's documented quick-start reverse-proxy setup automatically serves HTTPS once it is given a real hostname: a two-line Caddyfile (`example.com` / `reverse_proxy :9000`) is enough for Caddy to obtain a publicly-trusted certificate via its automatic TLS; for `localhost`/`.localhost` it issues a self-signed cert instead."
+  ],
+  "recommendations": [
+    "Base the db service on pgvector/pgvector:pgXX-bookworm (pin an explicit Postgres major matching the current schema) rather than the bare postgres image, so the vector extension binary ships with the image; still run `CREATE EXTENSION vector;` and `CREATE EXTENSION pg_trgm;` as init SQL or migration, since the extension objects themselves are not auto-created.",
+    "Write the db healthcheck as `pg_isready -h 127.0.0.1 -U <user> -d <db>` with a start_period of 10-30s, not a bare `pg_isready`, to avoid the documented false-healthy window during initdb's socket-only phase; gate `depends_on: condition: service_healthy` on this check for the bot and (if used) MinIO services.",
+    "Set `shm_size` (e.g. 256m-1g) on the Postgres service in compose if maintenance_work_mem is raised for HNSW builds, per pgvector's own Docker guidance.",
+    "Run nightly pg_dump in custom format (-Fc) to a bind-mounted or MinIO-backed backup path via either host cron or a small cron sidecar (docker-postgres-cron-backup is a usable off-the-shelf option); keep a bounded retention count and avoid plaintext credentials in the compose file (use env_file/secrets).",
+    "Treat 'backup exists' as insufficient: implement a restore drill that loads the most recent dump into a throwaway Postgres container (same major version, with pgvector/pg_trgm extensions installed) and run a sanity query (e.g. row counts, a known embedding row) before considering the backup verified; document this drill in RUNBOOK and schedule it periodically rather than only on-demand.",
+    "Put a reverse proxy (Caddy is the simplest for automatic Let's Encrypt HTTPS; nginx+certbot is an alternative if more config control is needed) in its own compose service in front of the bot container, forwarding only the app port and terminating TLS there; do not expose Postgres or MinIO ports publicly.",
+    "Document exact startup order and expected healthy states (db -> optional MinIO -> bot -> proxy) in README/RUNBOOK so `docker compose up` is reproducible on the school's Linux server without GCP-specific assumptions."
+  ],
+  "as_of": "2026-11 (pgvector README referencing v0.8.7 and pg18 image tags; PostgreSQL 18 docs for pg_trgm; docker-library/postgres PR #440 fix for init-time healthcheck false positives; Caddy current docs quick-start)",
+  "sources": [
+    {
+      "title": "pgvector/pgvector GitHub README",
+      "url": "https://github.com/pgvector/pgvector",
+      "type": "repo",
+      "quote": "This image adds pgvector to the postgres image... docker pull pgvector/pgvector:pg18-trixie"
+    },
+    {
+      "title": "mentos1386/docker-postgres-cron-backup",
+      "url": "https://github.com/mentos1386/docker-postgres-cron-backup",
+      "type": "repo",
+      "quote": "Docker image to backup all your databases periodically... CRON_TIME ... MAX_BACKUPS ... restore.sh"
+    },
+    {
+      "title": "docker-library/docs postgres README (via Docker Hub)",
+      "url": "https://hub.docker.com/_/postgres",
+      "type": "official-docs",
+      "quote": "Mount the data volume at /var/lib/postgresql/data and not at /var/lib/postgresql because mounts at the latter path WILL NOT PERSIST database data when the container is re-created."
+    },
+    {
+      "title": "docker-library/postgres PR #440",
+      "url": "https://github.com/docker-library/postgres/pull/440",
+      "type": "repo",
+      "quote": "If the list is empty, the server does not listen on any IP interface at all, in which case only Unix-domain sockets can be used to connect to it."
+    },
+    {
+      "title": "pg_isready healthcheck TCP-vs-socket fix PRs (search aggregate)",
+      "url": "https://github.com/docker-library/postgres/pull/440",
+      "type": "repo",
+      "quote": "Passing -h 127.0.0.1 forces a TCP probe, which tracks the real listener in every phase"
+    },
+    {
+      "title": "PostgreSQL 18 Documentation: pg_trgm",
+      "url": "https://www.postgresql.org/docs/current/pgtrgm.html",
+      "type": "official-docs",
+      "quote": "This module is considered \"trusted\", that is, it can be installed by non-superusers who have CREATE privilege on the current database."
+    },
+    {
+      "title": "Caddy reverse proxy quick start",
+      "url": "https://caddyserver.com/docs/quick-starts/reverse-proxy",
+      "type": "official-docs",
+      "quote": "Caddy will serve your proxy over HTTPS automatically and by default if it knows the hostname (domain name)."
+    }
+  ],
+  "uncertain": [
+    "key_findings"
+  ]
+}

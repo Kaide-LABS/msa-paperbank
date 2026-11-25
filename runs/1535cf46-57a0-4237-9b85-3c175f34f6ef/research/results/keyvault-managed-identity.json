@@ -1,0 +1,44 @@
+{
+  "summary": "Azure Container Apps has native Key Vault reference secrets: a secret is defined with a keyVaultUrl plus an identity (system- or user-assigned managed identity), and Container Apps auto-resolves/refreshes the value, replacing the GCP Secret Manager + service-account pattern. On the app side, pydantic-settings ships a built-in AzureKeyVaultSettingsSource that uses azure-identity's DefaultAzureCredential (which resolves to the Container App's managed identity in Azure and to az login locally) to pull secrets inside settings_customise_sources. Combine both: platform-level keyvaultref secrets for simple env-var values (rotation handled by the platform), and AzureKeyVaultSettingsSource in the config loader for structured/bulk secret loading, mirrored as the Azure branch of the existing secrets abstraction.",
+  "key_findings": [
+    "Container Apps Key Vault reference CLI syntax: --secrets 'name=keyvaultref:<KEY_VAULT_SECRET_URI>,identityref:<IDENTITY_ID>'; ARM template uses secrets[].keyVaultUrl + identity:'system' or a user-assigned identity resource ID (learn.microsoft.com/azure/container-apps/manage-secrets, page dated 2026-09-04, updated 2026-09-11).",
+    "Managed identity must be enabled before referencing Key Vault secrets; the identity needs RBAC role 'Key Vault Secrets User' on the vault (RBAC model, not legacy access policies), per same doc.",
+    "If the Key Vault URI omits a version, Container Apps auto-polls and picks up the latest secret version within 30 minutes, restarting active revisions that reference it in an env var; the platform handles rotation.",
+    "System-assigned identity can't be used with `az containerapp create` because it doesn't exist yet; only a user-assigned identity works at create time per the CLI docs.",
+    "PowerShell (New-AzContainerApp / New-AzContainerAppSecretObject) does NOT support Key Vault secret references; only ARM template or Azure CLI paths support keyVaultUrl, per the same doc.",
+    "pydantic-settings provides AzureKeyVaultSettingsSource, installed via the extra `pydantic-settings[azure-key-vault]` (pulls in azure-identity and azure-keyvault-secrets); current PyPI release is 2.16.2, dated 2026-10-28.",
+    "AzureKeyVaultSettingsSource(settings_cls, vault_url, credential) is wired in by overriding settings_customise_sources() and returning it in the source tuple, used with DefaultAzureCredential(); docs state DefaultAzureCredential resolves via `az login` for local dev.",
+    "AzureKeyVaultSettingsSource also supports dash_to_underscore and nested-model key naming via a '--' separator, per the pydantic.dev settings management page."
+  ],
+  "recommendations": [
+    "Implement a KeyVaultSettingsSource adapter wrapping pydantic-settings' AzureKeyVaultSettingsSource + DefaultAzureCredential as the Azure branch of the existing secrets/config abstraction, parallel to the GCP Secret Manager adapter.",
+    "Assign a user-assigned managed identity (not system-assigned) to the Container App and jobs so the identity resource ID can be referenced in Bicep before the app itself is created, and shared across the API app and Container Apps Jobs.",
+    "Grant 'Key Vault Secrets User' scoped to the Key Vault resource only (not resource group/subscription), for least-privilege parity with GCP's per-secret IAM bindings.",
+    "For simple scalar secrets (DB password, API keys) used as env vars, prefer platform-level keyvaultref secrets over in-app fetches, since Azure handles the ~30 min rotation/restart automatically.",
+    "Keep AzureKeyVaultSettingsSource only in the Azure settings_customise_sources path; retain the local/dotenv source for local dev and tests so they don't require live Azure credentials.",
+    "Default to unversioned Key Vault secret URIs (no pinned version) so automatic rotation works; only pin a version if you explicitly need to freeze a secret.",
+    "Use the Bicep/ARM path (which natively supports keyVaultUrl + identity) for all secret provisioning rather than PowerShell cmdlets, consistent with the acceptance criterion requiring `az deployment` with Bicep templates."
+  ],
+  "as_of": "2026-11-02; Container Apps manage-secrets doc last updated 2026-09-11 (ms.date 2026-09-04); pydantic-settings 2.16.2 released 2026-10-28 per PyPI",
+  "sources": [
+    {
+      "title": "Manage secrets in Azure Container Apps",
+      "url": "https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets",
+      "type": "official-docs",
+      "quote": "To specify a Key Vault reference, use the format <SECRET_NAME>=keyvaultref:<KEY_VAULT_SECRET_URI>,identityref:<MANAGED_IDENTITY_ID>... grant the Azure RBAC role Key Vault Secrets User to the managed identity."
+    },
+    {
+      "title": "Settings Management - Pydantic documentation",
+      "url": "https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/",
+      "type": "official-docs",
+      "quote": "az_key_vault_settings = AzureKeyVaultSettingsSource(settings_cls, os.environ['AZURE_KEY_VAULT_URL'], DefaultAzureCredential())"
+    },
+    {
+      "title": "pydantic-settings · PyPI",
+      "url": "https://pypi.org/project/pydantic-settings/",
+      "type": "official-docs",
+      "quote": "Version: 2.16.2, Release Date: October 28, 2026 ... azure-key-vault extra is available among the optional extras."
+    }
+  ],
+  "uncertain": []
+}

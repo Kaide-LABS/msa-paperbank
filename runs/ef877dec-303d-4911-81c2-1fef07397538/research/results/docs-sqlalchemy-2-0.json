@@ -1,0 +1,84 @@
+{
+  "summary": "The official SQLAlchemy docs confirm 2.0 is now the 'legacy version' maintenance series (latest patch 2.0.57, Nov 3 2026), with 2.1 (2.1.8) as the new current line; the build's constraint to 'keep SQLAlchemy 2.0' means pinning to the 2.0.x maintenance branch rather than the newer 2.1 line. The 2.0 ORM API this build needs is stable: Mapped/mapped_column typed declarative models, Session.execute(select(...)) with .scalars()/.scalars().all(), Session.get(), and synonym() for the reversible gcs_* column rename. No further breaking changes are expected within 2.0.x since it is in maintenance-only mode; the only breaking-change risk is the 1.4→2.0 migration semantics (Query vs select(), removed implicit autocommit), which are well documented and stable as of this writing.",
+  "key_findings": [
+    "Official docs header on docs.sqlalchemy.org/en/20/ marks the series as 'Release: 2.0.57 legacy version | Release Date: November 3, 2026'; docs.sqlalchemy.org/en/20/changelog/whatsnew_20.html confirms 2.0 is now 'Maintenance Release (2.0)' while 2.1 is 'Current Documentation'.",
+    "sqlalchemy.org/download.html lists current overall stable as 2.1.8 (Nov 4, 2026); the build's own constraint pins to the 2.0 line, so 2.0.57 is the version to target, not 2.1.",
+    "synonym() signature per docs.sqlalchemy.org/en/20/orm/mapped_attributes.html: sqlalchemy.orm.synonym(name, *, map_column=None, descriptor=None, comparator_factory=None, info=None, doc=None, ...) -> Synonym[Any]; usage: `status = synonym(\"job_status\")` makes `status` mirror the value/expression behavior of the real mapped column, directly matching the gcs_* rename requirement.",
+    "2.0 ORM query style (docs.sqlalchemy.org/en/20/orm/queryguide/select.html): construct with select(Model), execute via session.execute(stmt) (returns Row tuples) or session.scalars(stmt) (returns entities directly); `.all()` materializes results; async usage is identical API via AsyncSession with await.",
+    "Migration guide (docs.sqlalchemy.org/en/20/changelog/migration_20.html) states Query becomes a long-term legacy object replaced by select(); session.query(Model).get(id) becomes session.get(Model, id); engine-level autocommit/connectionless execution and Session.autocommit are removed; recommends running 1.4 with SQLALCHEMY_WARN_20=1 first to surface 2.0-incompatible patterns before upgrading.",
+    "Declarative imports moved from sqlalchemy.ext.declarative to sqlalchemy.orm (declarative_base, declared_attr); models using plain type annotations without Mapped[] need `__allow_unmapped__ = True` on the base class to avoid mapping errors under 2.0's stricter typing.",
+    "Doc notes hybrid_property is generally preferred over synonym() for new code with custom getter/setter logic, but synonym() is explicitly still supported and is the documented mechanism for attribute aliasing — appropriate for the reversible gcs_* rename."
+  ],
+  "recommendations": [
+    "Pin the dependency to the SQLAlchemy 2.0.x maintenance line (e.g. sqlalchemy~=2.0.57) rather than upgrading to 2.1, consistent with the build's 'keep SQLAlchemy 2.0' constraint; 2.1 is a separate major line with its own migration guide and should not be adopted in this migration.",
+    "Implement the gcs_* rename using `new_name = synonym(\"gcs_name\")` (or vice versa) so both the legacy and provider-neutral attribute names resolve to the same mapped column — this is the exact reversible mechanism acceptance criterion 5 requires.",
+    "Use 2.0-style select()/Session.execute()/session.scalars() throughout any new or touched retrieval code rather than the legacy Query API, since Query is a long-term legacy object in 2.0 and the codebase should not introduce new legacy-style calls during this migration.",
+    "If any existing code still uses sqlalchemy.ext.declarative or implicit autocommit/connectionless engine.execute(), fix those during Phase 1 since they are removed in 2.0 — but only touch what is already broken or directly in scope, not unrelated 1.4-era patterns.",
+    "Do not block on or plan around SQLAlchemy 2.1 features; treat 2.1 docs/changelog as out of scope for this build."
+  ],
+  "as_of": "2026-11-11 (docs reflect SQLAlchemy 2.0.57, legacy/maintenance release dated 2026-11-03; current overall stable line is 2.1.8 per sqlalchemy.org/download.html)",
+  "sources": [
+    {
+      "title": "SQLAlchemy 2.0 Documentation (en/20 index)",
+      "url": "https://docs.sqlalchemy.org/en/20/",
+      "type": "official-docs",
+      "quote": "Release: 2.0.57 legacy version | Release Date: November 3, 2026"
+    },
+    {
+      "title": "What's New in SQLAlchemy 2.0? — SQLAlchemy 2.0 Documentation",
+      "url": "https://docs.sqlalchemy.org/en/20/changelog/whatsnew_20.html",
+      "type": "official-docs",
+      "quote": "Maintenance Release (2.0) ... Current Documentation (version 2.1)"
+    },
+    {
+      "title": "SQLAlchemy 2.0 - Major Migration Guide — SQLAlchemy 2.0 Documentation",
+      "url": "https://docs.sqlalchemy.org/en/20/changelog/migration_20.html",
+      "type": "official-docs",
+      "quote": "The Query object becomes a long term legacy object...replaced by the direct usage of the select() construct"
+    },
+    {
+      "title": "Changing Attribute Behavior — SQLAlchemy 2.0 Documentation (mapped_attributes)",
+      "url": "https://docs.sqlalchemy.org/en/20/orm/mapped_attributes.html",
+      "type": "official-docs",
+      "quote": "Denote an attribute name as a synonym to a mapped property, in that the attribute will mirror the value and expression behavior of another attribute."
+    },
+    {
+      "title": "ORM Querying Guide: Using SELECT statements — SQLAlchemy 2.0 Documentation",
+      "url": "https://docs.sqlalchemy.org/en/20/orm/queryguide/select.html",
+      "type": "official-docs",
+      "quote": "when selecting a list of single-element rows containing ORM entities, it is typical to skip the generation of Row objects"
+    },
+    {
+      "title": "Download - SQLAlchemy",
+      "url": "https://www.sqlalchemy.org/download.html",
+      "type": "official-docs",
+      "quote": "current stable release is SQLAlchemy 2.1.8, released on November 4, 2026"
+    },
+    {
+      "title": "SQLAlchemy ORM Mapping API",
+      "url": "https://docs.sqlalchemy.org/en/20/orm/mapping_api.html",
+      "type": "official-docs",
+      "quote": "synonym_for() ... Decorator that produces a synonym() attribute in conjunction with a Python descriptor."
+    }
+  ],
+  "current_version": "2.0.57 (legacy/maintenance line this build targets); overall project current stable is 2.1.8 but out of scope per build constraints",
+  "api_surface": [
+    "sqlalchemy.orm.Mapped[...] / mapped_column(...) for typed declarative model columns",
+    "sqlalchemy.orm.synonym(name, ...) for the reversible gcs_* attribute rename",
+    "sqlalchemy.select(Model).where(...) built as a Select construct",
+    "Session.execute(stmt) returning Row tuples; Session.scalars(stmt).all() returning ORM entities directly",
+    "Session.get(Model, id) replacing legacy Query.get()",
+    "engine.begin() / conn.begin() context managers for explicit transactions (autocommit removed)",
+    "sqlalchemy.orm.declarative_base / declared_attr imported from sqlalchemy.orm (not sqlalchemy.ext.declarative)",
+    "AsyncSession.execute(stmt) with await, same method names as sync Session, for any async FastAPI retrieval paths"
+  ],
+  "pitfalls": [
+    "SQLAlchemy 2.0 is now the maintenance/legacy line as of the docs checked (Nov 2026); the actively developed current line is 2.1 — pin explicitly to avoid an unintended major-version drift.",
+    "session.query(Model) is legacy; mixing it with select()/scalars() style in the same codebase is allowed but the docs mark Query as long-term-legacy, so new/modified code should use select().",
+    "engine-level autocommit and connectionless execution (engine.execute()) were removed in 2.0 — any lingering 1.4-era calls will fail outright.",
+    "Models using plain (non-Mapped) type annotations will raise mapping errors under 2.0 unless the base class sets __allow_unmapped__ = True.",
+    "joinedload()-based collection results are not auto-deduplicated in 2.0 ORM-execute mode; call .unique() when needed to avoid subtly wrong result sets during the search parity comparison (acceptance criterion 9).",
+    "hybrid_property is the documented preferred alternative to synonym() for anything beyond a simple name alias — use synonym() specifically because it is the minimal, reversible option for the gcs_* rename, not for new general-purpose aliasing."
+  ],
+  "uncertain": []
+}

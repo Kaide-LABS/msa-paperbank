@@ -2,8 +2,9 @@ __pycache__/
 **/__pycache__/
 .venv/
 .env
+.env.example
 tests/
-migrations/
+# migrations/ and apply_migrations.py ARE copied into the image (compose applies 001-007 at start)
 # Keep the docker build context small — never send the ~2GB corpus zip or local junk to the daemon.
 *.zip
 .git/

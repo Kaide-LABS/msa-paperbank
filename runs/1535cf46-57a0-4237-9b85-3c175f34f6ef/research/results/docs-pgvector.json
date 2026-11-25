@@ -1,0 +1,81 @@
+{
+  "summary": "pgvector is the open-source Postgres extension providing a `vector` type plus `ivfflat`/`hnsw` approximate-nearest-neighbor indexes; this build keeps using it unchanged after the Azure move. On Azure Database for PostgreSQL Flexible Server, the extension is named `vector` (not `pgvector`), must be allowlisted via the `azure.extensions` server parameter, then enabled per-database with `CREATE EXTENSION vector;`. As of the Microsoft Learn extensions-versions page (dated 2026-07-10), Azure ships pgvector 0.8.2 for PostgreSQL 13-18 (0.7.0 for PG12, 0.5.1 for PG11), while the upstream pgvector project's latest tagged release is 0.8.7 (2026-10-01) -- Azure trails upstream by several patch releases. The API surface the build needs (vector(768) column, HNSW index, `<->`/`<=>` operators, `l2_distance`/`cosine_distance` functions) has been stable since 0.7.0 and required no breaking changes in the 2024-2026 window; the one forward-looking risk is the unreleased 0.9.0 line, which per the project's changelog plans to drop PostgreSQL 13/14 support.",
+  "key_findings": [
+    "Azure Database for PostgreSQL Flexible Server currently ships pgvector (extension name 'vector') version 0.8.2 for PG 13-18, 0.7.0 for PG12, 0.5.1 for PG11, per learn.microsoft.com/azure/postgresql/extensions/concepts-extensions-versions (ms.date 2026-07-10).",
+    "Upstream pgvector's latest tagged release on GitHub is 0.8.7, dated 2026-10-01; prior 0.8.x releases span 0.8.0 (2024-10-30) through 0.8.6 (2026-07-29).",
+    "Azure Release Notes record GA of 'Pgvector 0.5.1' (Nov 2023), 'version 0.6.0' (Mar 2024), 'Pgvector 0.7.0' (Jul 2024), and 'Pgvector 0.8.0 extension' (May 2025) -- the extensions-versions table shows it has since advanced to 0.8.2.",
+    "On Azure, the binary/extension identifier is literally `vector`, not `pgvector`; it must first be added to the `azure.extensions` allowlist (Portal Parameters blade, or `az postgres flexible-server parameter set --name azure.extensions --value vector,...`) before `CREATE EXTENSION vector;` succeeds.",
+    "pgvector supports six operators: `<->` (L2/Euclidean), `<#>` (negative inner product), `<=>` (cosine), `<+>` (L1), plus `<~>` (Hamming) and `<%>` (Jaccard) for binary vectors; and functions `l2_distance`, `cosine_distance`, `inner_product`, `l1_distance`, `vector_dims`, `vector_norms`.",
+    "Two index types are available: HNSW (multilayer graph, slower build, better query recall/latency) and IVFFlat (faster build, lower query performance) -- this build should use HNSW to match the existing Vector(768)+HNSW design.",
+    "Standard `vector` columns support up to 16,000 dimensions (half-precision `halfvec` also up to 16,000 dims at 2 bytes/element; binary vectors up to 64,000 dims; sparse vectors up to 16,000 non-zero elements) -- 768 dims is well within limits.",
+    "pgvector's CHANGELOG lists an unreleased 0.9.0 line adding asynchronous I/O for HNSW indexes and dropping support for PostgreSQL 13 and 14 [uncertain]; several 0.7.4/0.8.x releases fixed HNSW vacuum and index-build bugs, none of which were flagged as breaking for the `<->`/`<=>` query API."
+  ],
+  "recommendations": [
+    "Keep the existing SQLAlchemy 2.0 model unchanged: `Vector(768)` column type with a HNSW index on cosine distance (`vector_cosine_ops`), since both the upstream API and Azure's 0.8.2 build support this without modification.",
+    "In the Bicep/IaC provisioning step, explicitly set the `azure.extensions` server parameter to include `vector` (and `pg_trgm`) before attempting `CREATE EXTENSION vector;` -- omitting the allowlist step is the most common failure mode on Azure Flexible Server.",
+    "Pin application-level expectations to pgvector 0.8.x semantics (current Azure-supported version is 0.8.2); do not rely on any upstream 0.8.7-only or 0.9.0-only behavior (e.g., async HNSW I/O) until Azure's extensions-versions page shows that version available.",
+    "If a future PostgreSQL major-version upgrade is planned, verify PG13/14 compatibility against pgvector before upgrading past 0.8.x, since the unreleased 0.9.0 line is slated to drop PG13/14 support.",
+    "Use `ORDER BY embedding <=> query_vector LIMIT k` (cosine) for the retrieval callable to match the existing Vertex-era cosine-similarity ranking semantics; confirm HNSW `ef_search` is tuned the same as the current GCP deployment for parity in the before/after top-k comparison."
+  ],
+  "as_of": "Azure docs dated 2026-07-10 (extensions-versions, how-to-use-pgvector, how-to-allow-extensions) and 2026-09-14 (release-notes); upstream pgvector CHANGELOG through 0.8.7 (2026-10-01), with 0.9.0 listed as unreleased",
+  "sources": [
+    {
+      "title": "pgvector GitHub repository (README)",
+      "url": "https://github.com/pgvector/pgvector",
+      "type": "official-docs",
+      "quote": "pgvector ... Open-source vector similarity search for Postgres ... Supports: exact and approximate nearest neighbor search, L2 distance, inner product, cosine distance, L1 distance, Hamming distance, and Jaccard distance ... HNSW ... IVFFlat"
+    },
+    {
+      "title": "pgvector CHANGELOG",
+      "url": "https://raw.githubusercontent.com/pgvector/pgvector/master/CHANGELOG.md",
+      "type": "official-docs",
+      "quote": "0.9.0 (unreleased) ... Added asynchronous I/O for HNSW indexes ... Dropped support for Postgres 13 and 14"
+    },
+    {
+      "title": "Vector Search in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/how-to-use-pgvector",
+      "type": "official-docs",
+      "quote": "Although the PostgreSQL community refers to this extension as pgvector, the name of the binary and the extension itself is simply `vector`. ... CREATE EXTENSION vector;"
+    },
+    {
+      "title": "Allow Extensions in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/how-to-allow-extensions",
+      "type": "official-docs",
+      "quote": "az postgres flexible-server parameter set --resource-group <resource_group> --server-name <server> --name azure.extensions --value \"<extension_name>,<extension_name>\""
+    },
+    {
+      "title": "List of Extensions and Modules by Name in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/concepts-extensions-versions",
+      "type": "official-docs",
+      "quote": "vector ... is a vector data type and ivfflat and hnsw access methods. | PostgreSQL version 18/17/16/15/14/13 | 0.8.2 | 12 | 0.7.0 | 11 | 0.5.1"
+    },
+    {
+      "title": "Release Notes for Azure Database for PostgreSQL flexible server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/release-notes/release-notes",
+      "type": "official-docs",
+      "quote": "Release: May 2025 ... Pgvector 0.8.0 extension ... Release: July 2024 ... General availability of Pgvector 0.7.0 extension ... Release: November 2023 ... General availability of Pgvector 0.5.1 extension"
+    }
+  ],
+  "current_version": "Upstream pgvector: 0.8.7 (2026-10-01), with 0.9.0 unreleased; Azure Database for PostgreSQL Flexible Server ships 0.8.2 for PG13-18 as of the 2026-07-10 extensions-versions doc",
+  "api_surface": [
+    "CREATE EXTENSION vector; (per-database, after allowlisting via azure.extensions)",
+    "Column type: embedding vector(768)",
+    "Index: CREATE INDEX ... USING hnsw (embedding vector_cosine_ops) WITH (m = ..., ef_construction = ...)",
+    "Query operator: ORDER BY embedding <=> :query_vector LIMIT k (cosine distance)",
+    "Functions: cosine_distance(vector, vector), l2_distance(vector, vector), inner_product(vector, vector), vector_dims(vector)",
+    "Session tuning: SET hnsw.ef_search = ...",
+    "az postgres flexible-server parameter set --name azure.extensions --value vector,pg_trgm (provisioning-time allowlist)"
+  ],
+  "pitfalls": [
+    "Extension must be allowlisted via the `azure.extensions` server parameter before `CREATE EXTENSION vector;` will succeed on Azure Flexible Server -- a GCP-side migration script that skips this step will fail.",
+    "The extension and binary name on Azure is `vector`, not `pgvector`; any script or doc referencing `pgvector` as the CREATE EXTENSION name needs correcting.",
+    "Azure's supported pgvector version (0.8.2) lags upstream's latest (0.8.7); do not depend on upstream-only fixes/features from 0.8.3-0.8.7 until Azure's extensions-versions table reflects them.",
+    "pgvector's unreleased 0.9.0 line is planned to drop PostgreSQL 13 and 14 support and add async I/O for HNSW [uncertain] -- treat as a future compatibility risk, not a current constraint.",
+    "Several 0.7.4/0.8.3/0.8.4 upstream releases fixed HNSW vacuum/build bugs; confirm Azure's bundled 0.8.2 behaves correctly under the project's existing HNSW index workload before relying on vacuum-heavy update patterns.",
+    "Dimension limits (16,000 for standard vectors) are far above the build's 768-dim requirement, so no schema change is needed, but don't assume unlimited dimensionality if embedding models change later."
+  ],
+  "uncertain": [
+    "key_findings",
+    "pitfalls"
+  ]
+}

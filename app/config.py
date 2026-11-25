@@ -1,18 +1,28 @@
 import os
 from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from google.cloud import secretmanager
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
-    
-    gcp_project: str
-    gcp_location: str = "global"
-    cloud_sql_instance: str
+
+    # Provider seam (Phase 1): selects which adapters the factory returns. Only "gcp"
+    # is valid this phase; "local"/"minio" arrive in later phases. Env: PROVIDER.
+    provider: str = "local"
+    storage_root: str = "./data/objects"
+    minio_endpoint: str | None = None
+    minio_bucket: str | None = None
+    minio_access_key: SecretStr | None = None
+    minio_secret_key: SecretStr | None = None
+    minio_secure: bool = True
+    url_signing_key: SecretStr | None = None
+    download_base_url: str = "http://localhost:8080"
+    database_url: str | None = None
+    tool_api_token: SecretStr | None = None
+    secrets_dir: str | None = None
     db_user: str
     db_password: SecretStr
     db_name: str = "paperbank"
-    gcs_bucket: str
+    object_store_bucket: str = Field(validation_alias=AliasChoices("OBJECT_STORE_BUCKET", "GCS_BUCKET"))
     wa_phone_number_id: str
     wa_access_token: SecretStr
     wa_app_secret: SecretStr
@@ -25,6 +35,15 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     model_embedding: str = "gemini-embedding-001"
     embedding_dim: int = 768
+    # Phase 4 local CPU embedder (provider in {"local","minio"}). Native 768-dim,
+    # CPU, loaded lazily at FastAPI lifespan / first encode — never at import, never
+    # a network fetch at import. `embedding_model_path` (a pre-downloaded local dir)
+    # is preferred over the hub name when set, for an offline school server.
+    embedding_model_name: str = "sentence-transformers/all-mpnet-base-v2"
+    embedding_model_path: str | None = None
+    embedding_device: str = "cpu"
+    embedding_normalize: bool = True
+    embedding_batch_size: int = 32
     ocr_max_image_bytes: int = 7_000_000
     ocr_max_images_per_paper: int = 12
     # Decision 2 (2026-06 OCR probe): cv2 preprocessing improved 0/12 sampled files and was
@@ -53,7 +72,7 @@ class Settings(BaseSettings):
     image_batch_seal_seconds: int = 90
     image_intake_ocr_per_day: int = 100
     image_intake_max_open_batches_per_phone_per_day: int = 3
-    media_gcs_prefix: str = "media/"
+    media_prefix: str = Field("media/", validation_alias=AliasChoices("MEDIA_PREFIX", "MEDIA_GCS_PREFIX"))
     personalization_min_interactions: int = 5
     personalization_tie_band: float = 0.05
     personalization_top_k_for_bias: int = 2
@@ -96,7 +115,7 @@ class Settings(BaseSettings):
     # Build 2: WhatsApp contribution intake (students photograph papers -> bot validates/collects ->
     # awaiting_review queue; NOTHING student-visible until the Build-3 web app approves).
     serve_contributions_enabled: bool = True
-    contribution_gcs_prefix: str = "contributions/"   # contributed raw images, separate from corpus_full/
+    contribution_prefix: str = Field("contributions/", validation_alias=AliasChoices("CONTRIBUTION_PREFIX", "CONTRIBUTION_GCS_PREFIX"))   # contributed raw images, separate from corpus_full/
     contribution_weekly_cap: int = 20                 # accepted finalized sessions per rolling 7 days (general public)
     contribution_idle_seconds: int = 90               # idle before the sweep checks in / finalizes a collecting session
     contribution_max_pages: int = 20                  # safety cap on pages per contribution
@@ -112,15 +131,15 @@ class Settings(BaseSettings):
 def load_settings_with_secret_manager() -> Settings:
     if os.environ.get("GCP_LOAD_FROM_SECRETS") != "1":
         return Settings()
-    
-    client = secretmanager.SecretManagerServiceClient()
+
+    from app.providers import get_secrets_provider
+
+    secrets = get_secrets_provider()
     for key, value in os.environ.items():
         if key.endswith("_FROM_SECRET"):
             actual_key = key.replace("_FROM_SECRET", "")
-            response = client.access_secret_version(name=value)
-            payload = response.payload.data.decode("UTF-8")
-            os.environ[actual_key] = payload
-            
+            os.environ[actual_key] = secrets.get(value)
+
     return Settings()
 
 settings = load_settings_with_secret_manager()

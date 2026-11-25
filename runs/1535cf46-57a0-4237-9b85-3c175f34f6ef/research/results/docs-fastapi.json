@@ -1,0 +1,83 @@
+{
+  "summary": "FastAPI's official docs (fastapi.tiangolo.com) confirm the current stable release is 0.162.0 (PyPI, released 2026-10-23), requiring Python >=3.10 (3.10-3.14). Installation is via `pip install \"fastapi[standard]\"` or `uv add \"fastapi[standard]\"`, which pulls in uvicorn and the `fastapi` CLI (`fastapi dev` / `fastapi run`). This build will use the core API surface: `FastAPI()` app instance, `APIRouter`, path operation decorators, Pydantic v2 `BaseModel` request/response models, the `Depends()` dependency-injection system (for DB sessions and settings), `HTTPException`, and the `lifespan` async-context-manager pattern for startup/shutdown (replacing the deprecated `@app.on_event`). For Azure Container Apps, the docs' deployment-concepts page explicitly recommend running a single Uvicorn process per container and letting the cloud platform handle replication, which matches the planned container-based deployment.",
+  "key_findings": [
+    "Current stable version per PyPI and official release notes: 0.162.0, released 2026-10-23.",
+    "FastAPI requires Python >=3.10; PyPI classifiers list 3.10, 3.11, 3.12, 3.13, 3.14 support.",
+    "Install via `pip install \"fastapi[standard]\"` or `uv add \"fastapi[standard]\"`; the `[standard]` extra bundles uvicorn and the fastapi CLI.",
+    "`fastapi dev` runs a local auto-reload dev server bound to 127.0.0.1; `fastapi run` is the production-mode command bound to 0.0.0.0 with auto-reload off.",
+    "`@app.on_event(\"startup\"/\"shutdown\")` is deprecated; official guidance is to use the `lifespan` async-context-manager parameter on the FastAPI() constructor instead -- mixing both is unsupported ('it's all lifespan or all events, not both').",
+    "FastAPI follows 0.x versioning and ships frequent 'Breaking Changes' entries in minor releases (multiple breaking-change releases observed through 2025 into Oct 2026 per the official release-notes page), so pinning and reading release notes before upgrading matters.",
+    "Official deployment-concepts docs recommend a single Uvicorn worker process per container for cloud platforms that handle replication themselves (directly applicable to Azure Container Apps)."
+  ],
+  "recommendations": [
+    "Pin an exact FastAPI version in requirements (e.g. 0.162.0) rather than a loose range, given the project's frequent breaking-change releases, and re-check the official release notes before any version bump during the migration.",
+    "Use the `lifespan` async-context-manager pattern (not `@app.on_event`) for any startup/shutdown logic such as initializing the Postgres/pgvector engine or Azure clients, since on_event is deprecated.",
+    "Keep request/response schemas on Pydantic v2 `BaseModel` (already implied by pydantic-settings usage) -- no FastAPI code change needed here beyond ensuring Pydantic v1-style validators aren't reintroduced.",
+    "In the Container Apps Bicep/Dockerfile, run a single Uvicorn/FastAPI process per container (via `fastapi run` or direct uvicorn invocation) and let Container Apps handle replica scaling, per official deployment guidance -- avoid baking in `--workers` multiprocessing unless memory/CPU sizing is explicitly planned for it.",
+    "Verify the Dockerfile's Python base image matches a FastAPI-supported version (>=3.10); do not target Python 3.9 or earlier."
+  ],
+  "as_of": "2026-10-23 (FastAPI 0.162.0); page content fetched 2026-11-02",
+  "sources": [
+    {
+      "title": "FastAPI - Release Notes",
+      "url": "https://fastapi.tiangolo.com/release-notes/",
+      "type": "official-docs",
+      "quote": "0.162.0 ... Breaking Changes"
+    },
+    {
+      "title": "FastAPI (homepage) - requirements and installation",
+      "url": "https://fastapi.tiangolo.com/",
+      "type": "official-docs",
+      "quote": "uv add \"fastapi[standard]\" ... Make sure you put \"fastapi[standard]\" in quotes to ensure it works in all terminals."
+    },
+    {
+      "title": "fastapi on PyPI",
+      "url": "https://pypi.org/project/fastapi/",
+      "type": "official-docs",
+      "quote": "Requires: Python >=3.10"
+    },
+    {
+      "title": "FastAPI - Releases (GitHub)",
+      "url": "https://github.com/fastapi/fastapi/releases",
+      "type": "repo",
+      "quote": "0.162.0 ... boolean form fields handle omitted values"
+    },
+    {
+      "title": "FastAPI - Events: startup and shutdown",
+      "url": "https://fastapi.tiangolo.com/advanced/events/",
+      "type": "official-docs",
+      "quote": "The recommended way to handle the startup and shutdown is using the lifespan parameter of the FastAPI app ... It's all lifespan or all events, not both."
+    },
+    {
+      "title": "FastAPI - About FastAPI versions / Deployments - Concepts",
+      "url": "https://fastapi.tiangolo.com/deployment/concepts/",
+      "type": "official-docs",
+      "quote": "The cloud service will probably handle replication for you ... it would most probably be a single Uvicorn process, and the cloud service would be in charge of replicating it."
+    },
+    {
+      "title": "FastAPI CLI",
+      "url": "https://fastapi.tiangolo.com/fastapi-cli/",
+      "type": "official-docs",
+      "quote": "fastapi dev ... fastapi run"
+    }
+  ],
+  "current_version": "0.162.0 (released 2026-10-23)",
+  "api_surface": [
+    "FastAPI() app instance and APIRouter for route organization",
+    "Path operation decorators (@app.get/post/put/delete) with async def handlers",
+    "Pydantic v2 BaseModel for request/response schema validation",
+    "Depends() dependency-injection system for DB session / settings / auth wiring",
+    "HTTPException for error responses",
+    "lifespan async-context-manager parameter for startup/shutdown (DB engine, Azure client init/teardown)",
+    "fastapi[standard] extra pulling in uvicorn + fastapi CLI (`fastapi dev`, `fastapi run`)"
+  ],
+  "pitfalls": [
+    "@app.on_event('startup'/'shutdown') is deprecated in favor of the lifespan context manager; mixing both is not supported",
+    "FastAPI ships breaking changes inside 0.x minor version bumps (not reserved for major versions) -- release notes list multiple 'Breaking Changes' entries through 2025 and into Oct 2026, so blind upgrades risk regressions",
+    "Current release requires Python >=3.10 -- any base image still on 3.8/3.9 will fail to install current FastAPI [uncertain: exact version where 3.8/3.9 support was dropped]",
+    "Docs explicitly warn against running multiple Uvicorn worker processes per container on platforms (like Container Apps) that already replicate containers -- doing so can double memory usage for loaded models/clients"
+  ],
+  "uncertain": [
+    "pitfalls"
+  ]
+}

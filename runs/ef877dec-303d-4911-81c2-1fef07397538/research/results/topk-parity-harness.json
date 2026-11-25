@@ -1,0 +1,51 @@
+{
+  "summary": "Build a fixed set of real historical queries (frozen before cutover), run them through the old Vertex embeddings and the new local CPU embedder against the same chunk corpus, and compare the resulting top-k lists per query using set-overlap (Jaccard@k) and rank-order agreement (Kendall's tau/Spearman), since no relevance labels exist for this corpus to compute Recall@k/nDCG directly. Standard pgvector/ANN recall@k thresholds (0.95+) apply to approximate-vs-exact search within one embedding space and do not transfer to a cross-model swap, where lower natural overlap is expected even when both models are 'good'; treat a practical overlap bar (e.g., most of the top-10 shared) plus manual review of the lowest-overlap and best-match-changed queries as the pass criterion, and record it in the parity report required by acceptance criterion 9. Do not reuse old similarity-score cutoffs with the new embedder, since score distributions differ across models.",
+  "key_findings": [
+    "pgvector/ANN recall@k is computed as |approx_topk ∩ exact_topk| / k, with exact ground truth from a brute-force ORDER BY embedding <=> query LIMIT k scan; production targets commonly cited around 0.91-0.97, with 0.95+ preferred (dev.to pgvector article).",
+    "Standard shadow-scoring practice for embedding-model migration: embed the same fixed queries with both old and new models in parallel and compare resulting top-k sets/scores before any production cutover (hackernoon article on embedding model deprecation).",
+    "Similarity-score cutoffs do not transfer across embedding models -- a threshold tuned for one model (e.g. ada-002) may be too strict or too loose for another -- so any score-based gating must be recalibrated against the new model's own score distribution (hackernoon article).",
+    "The MTEB framework fixes datasets/metrics (nDCG@10 as primary, with Recall@k, MRR, MAP as supplements) so scores from different embedding models are directly comparable; one reported case treated a 0.09-point nDCG@10 gap (0.546 vs 0.638) between two models as 'substantially competitive' rather than failing, illustrating that practitioners judge parity relatively, not against one universal numeric cutoff (arXiv:2607.23507).",
+    "A dedicated vector-search-quality paper frames 'search quality difference' purely as recall loss from ANN approximation against exact nearest neighbors (reporting 11-93% recall improvements and 8-47% more queries meeting target after their fix) -- but this is an exact-vs-approximate comparison within one embedding space, not a cross-model methodology, so it is only indirectly applicable here (arXiv:2608.25185 abstract).",
+    "Jaccard index for two top-k sets is |X∩Y|/|X∪Y| (0 = no overlap, 1 = identical sets), and Kendall's tau measures ordinal agreement via (concordant - discordant pairs) normalized to [-1,1], with 1 = perfect agreement; these are commonly used together to capture both 'same items retrieved' and 'same order' when comparing two ranked result lists [uncertain] (from search-tool synthesis; I was not able to render the full text of the primary arXiv papers that define this to confirm firsthand).",
+    "The academic papers surfaced as leads for this item (Sentence-T5, RALM robustness, POJK regulatory retrieval benchmark, actinide electronic structure, TwinBERT) are either unrelated to parity methodology (actinide chemistry) or address embedding quality/robustness in general rather than before/after cross-model top-k parity measurement specifically -- none were directly useful for this item's methodology question."
+  ],
+  "recommendations": [
+    "Freeze a fixed query set of real/representative historical bot queries (tens to a couple hundred) before cutover; reuse this exact set for every parity run and for the re-embed job's recorded comparison (acceptance criterion 9).",
+    "For each query, compute top-k (match the bot's production k) under the old Vertex embeddings (snapshotted) and the new local CPU embedder over the same chunk/title corpus, and store both ranked lists plus scores in the parity report artifact.",
+    "Use Jaccard/overlap@k as the primary per-query metric and mean overlap across the fixed set as the aggregate pass/fail signal, supplemented by Kendall's tau or Spearman correlation on the ordering of shared items -- these require no relevance labels, unlike Recall@k/nDCG/MAP.",
+    "Do not import the 0.95 ANN recall@k bar used for approximate-vs-exact HNSW tuning as the bar for this cross-model comparison; that threshold measures approximation error within one embedding space. Pick and document an explicit, lower bar instead (e.g. most of the top-10 shared) and treat it as a starting heuristic to be revised after reviewing actual results, not a hard industry standard.",
+    "Specifically flag and manually review any query where the single top-ranked ('best match') chunk differs between old and new embeddings -- for a past-paper lookup bot, losing the single best answer matters more than reordering within the rest of the top-k.",
+    "Do not carry over any existing cosine-similarity cutoffs/gating logic unchanged; recompute them against the new local embedder's own score distribution before relying on them.",
+    "Since this corpus has no human relevance judgments, don't attempt to compute true Recall@k/nDCG/MAP for the parity report; rely on overlap + rank-correlation + targeted manual spot-check of the lowest-overlap queries as the acceptance evidence instead."
+  ],
+  "as_of": "November 2026; underlying sources dated 2021-2026, dev.to/hackernoon articles undated but current as retrieved, arXiv:2607.23507 (2026), arXiv:2608.25185 (2026)",
+  "sources": [
+    {
+      "title": "pgvector in Production: Index Types, Recall, and Tradeoffs",
+      "url": "https://dev.to/veduis/pgvector-in-production-index-types-recall-and-tradeoffs-16k",
+      "type": "article",
+      "quote": "run a brute-force ORDER BY embedding <=> query LIMIT 10 (which bypasses the index) as ground truth... If the true 10 nearest documents are A through J and your index returns 8 of them, recall@10 is 0.8."
+    },
+    {
+      "title": "Your Embedding Model Will Deprecate. Here's What to Do.",
+      "url": "https://hackernoon.com/your-embedding-model-will-deprecate-heres-what-to-do",
+      "type": "article",
+      "quote": "embed live queries with both models in parallel, serve results from the old index, and log what the new model would have returned... A threshold of 0.85 that worked well with ada-002 may be too aggressive or too permissive with text-embedding-3-small."
+    },
+    {
+      "title": "Choosing a Text Embedding Model: A Practical Benchmarking and Decision Framework",
+      "url": "https://arxiv.org/html/2607.23507v1",
+      "type": "paper",
+      "quote": "fixes the datasets, task categories, and evaluation metrics used for each type of task, so that a score obtained by one model is directly comparable to another... mE5-L scored within 0.09 nDCG points of T3EM (0.546 vs. 0.638)"
+    },
+    {
+      "title": "Analyzing and Reducing Search Quality Differences in Vector Similarity Search",
+      "url": "https://arxiv.org/pdf/2608.25185",
+      "type": "paper",
+      "quote": "Modern database services scalably search over large data collections via Approximate Nearest Neighbor Search, which improves search performance at the cost of search quality, measured by recall."
+    }
+  ],
+  "uncertain": [
+    "key_findings"
+  ]
+}

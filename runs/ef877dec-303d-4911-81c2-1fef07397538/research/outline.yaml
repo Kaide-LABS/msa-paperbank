@@ -1,0 +1,164 @@
+# OSA research outline -- generated from the locked baby PRD. Do not hand-edit mid-run.
+topic: "Migrating a FastAPI/SQLAlchemy/pgvector retrieval bot off GCP+Vertex to self-hosted Docker with a local CPU embedder"
+items:
+  - slug: "docs-fastapi"
+    title: "Official documentation: FastAPI"
+    question: "Find the OFFICIAL documentation for \"FastAPI\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-sqlalchemy-2-0"
+    title: "Official documentation: SQLAlchemy 2.0"
+    question: "Find the OFFICIAL documentation for \"SQLAlchemy 2.0\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-pydantic-settings"
+    title: "Official documentation: pydantic-settings"
+    question: "Find the OFFICIAL documentation for \"pydantic-settings\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-pgvector"
+    title: "Official documentation: pgvector"
+    question: "Find the OFFICIAL documentation for \"pgvector\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-pg-trgm"
+    title: "Official documentation: pg_trgm"
+    question: "Find the OFFICIAL documentation for \"pg_trgm\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-postgresql"
+    title: "Official documentation: PostgreSQL"
+    question: "Find the OFFICIAL documentation for \"PostgreSQL\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-docker-compose"
+    title: "Official documentation: Docker Compose"
+    question: "Find the OFFICIAL documentation for \"Docker Compose\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-minio"
+    title: "Official documentation: MinIO"
+    question: "Find the OFFICIAL documentation for \"MinIO\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-sentence-transformers"
+    title: "Official documentation: sentence-transformers"
+    question: "Find the OFFICIAL documentation for \"sentence-transformers\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-onnx-runtime"
+    title: "Official documentation: ONNX Runtime"
+    question: "Find the OFFICIAL documentation for \"ONNX Runtime\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-hugging-face-transformers"
+    title: "Official documentation: Hugging Face Transformers"
+    question: "Find the OFFICIAL documentation for \"Hugging Face Transformers\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-meta-whatsapp-cloud-api"
+    title: "Official documentation: Meta WhatsApp Cloud API"
+    question: "Find the OFFICIAL documentation for \"Meta WhatsApp Cloud API\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-model-context-protocol-mcp"
+    title: "Official documentation: Model Context Protocol (MCP)"
+    question: "Find the OFFICIAL documentation for \"Model Context Protocol (MCP)\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "docs-alembic"
+    title: "Official documentation: Alembic"
+    question: "Find the OFFICIAL documentation for \"Alembic\": its current stable version, how it is installed or enabled, the API surface this build will use, and any breaking changes or pitfalls in the last 3 years."
+    kind: "docs"
+    modules:
+      - "general-web"
+  - slug: "local-cpu-embedder-768"
+    title: "Local CPU embedding models producing 768-dim vectors"
+    question: "Which CPU-friendly sentence-embedding models output 768 dims, how to run them (sentence-transformers/ONNX) without GPU, and their retrieval quality vs Vertex."
+    kind: "research"
+    modules:
+      - "general-web"
+      - "academic-papers"
+      - "github-debug"
+  - slug: "topk-parity-harness"
+    title: "Before/after top-k retrieval parity methodology"
+    question: "How to build a fixed-query-set top-k parity check across different embeddings (overlap/rank metrics) and what a reasonable pass threshold looks like."
+    kind: "research"
+    modules:
+      - "general-web"
+      - "academic-papers"
+  - slug: "pgvector-hnsw-reembed"
+    title: "pgvector HNSW re-embedding without schema change"
+    question: "How to re-embed existing rows into an unchanged Vector(768) column with an HNSW index and keep pg_trgm hybrid search working."
+    kind: "research"
+    modules:
+      - "general-web"
+      - "github-debug"
+      - "stackoverflow"
+  - slug: "hmac-signed-urls"
+    title: "HMAC-signed expiring download URLs"
+    question: "Patterns for backend-issued short-lived HMAC-signed URLs (~15 min) with tamper and expiry rejection, over filesystem and MinIO/S3 storage."
+    kind: "research"
+    modules:
+      - "general-web"
+      - "stackoverflow"
+      - "github-debug"
+  - slug: "objectstore-minio-fs"
+    title: "ObjectStore abstraction over filesystem and MinIO"
+    question: "How to design one ObjectStore interface backing both local filesystem and MinIO (S3 API) for put/get/signed-url in Python."
+    kind: "research"
+    modules:
+      - "general-web"
+      - "github-debug"
+  - slug: "sqlalchemy-synonym-rename"
+    title: "Reversible column rename via SQLAlchemy synonyms"
+    question: "How to rename a DB column (gcs_* -> object_key) with a reversible migration while keeping old attribute access via synonyms and old env names working."
+    kind: "research"
+    modules:
+      - "general-web"
+      - "stackoverflow"
+      - "github-debug"
+  - slug: "compose-postgres-backup"
+    title: "Docker Compose Postgres+pgvector deploy and backup"
+    question: "Compose setup for Postgres with pgvector/pg_trgm, health checks, nightly pg_dump backup and restore drill, and HTTPS reverse proxy guidance."
+    kind: "research"
+    modules:
+      - "general-web"
+      - "stackoverflow"
+  - slug: "channel-neutral-tool-endpoint"
+    title: "Channel-neutral handler and MCP/REST tool endpoint"
+    question: "How to structure a channel-neutral InboundMessage/handle_inbound core and an authed single-call retrieval endpoint callable later by Copilot Studio (MCP or REST)."
+    kind: "research"
+    modules:
+      - "general-web"
+      - "github-debug"
+execution:
+  timeRange: "last 3 years"
+  batchSize: 4
+  resume: true
+  docsRequired: true
+  academic:
+    enabled: true
+    queries:
+      - "CPU-efficient sentence embedding models retrieval quality benchmark"
+      - "evaluating embedding model substitution impact on top-k retrieval overlap"
+  githubLookup:
+    enabled: true
+    queries:
+      - "FastAPI pgvector semantic search self-hosted reference implementation"
+      - "sentence-transformers ONNX CPU embedding FastAPI service"
+      - "Python ObjectStore interface filesystem MinIO S3 signed URL"
+      - "HMAC signed expiring download link FastAPI example"

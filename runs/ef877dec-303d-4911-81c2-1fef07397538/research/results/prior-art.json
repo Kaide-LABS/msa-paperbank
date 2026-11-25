@@ -1,0 +1,19 @@
+{
+  "queries": [
+    "FastAPI pgvector semantic search self-hosted reference implementation",
+    "sentence-transformers ONNX CPU embedding FastAPI service",
+    "Python ObjectStore interface filesystem MinIO S3 signed URL",
+    "HMAC signed expiring download link FastAPI example"
+  ],
+  "repos": [],
+  "summary": null,
+  "notes": [
+    "No public repositories matched the prior-art queries."
+  ],
+  "problems": [
+    "search \"FastAPI pgvector semantic search self-hosted reference implementation\": HTTP 401: {\r\n  \"message\": \"Bad credentials\",\r\n  \"documentation_url\": \"https://docs.github.com/rest\",\r\n  \"status\": \"401\"\r\n}",
+    "search \"sentence-transformers ONNX CPU embedding FastAPI service\": HTTP 401: {\r\n  \"message\": \"Bad credentials\",\r\n  \"documentation_url\": \"https://docs.github.com/rest\",\r\n  \"status\": \"401\"\r\n}",
+    "search \"Python ObjectStore interface filesystem MinIO S3 signed URL\": HTTP 401: {\r\n  \"message\": \"Bad credentials\",\r\n  \"documentation_url\": \"https://docs.github.com/rest\",\r\n  \"status\": \"401\"\r\n}",
+    "search \"HMAC signed expiring download link FastAPI example\": HTTP 401: {\r\n  \"message\": \"Bad credentials\",\r\n  \"documentation_url\": \"https://docs.github.com/rest\",\r\n  \"status\": \"401\"\r\n}"
+  ]
+}

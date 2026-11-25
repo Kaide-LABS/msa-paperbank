@@ -1,0 +1,92 @@
+{
+  "summary": "SQLAlchemy 2.0 is the API style this build is locked to (per CLAUDE.md-equivalent build constraints: plain Python, pydantic-settings, SQLAlchemy 2.0). As of Nov 2026, the 2.0 line is in maintenance at 2.0.57 (released ~Nov 3, 2026) while 2.1 (currently 2.1.8) is the new active series; the official docs at docs.sqlalchemy.org/en/20/ explicitly label 2.0 'legacy' and point to /en/21/. Installation is `pip install SQLAlchemy` (async support via the bundled greenlet dependency, plus an asyncpg driver for Postgres). This build will use declarative `Mapped[]`/`mapped_column` models, `select()` + `Session.execute()`/`AsyncSession.execute()`, `create_async_engine('postgresql+asyncpg://...')`, and `Index(..., postgresql_using='hnsw', postgresql_with={...}, postgresql_ops={...})` for the pgvector HNSW index, matching the pgvector-python + Azure Postgres sample patterns found.",
+  "key_findings": [
+    "Latest SQLAlchemy release overall is 2.1.8 (PyPI, as of fetch date Nov 2026); the 2.0 series' latest point release is 2.0.57 (~Nov 3, 2026) and is now flagged 'legacy'/maintenance on docs.sqlalchemy.org/en/20/, with 2.1 as the current docs series.",
+    "PyPI package requires Python >=3.11 for the latest build metadata shown, but the 2.0 docs intro page states the 2.0 series itself targets Python 3.7+ (cPython and PyPy) [uncertain] — version-specific requirement pages may have shifted since initial 2.0 release.",
+    "Core 2.0 ORM pattern: `class Base(DeclarativeBase)` with `id: Mapped[int] = mapped_column(primary_key=True)` replacing the old `declarative_base()`/plain `Column()` style.",
+    "Querying in 2.0 is unified around `select()` passed to `Session.execute()` (sync) or `AsyncSession.execute()` (async); the legacy `Query` object still works but is considered the old paradigm.",
+    "Async support requires `sqlalchemy[asyncio]` (pulls in greenlet) plus an async DBAPI driver — `asyncpg` for Postgres; engine URL form is `postgresql+asyncpg://user:pass@host/db`.",
+    "A single `AsyncSession` is not safe for concurrent tasks — each concurrent coroutine needs its own session; `expire_on_commit=False` is recommended to avoid implicit lazy I/O after commit, which async disallows by default.",
+    "`relationship(lazy='dynamic')` is legacy in 2.0; replacement is `lazy='write_only'` requiring explicit `.select()` calls — relevant if this build adds any ORM relationships beyond simple columns.",
+    "pgvector-python integrates with SQLAlchemy via `from pgvector.sqlalchemy import Vector` (or `VECTOR`), used as `mapped_column(Vector(768))` for this build's 768-dim column, matching the existing required `Vector(768)` type.",
+    "HNSW index creation pattern confirmed from both pgvector-python README and an Azure-Samples repo (azure-postgres-pgvector-python): `Index(name, Model.col, postgresql_using='hnsw', postgresql_with={'m':16,'ef_construction':64}, postgresql_ops={'col':'vector_cosine_ops'})`.",
+    "Some pgvector-python examples register the vector type via an SQLAlchemy `connect` event (`register_vector(dbapi_connection)`) for raw psycopg2 use; this may be unnecessary when using the dedicated `pgvector.sqlalchemy.Vector` column type with asyncpg — needs confirmation against the specific driver chosen [uncertain]."
+  ],
+  "recommendations": [
+    "Pin to the SQLAlchemy 2.0.x maintenance line (not 2.1) to match the build's explicit 'SQLAlchemy 2.0' constraint and avoid untested 2.1 behavior changes; verify exact pinned version against the current GCP codebase's requirements file.",
+    "Use `Mapped[]`/`mapped_column` declarative style consistently if the existing models already use it; do not introduce the 2.1-only patterns during this migration.",
+    "For Postgres on Azure Flexible Server, use `postgresql+asyncpg://` (or sync `psycopg`/`psycopg2` if the existing codebase is sync) — do not mix drivers without updating the engine URL scheme.",
+    "Keep the pgvector `Vector(768)` column type and HNSW index definition exactly as in GCP (per acceptance criterion 6); only the connection/engine wiring should change for Azure.",
+    "If async session usage is introduced, give each concurrent WhatsApp request handler its own `AsyncSession` instance and set `expire_on_commit=False` to avoid implicit-IO errors.",
+    "Do not adopt `lazy='dynamic'` relationships if any are added; use `lazy='write_only'` per current 2.0 guidance.",
+    "Call `await engine.dispose()` on shutdown in Container Apps to avoid connection leaks/errors on scale-down, consistent with SQLAlchemy's async engine lifecycle guidance."
+  ],
+  "as_of": "2026-11-11 (page content observed dated up to Nov 4, 2026 release notes)",
+  "sources": [
+    {
+      "title": "SQLAlchemy 2.0 Documentation (en/20/)",
+      "url": "https://docs.sqlalchemy.org/en/20/",
+      "type": "official-docs",
+      "quote": "Release: 2.0.57 legacy version ... Version 2.1 is the Current Documentation"
+    },
+    {
+      "title": "SQLAlchemy 2.0 Changelog: What's New in SQLAlchemy 2.0?",
+      "url": "https://docs.sqlalchemy.org/en/20/changelog/whatsnew_20.html",
+      "type": "official-docs",
+      "quote": "Session raises proactively when illegal concurrent or reentrant access is detected"
+    },
+    {
+      "title": "SQLAlchemy asyncio extension docs",
+      "url": "https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html",
+      "type": "official-docs",
+      "quote": "AsyncSession object is a standard Python object which ... is not safe for use in multiple, concurrent tasks"
+    },
+    {
+      "title": "SQLAlchemy 2.0 Intro / Installation",
+      "url": "https://docs.sqlalchemy.org/en/20/intro.html#installation",
+      "type": "official-docs",
+      "quote": "pip install SQLAlchemy ... SQLAlchemy now targets Python 3.7 and above"
+    },
+    {
+      "title": "SQLAlchemy on PyPI",
+      "url": "https://pypi.org/project/SQLAlchemy/",
+      "type": "official-docs",
+      "quote": "Version: 2.1.8 ... Development Status :: 5 - Production/Stable"
+    },
+    {
+      "title": "pgvector/pgvector-python GitHub repo",
+      "url": "https://github.com/pgvector/pgvector-python",
+      "type": "repo",
+      "quote": "class Item(Base): embedding: Mapped[list[float]] = mapped_column(VECTOR(3))"
+    },
+    {
+      "title": "azure-postgres-pgvector-python example (sqlalchemy_movies.py)",
+      "url": "https://github.com/Azure-Samples/azure-postgres-pgvector-python/blob/main/examples/sqlalchemy_movies.py",
+      "type": "repo",
+      "quote": "postgresql_using=\"hnsw\", postgresql_with={\"m\": 16, \"ef_construction\": 64}, postgresql_ops={\"title_vector\": \"vector_cosine_ops\"}"
+    }
+  ],
+  "current_version": "2.0.57 (2.0 maintenance line, ~Nov 3, 2026); overall latest SQLAlchemy release is 2.1.8 (Nov 4, 2026) per PyPI — this build should target the pinned 2.0.x line per its stated constraint",
+  "api_surface": [
+    "sqlalchemy.orm.DeclarativeBase / Mapped[] / mapped_column() for model definitions",
+    "sqlalchemy.select() combined with Session.execute() (sync) or AsyncSession.execute() (async)",
+    "sqlalchemy.ext.asyncio.create_async_engine('postgresql+asyncpg://...') and async_sessionmaker(engine, expire_on_commit=False)",
+    "pgvector.sqlalchemy.Vector(768) column type for the embedding column",
+    "sqlalchemy.Index(..., postgresql_using='hnsw', postgresql_with={'m':16,'ef_construction':64}, postgresql_ops={'col':'vector_cosine_ops'}) for the HNSW index",
+    "engine.dispose() / await engine.dispose() for connection lifecycle cleanup in Container Apps"
+  ],
+  "pitfalls": [
+    "2.0 docs are now marked 'legacy' with 2.1 as current — pin exact version in requirements to avoid accidentally picking up 2.1 behavior changes during dependency resolution",
+    "Declarative mapping requires DeclarativeBase + Mapped[] typing; mixing old Column()-only style with new Mapped[] style is allowed but loses type-checking benefits",
+    "lazy='dynamic' relationship loading is legacy; use lazy='write_only' with explicit .select() calls instead",
+    "AsyncSession instances must not be shared across concurrent tasks/requests — each request needs its own session",
+    "Implicit lazy-load I/O is disallowed in async context by default; must eager-load (e.g. selectinload()) or it raises at runtime",
+    "expire_on_commit=False recommended for async sessions to prevent unexpected re-query on attribute access after commit",
+    "Old SQLAlchemy type-stub packages must be uninstalled when adopting 2.0's native typing, or type inference breaks [uncertain]"
+  ],
+  "uncertain": [
+    "key_findings",
+    "pitfalls",
+    "current_version"
+  ]
+}

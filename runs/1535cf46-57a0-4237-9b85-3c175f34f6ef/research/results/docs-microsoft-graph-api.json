@@ -1,0 +1,79 @@
+{
+  "summary": "Microsoft Graph has one stable REST surface, v1.0, at https://graph.microsoft.com, documented at learn.microsoft.com/en-us/graph/overview (updated 2026-04-16). For this build's 'Graph import' (pulling past-paper files from OneDrive/SharePoint), the relevant surface is the Files API (Drive/DriveItem resources) under app-only (daemon) auth via Microsoft Entra ID, called with the official Python SDK 'msgraph-sdk' (current 1.65.0, released 2026-10-22, requires Python 3.10+) plus 'azure-identity' for ClientSecretCredential. No install/enable step beyond registering an Entra app and consenting application permissions (e.g. Files.Read.All or Sites.Read.All) and pip-installing the SDK. The main forward-looking pitfall is the April 1, 2027 retirement of pre-authenticated 'tempauth' download URLs, which affects file download/preview/thumbnail/upload-session APIs this build will use.",
+  "key_findings": [
+    "Microsoft Graph's single stable endpoint is https://graph.microsoft.com/v1.0; a parallel /beta endpoint exists for preview features and is not meant for production (learn.microsoft.com/en-us/graph/overview, ms.date 2026-04-15).",
+    "Python SDK package name is 'msgraph-sdk' (pip install msgraph-sdk); current version is 1.65.0 released 2026-10-22, requires Python >=3.10, offers an async-first API, and depends on kiota abstractions for error handling (APIError) [from PyPI page opened directly].",
+    "azure-identity must be installed separately for auth credential classes (e.g. ClientSecretCredential, DeviceCodeCredential) per learn.microsoft.com/en-us/graph/sdks/sdk-installation (ms.date 2024-11-07, updated 2025-08-06 — slightly older than the 2-year window but still the current official page).",
+    "Files/Drive API: Drive and DriveItem are the two core resources; common paths are /me/drive, /drives/{drive-id}, /sites/{site-id}/drive, /sites/{site-id}/drives, and /drives/{drive-id}/root/children, per learn.microsoft.com/en-us/graph/api/resources/onedrive (ms.date 2024-03-12, updated 2024-11-21 — older source, file resource model has been stable since).",
+    "Auth model: app-only (daemon/service) access uses Microsoft Entra ID application permissions (app roles), distinct from delegated/user-based scopes; recommended for background automation with no signed-in user (learn.microsoft.com/en-us/graph/auth/auth-concepts, updated 2025-08-06).",
+    "Breaking change: pre-authenticated 'tempauth' URLs for SharePoint/OneDrive retire April 1, 2027; affects download file content, upload session creation, long-running copy/monitor actions, previews, thumbnails, and format conversion — apps must instead present a separate Entra ID token for the SharePoint audience or opt into a future tenant setting to keep using Graph tokens (Microsoft 365 Developer Blog, devblogs.microsoft.com, read directly).",
+    "Unrelated-to-files but notable 2025-2026 Graph changes found via search (not independently opened, so marked uncertain): enforcement of restricted updates to sensitive mail properties begins 2026-12-31, and markAsJunk API deprecated 2025-12-30 — these don't affect this build's file-import scope."
+  ],
+  "recommendations": [
+    "Use the v1.0 Graph endpoint only (never beta) for the import job to keep behavior stable in production.",
+    "Install 'msgraph-sdk' plus 'azure-identity' in the Python requirements for the Graph-import adapter/job, pinned to a specific version given the SDK's frequent biweekly release cadence.",
+    "Authenticate the import job as app-only (client credentials / ClientSecretCredential) since it runs unattended as a Container Apps Job, not on behalf of a signed-in user.",
+    "Request the minimum application permissions needed (e.g. Sites.Read.All or Files.Read.All, scoped to specific SharePoint sites via an application access policy if possible) rather than broad tenant-wide Sites.FullControl.All.",
+    "Store the Entra app's client secret or certificate in the project's secrets adapter/Key Vault, never in plaintext config, satisfying the no-plaintext-secrets acceptance criterion.",
+    "When downloading past-paper files, call the driveItem content endpoint directly with the Graph access token rather than relying on an embedded @microsoft.graph.downloadUrl redirect, since those pre-authenticated URLs are being retired April 1, 2027 — build the importer against token-based auth from day one to avoid a future migration.",
+    "Treat the Files/Drive API pages (onedrive.md, dated 2024) as the authoritative but slightly dated reference; cross-check the current Graph changelog at the time of implementation for any newer Files API changes."
+  ],
+  "as_of": "2026-11-02 (Graph overview page updated 2026-04-16; msgraph-sdk Python 1.65.0 released 2026-10-22; onedrive/auth-concepts pages last substantively updated 2024-2025)",
+  "sources": [
+    {
+      "title": "Microsoft Graph overview - Microsoft Graph | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/graph/overview",
+      "type": "official-docs",
+      "quote": "The Microsoft Graph API offers a single endpoint, https://graph.microsoft.com, to provide access to rich, people-centric data and insights in the Microsoft cloud"
+    },
+    {
+      "title": "Install a Microsoft Graph SDK - Microsoft Graph | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/graph/sdks/sdk-installation",
+      "type": "official-docs",
+      "quote": "The Microsoft Graph Python SDK is available on PyPI. pip install msgraph-sdk"
+    },
+    {
+      "title": "msgraph-sdk · PyPI",
+      "url": "https://pypi.org/project/msgraph-sdk/",
+      "type": "official-docs",
+      "quote": "This SDK allows you to build applications using the v1.0 of Microsoft Graph; supports both sync and async credential classes from azure.identity"
+    },
+    {
+      "title": "Working with files in Microsoft Graph - Microsoft Graph v1.0 | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/graph/api/resources/onedrive?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "Microsoft Graph exposes two resource types for working with files: Drive ... and DriveItem ... /sites/{site-id}/drive - Access the default Drive (document library) for the given SharePoint site"
+    },
+    {
+      "title": "Authentication and authorization basics - Microsoft Graph | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/graph/auth/auth-concepts",
+      "type": "official-docs",
+      "quote": "App-only access is used in scenarios such as automation and backup, and is mostly used by apps that run as background services or daemons."
+    },
+    {
+      "title": "Pre-authenticated (tempauth) URLs are retiring: move to Microsoft Entra ID tokens before April 1, 2027 - Microsoft 365 Developer Blog",
+      "url": "https://devblogs.microsoft.com/microsoft365dev/pre-authenticated-tempauth-urls-are-retiring-move-to-microsoft-entra-id-tokens-before-april-1-2027/",
+      "type": "article",
+      "quote": "Starting April 1, 2027, affected Microsoft Graph file APIs will no longer return pre-authenticated URLs ... Download a file, driveItem: createUploadSession, and driveItem: preview"
+    }
+  ],
+  "current_version": "REST API: v1.0 (stable production endpoint; /beta exists for preview). Python SDK: msgraph-sdk 1.65.0, released 2026-10-22",
+  "api_surface": [
+    "GET/POST https://graph.microsoft.com/v1.0 endpoint (stable, production)",
+    "GET /sites/{site-id}/drive and /sites/{site-id}/drives — locate SharePoint document library for past-paper files",
+    "GET /drives/{drive-id}/root/children or /root:/path/to/folder:/children — list/enumerate DriveItems",
+    "GET /drives/{drive-id}/items/{item-id}/content — download file content directly with bearer token (avoids tempauth dependency)",
+    "msgraph-sdk Python client (GraphServiceClient) + azure.identity.ClientSecretCredential for app-only auth",
+    "Microsoft Entra ID app registration with application permissions: Files.Read.All or Sites.Read.All"
+  ],
+  "pitfalls": [
+    "Pre-authenticated (tempauth) URL retirement on April 1, 2027 for download/upload-session/preview/thumbnail/copy-monitor/conversion APIs — must migrate to Entra ID bearer tokens for file access, not raw redirect URLs.",
+    "msgraph-sdk is large (~36MB) and releases roughly twice monthly; pin a version to avoid unexpected breaking changes between Container Apps builds.",
+    "App-only (application permission) access to Files.Read.All/Sites.Read.All requires tenant admin consent and, ideally, scoping via application access policies — cannot be granted by the importing service itself.",
+    "Using /me/* endpoints requires a signed-in user (delegated access) and will not work for an unattended app-only import job; must use /sites/{id}/drive or /drives/{id} instead.",
+    "[uncertain] Broader 2025-2026 Graph changes (sensitive mail property restriction enforcement 2026-12-31, markAsJunk deprecation 2025-12-30) were found only via search summaries, not opened directly, and are unrelated to this build's file-import scope."
+  ],
+  "uncertain": [
+    "pitfalls"
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "summary": "MinIO's open-source 'minio/minio' GitHub repo was archived on 2026-04-25 and is officially 'no longer maintained'; the last tagged release is RELEASE.2025-10-15T17-29-55Z. Since mid-2025 the Community Edition shipped source-only (no precompiled binaries), and all current official docs now live under the commercial 'AIStor' branding at docs.min.io/aistor/. For this build, the relevant surface is small: the Python SDK's presigned_get_object (max 7-day, min 1-second expiry, SigV4-signed, tamper-proof by construction) satisfies the ~15-minute signed-URL requirement, and the unauthenticated /minio/health/live and /minio/health/ready HTTP endpoints satisfy the Docker Compose health-check requirement. Because the project is EOL, the build should pin an exact last-good image tag rather than :latest and document a migration/alternative path in the RUNBOOK.",
+  "key_findings": [
+    "github.com/minio/minio was archived by its owner on 2026-04-25; README states 'THIS REPOSITORY IS NO LONGER MAINTAINED' and points users to 'AIStor Free' / 'AIStor Enterprise' instead [uncertain: exact archive-notice wording].",
+    "Last published release tag on the repo's Releases page is RELEASE.2025-10-15T17-29-55Z (2025-10-16), a CVE/security fix for a privilege-escalation issue in service-account session policies.",
+    "Since mid-2025 the Community Edition is distributed as source code only ('go install github.com/minio/minio@latest' or build the provided Dockerfile); MinIO Inc. stopped providing precompiled binaries and the admin UI in the Community tier.",
+    "MinIO source has been AGPLv3-licensed since 2021 (changed from Apache-2.0); official README explicitly warns 'All usage of MinIO in your application stack requires validation against AGPLv3 obligations.'",
+    "Current official docs for health checks live at docs.min.io/aistor/.../http-endpoints/ and list 4 unauthenticated GET endpoints: /minio/health/live (liveness), /minio/health/ready (readiness), /minio/health/cluster (write quorum), /minio/health/cluster/read (read quorum, accepts ?maintenance=true).",
+    "Official AIStor container/compose docs use healthcheck test [\"CMD\",\"mc\",\"ready\",\"local\"] with interval 5s, timeout 5s, retries 5; ports documented are 9000 (S3 API) and 9001 (web console); MINIO_ROOT_USER/MINIO_ROOT_PASSWORD env vars set root credentials.",
+    "Python SDK `presigned_get_object(bucket_name, object_name, expires=timedelta(days=7), response_headers=None, request_date=None, version_id=None, extra_query_params=None)` defaults to 7-day expiry; all presigned URLs are documented with expiry bounded between 1 second and 7 days, and cannot be revoked before expiry.",
+    "Official AIStor distributed docker-compose example pulls 'quay.io/minio/aistor/minio:latest' and requires a 'minio.license' file in the same directory, and is explicitly scoped to 'development, testing, and staging only — not production use' [uncertain: whether this no-production caveat also applies to a single-node non-AIStor deployment]."
+  ],
+  "recommendations": [
+    "Pin the Docker image to the last maintained tag, RELEASE.2025-10-15T17-29-55Z, rather than ':latest' — the upstream project is archived/EOL and there will be no further security patches under the MinIO community name.",
+    "Use the Python minio SDK's presigned_get_object(bucket, key, expires=timedelta(minutes=15)) for the ObjectStore port's signed download URLs; its SigV4 signing already rejects tampered signatures and expired URLs, satisfying acceptance criterion #6 without custom crypto.",
+    "Use a curl-based Docker Compose healthcheck against http://localhost:9000/minio/health/live (unauthenticated, documented endpoint) for the 'reports healthy' requirement rather than relying solely on 'mc ready local', which has had version-specific behavior issues reported by users.",
+    "Document in the RUNBOOK that MinIO community edition is EOL (repo archived 2026-04-25, source-only distribution since mid-2025) and name a fallback (rebuild from the last tagged source, move to AIStor Free, or switch to another S3-compatible store) as a known risk for a school running this unsupported long-term.",
+    "Flag the AGPLv3 license to the school/stakeholders given the backend is reachable over public HTTPS; confirm the build only consumes MinIO as an unmodified binary/service (not redistributing modified MinIO source) to avoid ambiguity around AGPL's network-use clause — get explicit sign-off rather than assuming it's a non-issue."
+  ],
+  "as_of": "GitHub Releases page and repo README as read on 2026-11-11; last MinIO community release RELEASE.2025-10-15T17-29-55Z; repo archived 2026-04-25.",
+  "sources": [
+    {
+      "title": "minio/minio GitHub repository (README, status)",
+      "url": "https://github.com/minio/minio",
+      "type": "repo",
+      "quote": "THIS REPOSITORY IS NO LONGER MAINTAINED ... AIStor Free ... The MinIO community edition is now distributed as source code only."
+    },
+    {
+      "title": "minio/minio Releases",
+      "url": "https://github.com/minio/minio/releases",
+      "type": "repo",
+      "quote": "RELEASE.2025-10-15T17-29-55Z ... Archived by the owner on Apr 25, 2026. It is now read-only."
+    },
+    {
+      "title": "MinIO AIStor Python Client API Reference",
+      "url": "https://docs.min.io/aistor/developers/sdk/python/api/",
+      "type": "official-docs",
+      "quote": "presigned_get_object(bucket_name, object_name, expires=timedelta(days=7), response_headers=None, request_date=None, version_id=None, extra_query_params=None)"
+    },
+    {
+      "title": "Deploy Distributed MinIO AIStor on Docker Compose",
+      "url": "https://docs.min.io/aistor/installation/container/distributed/",
+      "type": "official-docs",
+      "quote": "test: [\"CMD\", \"mc\", \"ready\", \"local\"] ... this configuration is suitable for development, testing, and staging purposes only"
+    },
+    {
+      "title": "MinIO AIStor HTTP Endpoints Reference",
+      "url": "https://docs.min.io/aistor/reference/aistor-server/http-endpoints/",
+      "type": "official-docs",
+      "quote": "GET /minio/health/live — Liveness probe. 200 OK if the server process is running. GET /minio/health/ready — Readiness probe."
+    },
+    {
+      "title": "MinIO (Wikipedia)",
+      "url": "https://en.wikipedia.org/wiki/MinIO",
+      "type": "other",
+      "quote": "MinIO, Inc. halted active development in February 2026 ... 'it is not maintained anymore'"
+    }
+  ],
+  "current_version": "RELEASE.2025-10-15T17-29-55Z (last tagged MinIO Community Edition release; repo archived 2026-04-25, successor branded 'AIStor')",
+  "api_surface": [
+    "minio.Minio(endpoint, access_key, secret_key, secure=True) — client construction",
+    "client.make_bucket(bucket_name), client.bucket_exists(bucket_name)",
+    "client.put_object(bucket_name, object_name, data, length, ...)",
+    "client.presigned_get_object(bucket_name, object_name, expires=timedelta(minutes=15)) — signed download URL for ObjectStore port",
+    "GET /minio/health/live, GET /minio/health/ready — Docker Compose healthcheck targets",
+    "MINIO_ROOT_USER / MINIO_ROOT_PASSWORD env vars; ports 9000 (S3 API), 9001 (console)"
+  ],
+  "pitfalls": [
+    "minio/minio GitHub repo archived 2026-04-25 — no more upstream fixes under the open-source project name; plan for an EOL dependency.",
+    "Community Edition distribution changed to source-only (no precompiled binaries, admin UI removed) partway through 2025 — pulling ':latest' may not behave as historical tutorials describe.",
+    "License changed from Apache-2.0 to AGPLv3 in 2021 — relevant given this build's public HTTPS exposure; needs a compliance check, not an assumption.",
+    "Official docs moved to the commercial 'AIStor' namespace (docs.min.io/aistor/...); AIStor-specific docker-compose examples target multi-node/licensed deployments, not a simple single-node school server — don't copy them verbatim without adapting for single-node use.",
+    "Presigned URLs cannot be revoked before their expiry once issued — the ~15-minute window must be enforced at generation time, not via later revocation."
+  ],
+  "uncertain": [
+    "key_findings",
+    "api_surface"
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "summary": "SharePoint document libraries are consumed via the Microsoft Graph REST API v1.0 (GA, no separate version number), exposed as 'drive'/'driveItem' resources identical to OneDrive. For this build's importer, the relevant surface is: get the site's drive, list/track files via driveItem delta, and download content via /content or @microsoft.graph.downloadUrl. Access requires an Entra ID app registration using client-credentials (application permissions Files.Read.All/Sites.Read.All, or least-privilege Sites.Selected scoped to one site) — the old SharePoint Add-in/Azure ACS app-only model is now fully retired (April 2, 2026) and unusable. A critical pitfall for this build: Graph's file.hashes.sha256Hash property is explicitly documented as unsupported, so the sha256 de-dup required by the build must be computed locally from downloaded bytes, not read from Graph.",
+  "key_findings": [
+    "SharePoint document libraries are accessed as OneDrive 'drive' resources; files/folders are 'driveItem' resources (learn.microsoft.com/graph/sharepoint-concept-overview, ms.date 2024-11-07, updated 2025-08-06).",
+    "driveItem resource page (updated_at 2026-10-08) lists methods: Get item, List children, Download file (driveitem-get-content), Upload, Track changes (delta), Create upload session, etc.",
+    "Download content: GET /sites/{siteId}/drive/items/{item-id}/content (or /drives/{drive-id}/items/{item-id}/content) returns HTTP 302 to a preauthenticated downloadUrl; this URL requires no Authorization header but expires quickly ('might expire within minutes'); supports Range for partial downloads (page updated_at 2025-08-27).",
+    "Incremental sync uses GET /drives/{drive-id}/root/delta (or /sites/{siteId}/drive/root/delta); responses page via @odata.nextLink then end with @odata.deltaLink; stale tokens return HTTP 410 Gone with resync error codes resyncChangesApplyDifferences/resyncChangesUploadDifferences; items must be tracked by id, not path (page updated_at 2026-06-06).",
+    "Application (app-only) permissions for delta/content: least-privileged Files.Read.All, higher-privileged Files.ReadWrite.All/Sites.Read.All/Sites.ReadWrite.All (per the delta and get-content reference pages).",
+    "hashes resource (file facet) properties: crc32Hash, quickXorHash, sha1Hash, sha256Hash — the page states explicitly: 'sha256Hash ... This property isn't supported. Don't use.' quickXorHash is the only hash 'guaranteed to be available for both OneDrive for work or school and OneDrive for home' (page updated_at 2025-04-09).",
+    "Sites.Selected (and the newer *.SelectedOperations.Selected tuple scopes) let an app be consented tenant-wide but only actually access a site/list/file after an explicit POST /sites/{siteId}/permissions grant with a role (read/write/owner/fullcontrol) — a 3-step model (consent + grant + token) distinct from always-on scopes like Files.Read.All (permissions-selected-overview, updated_at 2026-02-26).",
+    "SharePoint Add-ins (SharePoint-hosted and provider-hosted) and Azure ACS app-only authentication for SharePoint Online fully retired and stopped working on April 2, 2026; this is in the past relative to the Nov 2026 research date. CSOM/JSOM/SharePoint REST APIs are not retired, but any auth must now be Microsoft Entra ID-based, not ACS (add-ins-and-azure-acs-retirements-faq, ms.date 2026-10-25, updated_at 2026-10-28)."
+  ],
+  "recommendations": [
+    "Build the SharePoint/OneDrive importer against Microsoft Graph v1.0 REST only (driveItem/delta/content); do not use legacy SharePoint CSOM/Add-in/ACS auth, which is now retired.",
+    "Register an Entra ID app and authenticate via client-credentials (application permissions). Prefer scoping access to just the school's one SharePoint document library using Sites.Selected plus an explicit POST /sites/{siteId}/permissions grant, falling back to Files.Read.All only if Sites.Selected setup proves impractical for the school's tenant admin.",
+    "Enumerate files via drive root delta rather than paging children, so no files are missed under concurrent writes; persist the deltaLink per drive to support later incremental re-ingest runs; handle HTTP 410 Gone by doing a full resync per Microsoft's documented resync codes.",
+    "Download each file's bytes via the /content endpoint (or the short-lived @microsoft.graph.downloadUrl) immediately — do not cache the download URL across job runs/retries since it can expire within minutes.",
+    "Compute the sha256 hash for duplicate detection yourself from the downloaded byte stream. Do NOT read or rely on driveItem file.hashes.sha256Hash — Microsoft's own docs say this field 'isn't supported' and should not be used.",
+    "Track driveItem identity by id (not by path) in the ingest/backfill jobs, since delta's parentReference omits path and renames only show the latest state."
+  ],
+  "as_of": "Nov 2026 (source pages dated/updated between 2024-11-07 and 2026-10-28; Graph REST surface is v1.0 GA, no separate release-version number)",
+  "sources": [
+    {
+      "title": "SharePoint sites and content API overview - Microsoft Graph",
+      "url": "https://learn.microsoft.com/en-us/graph/sharepoint-concept-overview",
+      "type": "official-docs",
+      "quote": "You can use the OneDrive API to work with a library as a drive, or the SharePoint API to work with it as a list."
+    },
+    {
+      "title": "driveItem resource type - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/resources/driveitem?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "All file system objects in OneDrive and SharePoint are returned as driveItem resources."
+    },
+    {
+      "title": "driveItem: delta - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/driveitem-delta?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "When using delta you should always track items by id. ... the service returns an HTTP 410 Gone error ... containing a new nextLink that starts a fresh delta enumeration from scratch."
+    },
+    {
+      "title": "File resource type - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/resources/file?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "hashes | Hashes | Hashes of the file's binary content, if available. Read-only."
+    },
+    {
+      "title": "Download driveItem content - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/driveitem-get-content?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "Preauthenticated download URLs are valid for a limited time. Use them immediately, as they might expire within minutes."
+    },
+    {
+      "title": "hashes resource type - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/resources/hashes?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "sha256Hash | String | This property isn't supported. Don't use."
+    },
+    {
+      "title": "Overview of Selected Permissions in OneDrive and SharePoint - Microsoft Graph",
+      "url": "https://learn.microsoft.com/en-us/graph/permissions-selected-overview",
+      "type": "official-docs",
+      "quote": "Initially, Sites.Selected existed to restrict an application's access to a single site collection. ... Selected scopes require an explicit assignment action."
+    },
+    {
+      "title": "SharePoint Add-Ins and Azure ACS retirement FAQ",
+      "url": "https://learn.microsoft.com/en-us/sharepoint/dev/sp-add-ins/add-ins-and-azure-acs-retirements-faq",
+      "type": "official-docs",
+      "quote": "Using Azure ACS (Access Control Services) for SharePoint Online has been retired as of November 27th 2023 and will stop working from April 2nd 2026 ... SharePoint Add-ins reached end of life in SharePoint Online on April 2, 2026."
+    }
+  ],
+  "current_version": "Microsoft Graph REST API v1.0 (GA); no discrete version number — v1.0 is the current stable surface alongside the beta channel [uncertain]",
+  "api_surface": [
+    "GET /sites/{siteId}/drive — resolve the SharePoint document library as a drive",
+    "GET /drives/{drive-id}/root/delta — incremental enumeration of files/folders with @odata.deltaLink for future syncs",
+    "GET /drives/{drive-id}/items/{item-id}/content (or follow @microsoft.graph.downloadUrl) — download file bytes",
+    "driveItem fields used: id, name, size, lastModifiedDateTime, parentReference, file (for mimeType; not for sha256Hash)",
+    "Entra ID client-credentials (application) permissions: Files.Read.All or Sites.Selected scoped via POST /sites/{siteId}/permissions [Sites.Selected setup details uncertain]"
+  ],
+  "pitfalls": [
+    "file.hashes.sha256Hash is documented as unsupported ('Don't use') — never rely on it for the required sha256-based duplicate skip; compute the hash locally after download.",
+    "SharePoint Add-in model and Azure ACS app-only auth for SharePoint Online are fully retired/EOL as of 2026-04-02; only Entra ID app registrations with Graph permissions work now.",
+    "@microsoft.graph.downloadUrl / /content redirect URLs are short-lived (can expire within minutes) — don't persist or reuse them across retries.",
+    "delta tokens can go stale, returning HTTP 410 Gone requiring a full resync; importer logic must handle resyncChangesApplyDifferences/resyncChangesUploadDifferences rather than assuming delta always succeeds.",
+    "Selected scopes (Sites.Selected, etc.) require three separate steps (Entra consent + explicit /permissions grant + token) — forgetting the explicit site-permission grant leaves the app with zero access even after admin consent."
+  ],
+  "uncertain": [
+    "current_version",
+    "api_surface"
+  ]
+}

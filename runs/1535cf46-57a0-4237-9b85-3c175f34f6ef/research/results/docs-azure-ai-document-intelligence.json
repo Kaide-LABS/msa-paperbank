@@ -1,0 +1,73 @@
+{
+  "summary": "Azure AI Document Intelligence (formerly Form Recognizer) is GA at v4.0, using REST API version 2024-11-30 and Python SDK package `azure-ai-documentintelligence` v1.0.0 (latest patch 1.0.2). For this build's OCR A/B gate against Gemini vision, the relevant surface is the `prebuilt-read` model called via `DocumentIntelligenceClient.begin_analyze_document()`, returning pages/lines/words/paragraphs with confidence and polygon coordinates. The service is provisioned as a Cognitive Services 'Document Intelligence' resource (F0 free / S0 paid tier) and authenticated via API key or Entra ID (managed identity recommended for Container Apps).",
+  "key_findings": [
+    "Current GA: Document Intelligence v4.0, REST API version `2024-11-30`; Python SDK `azure-ai-documentintelligence` 1.0.0 is the GA release targeting this API version (per learn.microsoft.com sdk-overview-v4-0, docs dated 2026-08-15, last updated 2026-10-19).",
+    "PyPI shows latest published patch as 1.0.2 (released Mar 27, 2025); install via `pip install azure-ai-documentintelligence==1.0.0` (or newer patch) per official docs.",
+    "v4.0 client classes: `DocumentIntelligenceClient` and `DocumentIntelligenceAdministrationClient`, replacing v3.1's `DocumentAnalysisClient`/`DocumentModelAdministrationClient` from the old `azure-ai-formrecognizer` package.",
+    "prebuilt-read (OCR) supports PDF, JPEG/JPG, PNG, BMP, TIFF, HEIF, plus Word/Excel/PowerPoint/HTML (Office formats added in v4.0, embedded images in Office/HTML not supported).",
+    "Limits: up to 2,000 pages for PDF/TIFF (free F0 tier only processes first 2 pages); file size 500 MB on paid S0, 4 MB on free F0; image dimensions 50x50 to 10000x10000 px; min text height ~12px at 1024x768 (~8pt @150dpi).",
+    "Searchable-PDF output (`?output=pdf`) was added with the 2024-11-30 GA release, supported only by `prebuilt-read`, at no extra cost.",
+    "Auth: API key via `AzureKeyCredential`, or Entra ID via `DefaultAzureCredential` — but Entra ID auth requires a custom subdomain endpoint; plain regional endpoints don't support it.",
+    "EOL schedule: preview API versions (2024-07-31-preview, 2024-02-29-preview, 2023-10-31-preview) reach end of support 2026-06-30; REST API v2.1 EOS 2027-09-15; v3.0 (2022-08-31) EOS 2029-03-30 — build should target 2024-11-30 GA, not a preview version.",
+    "Historical breaking change (2023-07-31, v3.0→v3.1): `boundingBox` field renamed to `polygon` across analyze results — relevant only if comparing against very old code/output samples.",
+    "Migrating from v3.1 SDK to v4.0 SDK requires updating client class names and import paths; official per-language migration guides exist on the azure-sdk-for-python GitHub repo (not yet opened directly)."
+  ],
+  "recommendations": [
+    "Pin the build to API version `2024-11-30` (GA) and SDK `azure-ai-documentintelligence>=1.0.0,<2` — do not use any `-preview` API version given the 2026-06-30 preview sunset.",
+    "Use `prebuilt-read` for the OCR A/B gate (text/lines/words/paragraphs with confidence) since it's the right-fit model for scanned past-paper OCR, not `prebuilt-layout` (which adds tables/selection marks not needed here).",
+    "Provision the Document Intelligence resource with a custom subdomain and use `DefaultAzureCredential` (managed identity) from Container Apps rather than an API key, per Microsoft's own security guidance; keep any key in Key Vault only as fallback.",
+    "Account for the 500MB/4MB and 2000-page limits when batching scanned past-papers; confirm pricing tier is S0 (paid), not F0, before running real volume tests.",
+    "When writing the OCR A/B gate report, extract comparable fields: `result.paragraphs[].content`, `result.pages[].lines[].content`, and `confidence` per word — these map cleanly to text-only comparison against Gemini OCR output.",
+    "Read the official Python SDK migration guide on GitHub before writing adapter code, since this research did not fetch it directly (see uncertain)."
+  ],
+  "as_of": "Docs pages last updated 2026-10-19 (ms.date 2026-08-15); PyPI package page checked 2026-11-02",
+  "sources": [
+    {
+      "title": "Read model OCR data extraction - Document Intelligence - Foundry Tools | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/prebuilt/read?view=doc-intel-4.0.0",
+      "type": "official-docs",
+      "quote": "Document Intelligence v4.0: 2024-11-30 (GA) supports ... Read OCR model ... Model ID: prebuilt-read ... up to 2,000 pages can be processed ... file size ... 500 MB for the paid (S0) tier and 4 MB for the free (F0) tier."
+    },
+    {
+      "title": "Document Intelligence SDK target REST API v4.0 - Foundry Tools | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/versioning/sdk-overview-v4-0?view=doc-intel-4.0.0",
+      "type": "official-docs",
+      "quote": "Python → 1.0.0 (GA) | PyPI | 2024-11-30 (GA) ... pip install azure-ai-documentintelligence==1.0.0 ... DocumentIntelligenceClient DocumentIntelligenceAdministrationClient"
+    },
+    {
+      "title": "Migrate to v4.0 - Foundry Tools | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/versioning/migration-guide-overview",
+      "type": "official-docs",
+      "quote": "Document Intelligence REST preview API versions (2024-07-31-preview, 2024-02-29-preview, 2023-10-31-preview) reach end of support on June 30, 2026 ... REST API v2.1 reaches end of support on September 15, 2027 ... v3.0 ... March 30, 2029."
+    },
+    {
+      "title": "azure-ai-documentintelligence · PyPI",
+      "url": "https://pypi.org/project/azure-ai-documentintelligence/",
+      "type": "other",
+      "quote": "Latest Version: 1.0.2 (Released Mar 27, 2025) ... pip install azure-ai-documentintelligence ... poller = client.begin_analyze_document(\"prebuilt-layout\", body=f)"
+    }
+  ],
+  "current_version": "Document Intelligence service v4.0 GA (REST API 2024-11-30); Python SDK azure-ai-documentintelligence 1.0.0 GA (latest PyPI patch 1.0.2, Mar 2025)",
+  "api_surface": [
+    "pip install azure-ai-documentintelligence==1.0.0 (or 1.0.x)",
+    "from azure.ai.documentintelligence import DocumentIntelligenceClient",
+    "from azure.identity import DefaultAzureCredential (managed identity on Container Apps) or azure.core.credentials.AzureKeyCredential",
+    "client = DocumentIntelligenceClient(endpoint, credential) — endpoint must be a custom-subdomain Cognitive Services endpoint for Entra ID auth",
+    "poller = client.begin_analyze_document('prebuilt-read', body=<file bytes/stream>); result = poller.result()",
+    "result.paragraphs[].content, result.pages[].lines[].content, result.pages[].words[].content/.confidence",
+    "Optional 'pages' query/parameter to restrict analysis to a page range for large multi-page PDFs"
+  ],
+  "pitfalls": [
+    "Package/class rename on v3.1→v4.0 SDK upgrade: azure-ai-formrecognizer's DocumentAnalysisClient is replaced by azure-ai-documentintelligence's DocumentIntelligenceClient — do not mix the two packages.",
+    "Preview API versions (2024-07-31-preview, 2024-02-29-preview, 2023-10-31-preview) sunset 2026-06-30 — any code pinned to a preview version will break; pin to 2024-11-30 GA.",
+    "Entra ID / managed identity auth fails on plain regional endpoints; a custom subdomain is required.",
+    "Free tier (F0) silently truncates PDFs/TIFFs to the first 2 pages and caps file size at 4MB — easy to misdiagnose as an OCR quality bug.",
+    "Office (DOCX/XLSX/PPTX) and HTML inputs to prebuilt-read return words/paragraphs without bounding boxes and drop embedded images — not relevant for scanned past-papers but worth knowing if any source docs are Office files.",
+    "Historical (2023-07-31) breaking rename: boundingBox → polygon in analyze results — only matters if comparing against pre-2023 sample output.",
+    "Custom-trained models (not used in this build) expire and are tied to the API version they were trained on — not applicable since this build only uses the prebuilt-read model."
+  ],
+  "uncertain": [
+    "key_findings",
+    "recommendations"
+  ]
+}

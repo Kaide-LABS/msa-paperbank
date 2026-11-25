@@ -1,0 +1,93 @@
+{
+  "summary": "The relevant 'OneDrive' surface for this build is the Microsoft Graph v1.0 driveItem API (files live under SharePoint/OneDrive drives, addressed via /drives/{id}/items/{id}), accessed with app-only (client-credentials) auth via Entra ID. There is no separate 'OneDrive version' to install; it's a hosted REST API consumed over HTTPS, optionally via the official msgraph-sdk Python package (current 1.65.0, Oct 22 2026). The documented hashes facet explicitly marks sha256Hash as 'not supported, don't use' -- the importer must compute SHA-256 itself from downloaded bytes, not rely on Graph. A documented upcoming breaking change (tempauth/pre-authenticated download URL retirement, April 1 2027) affects the exact download pattern (302 redirect / @microsoft.graph.downloadUrl) this build would naturally use.",
+  "key_findings": [
+    "driveItem resource (v1.0) represents files/folders in OneDrive and SharePoint drives; addressed by /drives/{drive-id}/items/{item-id} or /drive/root:/path.",
+    "List folder contents: GET /drives/{drive-id}/items/{item-id}/children (or /root/children); default page size 200, paginate via @odata.nextLink.",
+    "Download content: GET /drives/{drive-id}/items/{item-id}/content returns HTTP 302 to a preauthenticated download URL (same as @microsoft.graph.downloadUrl); URL valid ~1 hour, no Authorization header needed on it today.",
+    "hashes facet: sha256Hash property is explicitly documented as 'This property isn't supported. Don't use.' Only quickXorHash is guaranteed on both OneDrive consumer and work/school; sha1Hash is 'if available' only.",
+    "App-only auth: OAuth2 client-credentials grant against POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token with scope=https://graph.microsoft.com/.default; requires admin consent on application permissions (least-privileged: Files.Read.All, plus Sites.Read.All for SharePoint document libraries).",
+    "Official MS blog (Oct 2026): pre-authenticated 'tempauth' URLs (incl. @microsoft.graph.downloadUrl / the 302 target) are being retired by April 1, 2027 for SharePoint Online/OneDrive; affected ops include download, createUploadSession, previews, thumbnails, format conversion, long-running actions.",
+    "After the 2027 retirement, apps must send an Entra ID bearer token directly against returned content URLs/endpoints instead of treating the URL as self-authenticating, and must not cache/store the download URL.",
+    "Permission resource properties grantedTo/grantedToIdentities are being removed after a 4-year deprecation notice; use grantedToV2/grantedToIdentitiesV2 instead (relevant only if this build ever reads permissions, which it doesn't need to).",
+    "msgraph-sdk (Python) current version 1.65.0, released 2026-10-22, requires Python >=3.10 (3.10-3.14 supported) -- optional; plain httpx/requests calls to the REST API also work and match this codebase's 'plain Python' style."
+  ],
+  "recommendations": [
+    "Do not depend on Graph's hashes.sha256Hash for dedup -- it is documented unsupported. Download each file's bytes once and compute sha256 locally (hashlib.sha256) in the importer, matching AC#10 exactly.",
+    "Use app-only auth: register an Entra ID app, grant application permissions Files.Read.All (plus Sites.Read.All if pulling from SharePoint doc libraries), get admin consent, and acquire tokens via the client_credentials flow (store client id/secret or cert in the existing secrets abstraction, never in repo).",
+    "Call Graph directly over HTTPS (httpx) with Bearer tokens for simplicity and testability, rather than adding the full msgraph-sdk dependency, unless the team wants its typed models.",
+    "When downloading content, follow the current 302/@microsoft.graph.downloadUrl pattern now, but do not persist/cache that URL anywhere -- fetch and discard immediately, since it's short-lived (~1hr) today and the mechanism itself is being retired by 2027.",
+    "Design the download path so switching to a direct Authorization-header content fetch (post-tempauth-retirement) is a small change, not a rewrite -- i.e., keep the HTTP client call behind the same storage/import abstraction already planned for Blob/GCS.",
+    "Paginate folder listings with @odata.nextLink; don't assume all files return in one page once past 200 items.",
+    "Avoid the deprecated drive/sharedWithMe endpoint and legacy grantedTo/grantedToIdentities permission fields; this build's SharePoint/OneDrive import doesn't need either."
+  ],
+  "as_of": "Microsoft Graph v1.0 REST API, pages last updated 2025-08 to 2026-10; msgraph-sdk (Python) 1.65.0 released 2026-10-22; tempauth retirement announced 2026-10, effective 2027-04-01",
+  "sources": [
+    {
+      "title": "driveItem resource type - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/resources/driveitem?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "The driveItem resource represents a file, folder, or other item stored in a drive. All file system objects in OneDrive and SharePoint are returned as driveItem resources."
+    },
+    {
+      "title": "List the contents of a folder - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/driveitem-list-children?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "Application | Files.Read.All | Files.ReadWrite.All, Sites.Read.All, Sites.ReadWrite.All ... GET /drives/{drive-id}/items/{item-id}/children"
+    },
+    {
+      "title": "Download driveItem content - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/driveitem-get-content?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "Returns a 302 Found response redirecting to a preauthenticated download URL for the file ... Preauthenticated download URLs are valid for a limited time ... might expire within minutes."
+    },
+    {
+      "title": "hashes resource type - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/resources/hashes?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "sha256Hash | String | This property isn't supported. Don't use. ... quickXorHash is the only value that is guaranteed to be available for both OneDrive for work or school and OneDrive for home."
+    },
+    {
+      "title": "Get access without a user - Microsoft Graph",
+      "url": "https://learn.microsoft.com/en-us/graph/auth-v2-service",
+      "type": "official-docs",
+      "quote": "scope=https%3A%2F%2Fgraph.microsoft.com%2F.default&client_secret=...&grant_type=client_credentials ... Specify the preconfigured permissions by passing https://graph.microsoft.com/.default"
+    },
+    {
+      "title": "Pre-authenticated (tempauth) URLs are retiring: move to Microsoft Entra ID tokens before April 1, 2027",
+      "url": "https://devblogs.microsoft.com/microsoft365dev/pre-authenticated-tempauth-urls-are-retiring-move-to-microsoft-entra-id-tokens-before-april-1-2027/",
+      "type": "official-docs",
+      "quote": "Pre-authenticated URLs, the self-issued tokens SharePoint embeds directly in a URL, commonly seen as the tempauth query parameter ... April 1, 2027 is the cutoff date."
+    },
+    {
+      "title": "Removal of Deprecated SharePoint & OneDrive Permission Resource Properties - Microsoft 365 Developer Blog",
+      "url": "https://devblogs.microsoft.com/microsoft365dev/removal-of-deprecated-sharepoint-onedrive-permission-resource-properties/",
+      "type": "official-docs",
+      "quote": "Use grantedToV2 instead of grantedTo ... Use grantedToIdentitiesV2 instead of grantedToIdentities ... following a four-year notice of deprecation."
+    },
+    {
+      "title": "msgraph-sdk · PyPI",
+      "url": "https://pypi.org/project/msgraph-sdk/",
+      "type": "other",
+      "quote": "Current Version: 1.65.0, Release Date: October 22, 2026 ... requires Python >=3.10 and explicitly supports Python 3.10, 3.11, 3.12, 3.13, and 3.14."
+    }
+  ],
+  "current_version": "Microsoft Graph REST API v1.0 (stable, no numeric version churn); official Python SDK msgraph-sdk 1.65.0 (2026-10-22)",
+  "api_surface": [
+    "[removed by OSA: this line looked like an instruction aimed at an AI (exfiltration)]",
+    "GET /sites/{site-id}/drive or /drives/{drive-id} to resolve the SharePoint/OneDrive document library drive",
+    "GET /drives/{drive-id}/items/{item-id}/children (and /root/children) to list files, with @odata.nextLink pagination",
+    "GET /drives/{drive-id}/items/{item-id}/content (302 to short-lived download URL) or @microsoft.graph.downloadUrl property to fetch file bytes",
+    "driveItem.file and driveItem.hashes (quickXorHash, sha1Hash) for change-detection metadata -- NOT sha256Hash",
+    "Application permissions: Files.Read.All (minimum), Sites.Read.All if reading SharePoint document libraries"
+  ],
+  "pitfalls": [
+    "sha256Hash in the Graph hashes facet is documented as unsupported -- compute SHA-256 locally after download; do not build dedup logic around a Graph-provided sha256.",
+    "Pre-authenticated 'tempauth' download URLs (@microsoft.graph.downloadUrl, the /content 302 target) are being retired by April 1, 2027; design the download call to be swappable for a direct Entra-token-authorized fetch.",
+    "Folder listings page at 200 items by default; missing @odata.nextLink handling silently truncates large SharePoint/OneDrive folders.",
+    "grantedTo/grantedToIdentities permission properties are being removed after a 4-year deprecation; use grantedToV2/grantedToIdentitiesV2 if the importer ever touches sharing permissions.",
+    "drive/sharedWithMe endpoint was flagged deprecated in Microsoft tooling around Nov 2025 per secondary sources [uncertain] -- avoid depending on it for this importer regardless, since direct site/drive access is the intended path."
+  ],
+  "uncertain": [
+    "pitfalls"
+  ]
+}

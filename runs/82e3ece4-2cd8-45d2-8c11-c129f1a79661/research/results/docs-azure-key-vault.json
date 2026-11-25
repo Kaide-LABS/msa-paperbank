@@ -1,0 +1,70 @@
+{
+  "summary": "Azure Key Vault secrets management is accessed from this FastAPI build via the Python SDK `azure-keyvault-secrets` (current stable 4.12.0, released 2026-10-27) together with `azure-identity`'s `DefaultAzureCredential`, which works unchanged locally and under Container Apps managed identity. The vault itself is provisioned via Bicep (`Microsoft.KeyVault/vaults`) with `enableRbacAuthorization: true`, since RBAC is now the default permission model for newly created vaults as of API version 2026-02-01, replacing legacy access policies. The bot/ingest/backfill Container Apps get a system-assigned managed identity granted the built-in 'Key Vault Secrets User' role at vault scope and call `get_secret`/async `get_secret` with no secrets ever written to the repo.",
+  "key_findings": [
+    "azure-keyvault-secrets current stable is 4.12.0 (released 2026-10-27 per official CHANGELOG), requiring Python 3.10+; install with `pip install azure-keyvault-secrets azure-identity`.",
+    "4.12.0 is a breaking release: dropped Python 3.9 support; default REST API version bumped to 2026-04-01; hardened auth-challenge caching against injection.",
+    "4.10.0 (2025-06-16) had earlier dropped Python 3.8; 4.11.0 (2026-03-26) added `out_content_type` on get_secret and `previous_version` on SecretProperties.",
+    "Core client: `SecretClient(vault_url, credential)` with methods get_secret, set_secret, update_secret_properties, begin_delete_secret, list_properties_of_secrets; async variant in `azure.keyvault.secrets.aio`.",
+    "Starting with Key Vault API version 2026-02-01, Azure RBAC (not vault access policies) is the default data-plane access model for newly created vaults.",
+    "Switching an existing vault's permission model from access-policy to RBAC invalidates ALL access-policy grants immediately -- can cause outages if roles aren't pre-staged.",
+    "Secrets are capped at 25 KB per value; the official docs explicitly say Key Vault is optimized for cryptographic secrets, not general app configuration.",
+    "Container Apps expose managed-identity tokens via IDENTITY_ENDPOINT/IDENTITY_HEADER env vars; DefaultAzureCredential consumes these automatically with no code changes between local dev and Azure.",
+    "Managed-identity token cache is per resource URI for ~24h; a newly granted role assignment may not take effect immediately if a token was already cached.",
+    "ABAC conditions scoping Key Vault secret access by name/vault pattern are still in preview, not GA."
+  ],
+  "recommendations": [
+    "Implement the secrets/config swap point as a thin SecretProvider interface; Azure impl wraps SecretClient+DefaultAzureCredential, GCP impl wraps google-cloud-secret-manager, so removing GCP later (criterion 11) is a file deletion, not a rewrite.",
+    "Provision the vault in Bicep with enableRbacAuthorization: true and grant each Container App's system-assigned identity only 'Key Vault Secrets User' (read-only); reserve 'Key Vault Secrets Officer' for the not-yet-executed migration/cutover identity.",
+    "Pin azure-keyvault-secrets>=4.11,<5 and azure-identity; confirm the Container Apps base image runs Python 3.10+ given 4.12.0 dropped 3.9.",
+    "Keep only true secrets (WhatsApp token, DB password, model API keys) in Key Vault; leave pricing.py price tables, model names, and feature flags in pydantic-settings/env vars per Microsoft's own 'not for general configuration' guidance.",
+    "In the scripted (not-executed) cutover plan, pre-stage all Key Vault role assignments before any identity or permission-model switch, and account for the ~24h managed-identity token cache when validating the parallel run.",
+    "If using the async FastAPI path, install an async transport (e.g. aiohttp) alongside azure.keyvault.secrets.aio.SecretClient rather than mixing sync calls into async request handlers."
+  ],
+  "as_of": "2026-10-28 (Learn docs refresh); SDK 4.12.0 released 2026-10-27; RBAC-default change effective with API version 2026-02-01",
+  "sources": [
+    {
+      "title": "Azure Key Vault Secrets client library for Python | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/python/api/overview/azure/keyvault-secrets-readme?view=azure-python",
+      "type": "official-docs",
+      "quote": "Python 3.10 or later is required to use this package... pip install azure-keyvault-secrets azure-identity"
+    },
+    {
+      "title": "azure-keyvault-secrets CHANGELOG (Azure/azure-sdk-for-python)",
+      "url": "https://github.com/Azure/azure-sdk-for-python/blob/main/sdk/keyvault/azure-keyvault-secrets/CHANGELOG.md",
+      "type": "official-docs",
+      "quote": "4.12.0 ... Breaking Change: Python 3.9 is no longer supported. Please use Python 3.10 or later"
+    },
+    {
+      "title": "Grant permission to applications to access an Azure key vault using Azure RBAC | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/key-vault/general/rbac-guide",
+      "type": "official-docs",
+      "quote": "Starting with API version 2026-02-01, Azure RBAC is the default access control model for newly created key vaults."
+    },
+    {
+      "title": "Managed identities in Azure Container Apps | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/container-apps/managed-identity",
+      "type": "official-docs",
+      "quote": "Container Apps provides an internally accessible REST endpoint... IDENTITY_ENDPOINT... IDENTITY_HEADER... the Azure Identity client library provides an abstraction over this REST endpoint."
+    }
+  ],
+  "current_version": "4.12.0 (azure-keyvault-secrets, Python SDK, released 2026-10-27)",
+  "api_surface": [
+    "azure.keyvault.secrets.SecretClient(vault_url, credential) / aio.SecretClient for async",
+    "azure.identity.DefaultAzureCredential() (sync and .aio async variant)",
+    "SecretClient.get_secret(name) -> KeyVaultSecret.value",
+    "SecretClient.set_secret(name, value) -- used only by the scripted, not-yet-executed migration tooling",
+    "SecretClient.list_properties_of_secrets() -- enumeration without values",
+    "azure.core.exceptions.ResourceNotFoundError for missing-secret handling",
+    "Bicep: Microsoft.KeyVault/vaults with enableRbacAuthorization: true; Microsoft.Authorization/roleAssignments for 'Key Vault Secrets User'/'Secrets Officer'",
+    "Container App identity block (Bicep): identity: { type: 'SystemAssigned' }"
+  ],
+  "pitfalls": [
+    "4.12.0 drops Python 3.9 support (3.10+ required) -- check container base image before upgrading the SDK.",
+    "New vaults default to RBAC (API version 2026-02-01+); flipping an existing vault's model to RBAC invalidates all access-policy grants instantly.",
+    "Managed-identity tokens are cached ~24h per resource URI; freshly granted roles may not be honored immediately during cutover testing.",
+    "Key Vault secret values capped at 25 KB; not designed as a general config/feature-flag store.",
+    "ABAC-based fine-grained secret scoping is still preview, not production-GA.",
+    "Async SecretClient needs an installed async HTTP transport (e.g. aiohttp); omitting it silently breaks async usage."
+  ],
+  "uncertain": []
+}

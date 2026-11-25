@@ -1,0 +1,65 @@
+{
+  "summary": "text-embedding-3-large is a single, undated OpenAI embedding model available on Azure OpenAI/Microsoft Foundry as a model deployment, callable via the OpenAI-compatible embeddings API. It defaults to 3072-dimensional output but supports a `dimensions` parameter to truncate to 768, which is what this build needs to match the existing pgvector Vector(768) column. Azure now offers a v1 GA API (`/openai/v1/embeddings`, no `api-version` needed) alongside the older dated api-version endpoints; both support the model. Hard limits to respect are 8,192 tokens per input, 2,048 inputs per request array, and a 300,000-token aggregate cap per request.",
+  "key_findings": [
+    "Default embedding size for text-embedding-3-large is 3072 dimensions; must pass dimensions=768 explicitly to get a 768-dim vector.",
+    "Max input length is 8,192 tokens per text; max 2,048 inputs per array in one /embeddings request (Microsoft Learn, embeddings how-to, 2026-07-22).",
+    "Azure OpenAI embeddings requests fail with HTTP 400 if the SUM of input tokens across all items in one request exceeds 300,000, even if each item is under 8,192 tokens.",
+    "Azure's v1 GA API (/openai/v1/embeddings) is current since August 2025 and removes the need for a dated api-version query parameter; uses OpenAI()-style client with Entra ID bearer token or api-key.",
+    "Model name used in the API call is the Azure deployment name (mapped to text-embedding-3-large), not the raw OpenAI model string.",
+    "text-embedding-3-large supports the dimensions parameter to shorten output while retaining concept-representing properties (OpenAI embeddings guide).",
+    "Per Microsoft's own model-retirements doc: 'Embeddings models (text-embedding-3-large, text-embedding-3-small, text-embedding-ada-002) have extended timelines and are handled differently from inference models' — no specific retirement date found for text-embedding-3-large as of 2026-07-24.",
+    "Dimensions parameter accepts values from 1 up to 3072, and requires a sufficiently recent openai client SDK version to be supported in requests [uncertain]."
+  ],
+  "recommendations": [
+    "Always pass dimensions=768 explicitly in every embeddings.create call so output matches the existing Vector(768) pgvector column and HNSW index — never rely on the 3072 default.",
+    "Use the Azure OpenAI v1 GA API (/openai/v1/embeddings) with Microsoft Entra ID (DefaultAzureCredential) auth per current Microsoft guidance, instead of older dated api-version endpoints.",
+    "Chunk documents to <=8,192 tokens per input, keep request arrays <=2,048 items, and keep per-request aggregate tokens under 300,000 to avoid HTTP 400s.",
+    "Pin the openai Python SDK to a current release before depending on the dimensions parameter.",
+    "Before cutover, check the Azure Model Retirement Schedule for text-embedding-3-large since embeddings models follow a separate lifecycle from chat/vision models."
+  ],
+  "as_of": "Microsoft Learn Azure OpenAI/Foundry docs dated 2026-05-13 to 2026-07-24; OpenAI developers.openai.com embeddings guide accessed 2026-11-02 (undated page)",
+  "sources": [
+    {
+      "title": "Generate embeddings with Azure OpenAI - Microsoft Foundry | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/embeddings",
+      "type": "official-docs",
+      "quote": "The maximum input length for the current embedding models is 8,192 tokens... Each /embeddings request has a 300,000-token aggregate limit across all inputs."
+    },
+    {
+      "title": "Foundry Models lifecycle and support policy - Microsoft Foundry | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/concepts/model-retirements",
+      "type": "official-docs",
+      "quote": "Embeddings models (text-embedding-3-large, text-embedding-3-small, text-embedding-ada-002) have extended timelines and are handled differently from inference models."
+    },
+    {
+      "title": "Azure OpenAI in Microsoft Foundry Models v1 API - Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/api-version-lifecycle",
+      "type": "official-docs",
+      "quote": "Starting in August 2025, you can opt in to the next generation v1 Azure OpenAI APIs which add support for: Ongoing access to the latest features with no need to specify new api-version's each month."
+    },
+    {
+      "title": "Vector embeddings - OpenAI API documentation",
+      "url": "https://developers.openai.com/api/docs/guides/embeddings",
+      "type": "official-docs",
+      "quote": "By default, the length of the embedding vector is 3072 for text-embedding-3-large... pass in the dimensions parameter... removes some numbers from the end of the sequence without the embedding losing its concept-representing properties."
+    }
+  ],
+  "current_version": "text-embedding-3-large (single current model id, no dated snapshot variants); accessed via Azure OpenAI v1 GA API (/openai/v1/embeddings, no api-version param, GA since Aug 2025)",
+  "api_surface": [
+    "client.embeddings.create(model=<azure-deployment-name>, input=text, dimensions=768) via openai Python SDK",
+    "POST https://{resource}.openai.azure.com/openai/v1/embeddings (Azure v1 GA endpoint, no api-version query param)",
+    "Auth: Microsoft Entra ID bearer token via DefaultAzureCredential + get_bearer_token_provider (recommended), or api-key header",
+    "Response shape: response.data[0].embedding -> list[float] of length = requested dimensions (768)"
+  ],
+  "pitfalls": [
+    "Omitting dimensions=768 returns 3072-dim vectors by default, breaking the fixed Vector(768) pgvector column/HNSW index.",
+    "Aggregate token limit of 300,000 per request applies across all batched inputs combined, not just per-item 8,192 token limit.",
+    "Max 2,048 inputs per array in a single embeddings request on Azure.",
+    "Older openai 1.x SDK versions may not support the dimensions parameter; upgrade before use [uncertain].",
+    "No explicit retirement date is published for text-embedding-3-large as of 2026-07-24; embeddings models use an 'extended' lifecycle separate from chat models, so standard 18-month GA timelines don't directly apply — recheck the retirement schedule before cutover."
+  ],
+  "uncertain": [
+    "key_findings",
+    "pitfalls"
+  ]
+}

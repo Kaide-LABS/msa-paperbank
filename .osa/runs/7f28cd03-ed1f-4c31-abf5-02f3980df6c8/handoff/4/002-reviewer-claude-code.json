@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "run_id": "7f28cd03-ed1f-4c31-abf5-02f3980df6c8",
+  "phase": 4,
+  "turn_index": 2,
+  "role": "reviewer",
+  "provider": "claude-code",
+  "model_tier": "verification-grade",
+  "started_at": "2026-11-16T09:55:00Z",
+  "completed_at": "2026-11-16T09:58:00Z",
+  "repo": {
+    "branch": "school-migration",
+    "head_before": "1f969e8b18ed4fb57f0d0484d624e3123dd907e7",
+    "head_after": "1f969e8b18ed4fb57f0d0484d624e3123dd907e7",
+    "commits": []
+  },
+  "spec_ref": {
+    "path": "runs/ef877dec-303d-4911-81c2-1fef07397538/spec/PHASE_4_SPEC.md",
+    "sha256": "4871b93532322df188c12b74d2e119840739082175d1e076abb0aa12489eb652"
+  },
+  "artifacts_read": [
+    {
+      "path": "runs/ef877dec-303d-4911-81c2-1fef07397538/spec/PHASE_4_SPEC.md",
+      "sha256": "4871b93532322df188c12b74d2e119840739082175d1e076abb0aa12489eb652"
+    },
+    {
+      "path": "runs/ef877dec-303d-4911-81c2-1fef07397538/baby-prd.md",
+      "sha256": "bafc3520baaf01479aebaa0e4d4bc6a6801fe4843d49f75a3d70db3dfdccc05a"
+    },
+    {
+      "path": "runs/ef877dec-303d-4911-81c2-1fef07397538/spec/context.md",
+      "sha256": "ec8a49f7263d47b0711975c963c12c6bb14e94c1b5fa4bc1d4dc3c8d7c1e9059"
+    },
+    {
+      "path": "tests/test_secrets_engine_auth.py",
+      "sha256": "d687e8ab23f8aa3d5790d91cfe647e2f5080e9ec3823543d36a6b3482aad7420"
+    }
+  ],
+  "artifacts_written": [
+    {
+      "path": "runs/ef877dec-303d-4911-81c2-1fef07397538/spec/PHASE_5_SPEC.md",
+      "sha256": "4dc4edbf34471b59cc0d21a8c021850ecb4450330221f6d43aa31300499fe47c"
+    }
+  ],
+  "status": "completed",
+  "work_done": "Reviewed the Phase 4 diff (local CPU embedder behind the Embedder port, factory selection, retrieval/intake reroute, re-embed job, parity harness, fixed query set, recorded parity report) plus the prior turn's carried-over Phase 3 source-hygiene regression test in tests/test_secrets_engine_auth.py. Ran the focused Phase 4 and hygiene tests (tests/test_local_embedder.py, tests/test_parity.py, tests/test_reembed.py, tests/test_secrets_engine_auth.py): 18 passed under Python 3.14. AC 8 (768-dim local embedder, lazy/injectable encoder, L2-normalized, EmbeddingError on dim mismatch, Vector(768)/HNSW/pg_trgm unchanged) and AC 9 (in-place re-embed job over both chunk tables, parity metrics + fixed query set + recorded report with proposed threshold) are substantively met. Flagged two test-depth gaps (no end-to-end reembed_all idempotency test, no seeded run_parity test) and a Phase 5 boot blocker (lifespan unconditionally builds storage.Client and _warmup calls Vertex directly, which fails under provider=local without GCP credentials). Authored runs/ef877dec-303d-4911-81c2-1fef07397538/spec/PHASE_5_SPEC.md (deployment: Dockerfile with baked offline model, docker-compose bot+Postgres+optional MinIO with health checks, provider-gated GCP boot path, nightly backup + restore drill, README/RUNBOOK, HTTPS reverse-proxy) carrying the flagged items as E-criteria and carried-over cleanup.",
+  "next_steps": [
+    "Phase 5 executors must provider-gate the lifespan storage.Client construction and route _warmup through app.state.embedder so the container boots healthy under provider=local with no GCP credentials.",
+    "Phase 5 executors should add the carried-over end-to-end tests: reembed_all idempotency on a seeded sqlite session and run_parity over a seeded corpus.",
+    "Confirm the full pytest suite green in the project's Python 3.12 environment (the sandbox Python 3.14 reportlab-mock collection error blocks app.pdfgen-importing modules)."
+  ],
+  "open_questions": [],
+  "halt": null
+}

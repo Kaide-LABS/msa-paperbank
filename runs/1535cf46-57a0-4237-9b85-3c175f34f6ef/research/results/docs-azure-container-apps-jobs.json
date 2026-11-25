@@ -1,0 +1,69 @@
+{
+  "summary": "[removed by OSA: this line looked like an instruction aimed at an AI (exfiltration)]",
+  "key_findings": [
+    "Official concept doc 'Jobs in Azure Container Apps' (learn.microsoft.com/en-us/azure/container-apps/jobs), ms.date 2026-09-16, confirms three trigger types: Manual, Schedule (cron, UTC), Event (KEDA-based custom scalers).",
+    "Jobs run in the same Container Apps managed environment as apps (share networking/logging) but do not support Dapr or ingress/custom domains/SSL — confirmed in the 'Jobs restrictions' section of the same page.",
+    "Core job settings/CLI params: --trigger-type, --replica-timeout, --replica-retry-limit, --parallelism, --replica-completion-count, --polling-interval (event jobs, default 30s), --cron-expression (schedule jobs), --scale-rule-name/--scale-rule-type/--scale-rule-metadata/--scale-rule-auth (event jobs).",
+    "Execution history for scheduled/event jobs is capped at the 100 most recent successful + failed executions; full history requires querying the environment's logs provider.",
+    "RBAC: built-in 'Container Apps Jobs Contributor' and 'Container Apps Jobs Operator' roles both include the `Microsoft.App/jobs/*/action` wildcard, which also matches `listSecrets/action` — Microsoft explicitly warns to build a custom role instead if plaintext-secret exposure is undesired.",
+    "Security warning (current as of the Sept 2026 doc revision): anyone holding `Microsoft.App/jobs/start/action` can submit a start-execution override template referencing a known secret name or available managed identity and read its value inside the container they control.",
+    "Job execution start/override uses the REST operation `POST .../jobs/{name}/start?api-version=<ver>`; the doc's own example still shows api-version=2023-05-01 but the resource provider's current default/stable API version (per the Jobs REST API reference page, defaultMoniker) is 2026-07-01, with 2025-01-01 and 2025-07-01 also valid recent stable versions; Bicep resource types exist for each (e.g. Microsoft.App/jobs@2025-01-01).",
+    "Long-running job replicas can be interrupted by routine platform maintenance; Microsoft's documented mitigation is replicaRetryLimit >= 1 plus designing the workload for at-least-once processing — directly relevant to Graph-import/backfill jobs that may run long.",
+    "Container settings and the Microsoft.App/jobs ARM schema support containers[], registries[] (ACR via registryServer/username/passwordSecretRef), secrets[], and resources{cpu,memory} — same object model as Container Apps."
+  ],
+  "recommendations": [
+    "Use Manual trigger type (`--trigger-type Manual`) for the Graph import job and any OCR A/B batch job, invoked on demand via `az containerapp job start` or the REST start operation from a controlled identity/CI pipeline — not Schedule, to keep import runs explicit and reviewable.",
+    "Pin Bicep templates to a single explicit, current stable API version for Microsoft.App/jobs (e.g. 2025-01-01 or 2025-07-01) rather than 'latest', and record that version in the Bicep param file for reproducibility across the fresh-subscription provisioning test (acceptance criterion 9).",
+    "Set replicaRetryLimit >= 1 and design the import/backfill job for at-least-once/idempotent processing, since Microsoft documents that platform maintenance can interrupt long-running replicas.",
+    "Do not grant the built-in Jobs Contributor/Operator roles broadly to CI identities that only need to start jobs; define a custom role limited to `Microsoft.App/jobs/read`, `start/action`, `stop/action`, `executions/read` to avoid incidental `listSecrets` exposure, matching the project's no-plaintext-secrets constraint.",
+    "Store ACR credentials and any job secrets (DB connection strings, API keys) as Container Apps job `secrets[]` referenced via secretRef, sourced from Key Vault/managed identity rather than inline values, to satisfy the no-hardcoded-secrets acceptance criterion.",
+    "Do not rely on Dapr or ingress inside the job container — both are unsupported for Container Apps Jobs; any inbound HTTP needs for the retrieval callable must live in the Container App, not the Job."
+  ],
+  "as_of": "2026-09-16 (concept doc revision) / 2026-10-23 (REST API reference page revision); RP stable API version 2026-07-01 current as of research date 2026-11-02",
+  "sources": [
+    {
+      "title": "Jobs in Azure Container Apps | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/container-apps/jobs",
+      "type": "official-docs",
+      "quote": "Azure Container Apps jobs enable you to run containerized tasks that run for a finite duration and then stop... Job trigger types: Manual, Schedule, Event."
+    },
+    {
+      "title": "Jobs - REST API (Azure Azure Container Apps) | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/rest/api/resource-manager/containerapps/jobs?view=rest-resource-manager-containerapps-2025-07-01",
+      "type": "official-docs",
+      "quote": "Service: Azure Container Apps / API Version: 2025-07-01 ... defaultMoniker: rest-resource-manager-containerapps-2026-07-01 ... Other Supported Versions: 2023-04-01-preview ... 2026-01-01 ... 2026-07-01"
+    },
+    {
+      "title": "az containerapp job | Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/cli/azure/containerapp/job?view=azure-cli-latest",
+      "type": "official-docs",
+      "quote": "az containerapp job — command group for managing Container Apps jobs (create, start, stop, delete, execution list)."
+    },
+    {
+      "title": "Microsoft.App/jobs 2025-01-01 - Bicep, ARM template & Terraform AzAPI reference",
+      "url": "https://learn.microsoft.com/en-us/azure/templates/microsoft.app/2025-01-01/jobs",
+      "type": "official-docs",
+      "quote": "resource symbolicname 'Microsoft.App/jobs@2025-01-01' = { ... }"
+    }
+  ],
+  "current_version": "Resource Manager API Microsoft.App/jobs stable default version 2026-07-01 (per REST API reference defaultMoniker); 2025-01-01 and 2025-07-01 also current stable versions usable in Bicep; az containerapp job CLI group is GA (built into current az CLI, no extension required)",
+  "api_surface": [
+    "az containerapp job create --trigger-type {Manual|Schedule|Event} --replica-timeout --replica-retry-limit --parallelism --replica-completion-count --image --cpu --memory [--cron-expression | --scale-rule-name/--scale-rule-type/--scale-rule-metadata/--scale-rule-auth]",
+    "az containerapp job start --name --resource-group [--yaml <override-template>]",
+    "az containerapp job execution list --name --resource-group",
+    "az containerapp job show --query properties.template",
+    "Bicep/ARM resource Microsoft.App/jobs@<api-version> with properties.configuration.{manualTriggerConfig|scheduleTriggerConfig|eventTriggerConfig}, replicaRetryLimit, replicaTimeout, triggerType, secrets[], registries[], environmentId, template.containers[]",
+    "REST POST /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.App/jobs/{name}/start?api-version=<ver>",
+    "REST GET .../jobs/{name}/executions?api-version=<ver>",
+    "RBAC actions: Microsoft.App/jobs/read, start/action, stop/action, executions/read, execution/read, managedEnvironments/read"
+  ],
+  "pitfalls": [
+    "Built-in Container Apps Jobs Contributor/Operator roles include a wildcard `Microsoft.App/jobs/*/action` that also grants `listSecrets/action` — plaintext secret exposure risk unless a scoped custom role is used instead.",
+    "A caller with only `start/action` can override the execution template to reference known secret names and any managed identity available to the container, effectively reading secrets without `listSecrets` permission — documented as a current warning on the Jobs doc.",
+    "Dapr and ingress (custom domains, SSL) are explicitly unsupported inside Container Apps Jobs.",
+    "Execution history UI/CLI list is capped at the 100 most recent executions for scheduled/event jobs; full audit trail requires the environment's log provider (Log Analytics).",
+    "Long-running job replicas can be interrupted by routine platform maintenance/security updates; replicaRetryLimit of 0 (the create-command default in examples) leaves no retry safety net — must be explicitly raised for import/backfill jobs.",
+    "Multiple active API versions exist in parallel (2023-05-01 through 2026-07-01); documentation examples still show the older 2023-05-01 in REST snippets, so Bicep/CLI deployments must explicitly pin a version rather than copy doc examples verbatim."
+  ],
+  "uncertain": []
+}

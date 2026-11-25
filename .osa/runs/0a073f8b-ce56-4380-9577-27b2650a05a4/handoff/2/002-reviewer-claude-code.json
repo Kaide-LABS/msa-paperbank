@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "run_id": "0a073f8b-ce56-4380-9577-27b2650a05a4",
+  "phase": 2,
+  "turn_index": 2,
+  "role": "reviewer",
+  "provider": "claude-code",
+  "model_tier": "verification-grade",
+  "started_at": "2026-11-15T19:45:00Z",
+  "completed_at": "2026-11-15T19:55:00Z",
+  "repo": {
+    "branch": "school-migration",
+    "head_before": "680279d050866adf1234542b98d396a7ad53a822",
+    "head_after": "1b54338c03f92b4e24afb334afbcf76c916659fc",
+    "commits": ["1b54338c03f92b4e24afb334afbcf76c916659fc"]
+  },
+  "spec_ref": {
+    "path": "runs/ef877dec-303d-4911-81c2-1fef07397538/spec/PHASE_2_SPEC.md",
+    "sha256": "46eb7f9984406c096ffb2c196b44e1d7a4bc168e68f84b81464e845c4dddbd69"
+  },
+  "artifacts_read": [
+    {
+      "path": "runs/ef877dec-303d-4911-81c2-1fef07397538/spec/PHASE_2_SPEC.md",
+      "sha256": "46eb7f9984406c096ffb2c196b44e1d7a4bc168e68f84b81464e845c4dddbd69"
+    },
+    {
+      "path": "runs/ef877dec-303d-4911-81c2-1fef07397538/baby-prd.md",
+      "sha256": "bafc3520baaf01479aebaa0e4d4bc6a6801fe4843d49f75a3d70db3dfdccc05a"
+    },
+    {
+      "path": "runs/ef877dec-303d-4911-81c2-1fef07397538/spec/context.md",
+      "sha256": "ec8a49f7263d47b0711975c963c12c6bb14e94c1b5fa4bc1d4dc3c8d7c1e9059"
+    },
+    {
+      "path": "migrations/007_object_key_rename.sql",
+      "sha256": "8ca69516a0a3008c817fd653ae756864d0adfe0ec56a34c44096349e21bc1cf0"
+    },
+    {
+      "path": "docs/object_key_rename.md",
+      "sha256": "9f126a6a6bdf7efea32a9b0c56f1f383b9e61d0735d1c0eabb33e50a53755fb0"
+    }
+  ],
+  "artifacts_written": [
+    {
+      "path": "runs/ef877dec-303d-4911-81c2-1fef07397538/spec/PHASE_3_SPEC.md",
+      "sha256": "a8f6b0e57c03c232db1932f1463dbb513cc75800ad5899b5c3e5a334a1fc3b83"
+    }
+  ],
+  "status": "completed",
+  "work_done": "Reviewed Phase 2 (channel-neutral core + reversible gcs_* to object_key rename) against PHASE_2_SPEC.md and the executor diff, and authored PHASE_3_SPEC.md. Verified AC4: app/inbound.py defines InboundMessage + handle_inbound importing no WhatsApp types (AST test passes), app/channels/whatsapp.py is a thin to_inbound/from_reply adapter, app/retrieval.answer_query is WhatsApp-type-free, app/main.py webhook routes the non-serve_v1 branch through the adapter into handle_inbound with request.app.state.store, and handle_inbound is a faithful line-by-line port of pipeline.handle_message; the Phase 1 caller mismatch was fixed (admin/batches.py uses get_object_store; intake.handle_image_inbound is channel-neutral). Verified AC5: migration 007 is idempotent with a documented exact inverse and is registered in apply_migrations.py FILES; app/db.py carries synonym() for gcs_object on papers/pending_papers/image_batch_items and served_object on papers; app/config.py carries AliasChoices for GCS_BUCKET/MEDIA_GCS_PREFIX/CONTRIBUTION_GCS_PREFIX. Found three defects (flagged, not overruled): (1) a live-serve-path regression introduced in Phase 2 Part B where raw-SQL SELECT labels were renamed to object_key/served_object_key but the .mappings() consumers still read the old keys, raising KeyError at app/retrieval.py:253-254/265/268 (load_served_bytes_v1), app/retrieval.py:321-322 (load_served_cached, swallowed into a silent permanent cache miss then falling through to the broken path), and app/serve_index.py:94 (_row_to_candidate); (2) raw-SQL literals still naming the old column on the renamed pending_papers table at review/promote.py:44, review/main.py:375, and cloud_ingest/main.py:114-115 (the contribution_pages literals are correct as-is since that table is not renamed); (3) the spec-required tests/test_object_key_rename.py was never written, leaving AC5 synonym/env-alias/migration-shape with no automated guard. These three are carried into PHASE_3_SPEC.md as mandatory opportunistic cleanups. The full suite was not run here because the sandbox runs Python 3.14 while the project targets 3.12 and conftest's db_session fixture does not resolve; the carried KeyError fixes are what a full 3.12 run would surface. PHASE_3_SPEC.md specifies the in-house plumbing phase (AC6, AC7): filesystem/MinIO ObjectStore behind the existing port, backend-issued HMAC-signed ~15-minute download URLs with a verifying /download route, a file/env SecretsProvider, a plain-Postgres EngineProvider, bearer-token auth for the future tool endpoint, and removal of the plaintext DB password/Cloud SQL string from apply_migrations.py and the hardcoded GCP project id from infra_bootstrap.sh/scripts/restore_drill.sh/Dockerfile, following the established spec structure. Committed PHASE_3_SPEC.md.",
+  "next_steps": [
+    "Phase 3 Part A: app/signing.py HMAC sign/verify, add ObjectStore.signed_url to the port, implement FsObjectStore (and optional MinioObjectStore), add GET /download verifying signature+expiry and POST /tool/retrieve, wire the local/minio provider branches, with signing and filesystem tests.",
+    "Phase 3 Part B: FileSecretsProvider/EnvSecretsProvider, PostgresEngineProvider, require_tool_token bearer dependency, config fields for storage/signing/db/token (no plaintext defaults), strip secrets from apply_migrations.py and the project-id literal from infra_bootstrap.sh/scripts/restore_drill.sh/Dockerfile, plus secrets/engine/auth tests, a source-hygiene grep test, and docs/inhouse_plumbing.md.",
+    "Fix the Phase 2 carried-over defects while touching those paths: re-point the .mappings() reads in app/retrieval.py and app/serve_index.py to the new column labels; re-point the pending_papers raw-SQL literals in review/promote.py, review/main.py, and cloud_ingest/main.py to object_key; and add the missing tests/test_object_key_rename.py.",
+    "Confirm AC1 (full pytest suite green) in the project's real Python 3.12 environment where conftest's db_session fixture resolves."
+  ],
+  "open_questions": [
+    "AC1 full-suite greenness is unverified in this sandbox (Python 3.14 vs the project's 3.12; conftest db_session fixture does not resolve), so only the Phase 2 focused tests were observed as passing; the carried-over serve-path KeyError fixes are expected to be what a full 3.12 run surfaces.",
+    "cloud_ingest/ is frozen tooling not run against prod, but it shares the same database and its INSERT INTO pending_papers (... gcs_object ...) will break post-migration; the Phase 3 cleanup re-points it, but whether cloud_ingest is ever re-run in the self-hosted deployment is a product decision outside this review."
+  ],
+  "halt": null
+}

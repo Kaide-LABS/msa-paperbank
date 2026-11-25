@@ -1,0 +1,65 @@
+{
+  "summary": "Azure Database for PostgreSQL Flexible Server supports pgvector (vector extension) and pg_trgm, but both must first be added to the server-level `azure.extensions` allow-list parameter before `CREATE EXTENSION` will succeed. HNSW indexing is supported with dimension limit of 2000 (fine for 768-dim embeddings) and tunable `m`/`ef_construction`/`ef_search` params; DiskANN is Azure's recommended alternative if HNSW hits CPU-instruction compatibility issues on some hardware with pgvector 0.8.0. Managed-identity/Entra ID auth works by acquiring an OAuth token scoped to `https://ossrdbms-aad.database.windows.net/.default` (token valid 5-60 min, must be refreshed, used as the Postgres password) rather than a static password. Backup/restore drills use built-in point-in-time restore (default 7-day retention, up to 35 days) or geo-restore (if geo-redundant backup enabled at creation, ~1hr RPO, no PITR on the geo copy); a restore always creates a new server, never overwrites in place, so the drill procedure is: trigger a PITR/geo-restore to a new server name, verify data/extensions, then tear it down.",
+  "key_findings": [
+    "pgvector extension is named `vector` on Azure (not `pgvector`); enabling requires: 1) add `vector` and `pg_trgm` to server parameter `azure.extensions` (Portal > Server parameters, or `az postgres flexible-server parameter set --name azure.extensions --value vector,pg_trgm`), then 2) run `CREATE EXTENSION vector;` / `CREATE EXTENSION pg_trgm;` in the DB.",
+    "Index column dimension limit is 2000 for both ivfflat and hnsw; attempting to index >2000 dims throws 'column cannot have more than 2000 dimensions for INDEX_TYPE index'. 768 dims is well within this limit.",
+    "HNSW CREATE INDEX syntax: `CREATE INDEX ... USING hnsw (embedding vector_l2_ops) WITH (m = 16, ef_construction = 64);` defaults m=16, ef_construction=64, ef_search=40 (settable via `SET hnsw.ef_search`).",
+    "Microsoft Q&A/docs report pgvector 0.8.0 can hit an 'illegal instruction' crash on Flexible Server due to CPU-instruction mismatches; Microsoft's documented mitigation is to use DiskANN (Azure-specific index type, only available on Flexible Server) instead of HNSW if this is encountered. [uncertain]",
+    "Entra ID / managed-identity auth: get a token via `az account get-access-token --resource-type oss-rdbms` (or equivalent SDK call scoped to `https://ossrdbms-aad.database.windows.net/.default`), then pass it as the PostgreSQL password (e.g. `PGPASSWORD` env var); token is valid only 5-60 minutes and must be re-acquired, so app code needs refresh logic rather than a cached static credential.",
+    "Both system-assigned and user-assigned managed identities are supported as Entra principals/admins on Flexible Server; a managed identity can also be a member of an Entra group role for scoped DB permissions.",
+    "Default backup retention is 7 days, configurable up to 35 days; first backup is a full snapshot, subsequent ones are daily differential snapshots, WAL backed up continuously (RPO up to ~5 min).",
+    "Restore always provisions a brand-new server (never in-place); options are latest restore point, custom (any point within retention window), fast-restore (snapshot only, no WAL replay), and geo-restore (to paired region, only if geo-redundant backup was enabled at server creation time, ~1hr RPO, no PITR on the geo copy).",
+    "Geo-redundant backup storage can only be enabled at server creation time and cannot be toggled on afterward; must wait at least 1 hour post-creation before the first geo-restore is possible.",
+    "Post-restore, firewall rules, VNet/private-endpoint config, server parameters (including `azure.extensions`), and HA config are NOT automatically copied to the restored server and must be reapplied manually — relevant for scripting a restore drill."
+  ],
+  "recommendations": [
+    "Add both `vector` and `pg_trgm` to the `azure.extensions` allow-list in the Bicep template's server parameters resource (not just via post-deploy SQL), so `CREATE EXTENSION` doesn't fail on a fresh subscription.",
+    "Keep `Vector(768)` column type and HNSW index DDL as-is (`vector_cosine_ops` or current distance op); 768 dims is within Azure's 2000-dim index limit, so no column/index redesign is needed.",
+    "Build the Postgres connection string/engine to support Entra managed-identity auth with token refresh (acquire token scoped to `https://ossrdbms-aad.database.windows.net/.default`, refresh before each connection or on expiry) as the secrets adapter's default for Azure, falling back to password auth only for local/dev.",
+    "If HNSW build/query throws an illegal-instruction error on the chosen Flexible Server SKU, fall back to DiskANN as Azure's documented stable alternative rather than debugging CPU-flag issues — flag this as a contingency in the migration runbook, not a default assumption.",
+    "For the required restore drill: set backup retention explicitly in Bicep (7-35 days) and geo-redundant backup only if enabling at creation; script the drill as PITR-to-new-server-name, verify pgvector extension + HNSW index + row counts exist, then delete the drill server — document that firewall/VNet/parameters must be reapplied post-restore.",
+    "Do not assume PITR works on a geo-redundant backup copy — only geo-restore (to the paired region, latest backup only) is available there; keep this distinction explicit in the RUNBOOK's DR section."
+  ],
+  "as_of": "Docs pages dated/updated 2026-07 to 2026-09 (Microsoft Learn ms.date fields); pgvector 0.8.0 release referenced as May 2025",
+  "sources": [
+    {
+      "title": "Optimize Performance when Using pgvector in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/extensions/how-to-optimize-performance-pgvector",
+      "type": "official-docs",
+      "quote": "You can only index a column that has up to 2000 dimensions... ERROR: column cannot have more than 2000 dimensions for INDEX_TYPE index"
+    },
+    {
+      "title": "Use Microsoft Entra ID Authentication in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/security/security-entra-configure",
+      "type": "official-docs",
+      "quote": "az account get-access-token --resource-type oss-rdbms ... The access token is valid for 5 to 60 minutes. Get the access token before initiating the sign-in to Azure Database for PostgreSQL."
+    },
+    {
+      "title": "Backup and Restore in Azure Database for PostgreSQL Flexible Server",
+      "url": "https://learn.microsoft.com/en-us/azure/postgresql/backup-restore/concepts-backup-restore",
+      "type": "official-docs",
+      "quote": "A restore operation in your Azure Database for PostgreSQL flexible server instance always creates a new database server with the name that you provide. It doesn't overwrite the existing database server."
+    },
+    {
+      "title": "pg_trgm Extension Not Allowed on Azure Database for PostgreSQL Flexible Server (search summary of Microsoft docs/Q&A)",
+      "url": "https://learn.microsoft.com/en-us/answers/questions/5537068/pg-trgm-extension-not-allowed-on-azure-database-fo",
+      "type": "forum",
+      "quote": "azure.extensions is the server parameter that holds Azure's per-server allow-list of extensions."
+    },
+    {
+      "title": "Azure Database for PostgreSQL flexible server - Illegal instruction with pgvector 0.8.0",
+      "url": "https://learn.microsoft.com/en-us/answers/questions/5544878/azure-database-for-postgresql-flexible-server-ille",
+      "type": "forum",
+      "quote": "The vector extension (version 0.8.0) may use CPU instructions that aren't supported on specific hardware behind the PostgreSQL Flexible Server. DiskANN is recommended as a stable alternative to HNSW."
+    },
+    {
+      "title": "Tutorial: Access Azure databases with managed identity - Azure App Service",
+      "url": "https://learn.microsoft.com/en-us/azure/app-service/tutorial-connect-msi-azure-database",
+      "type": "official-docs",
+      "quote": "Secure database connectivity (Azure SQL Database, Database for MySQL, and Database for PostgreSQL) with managed identity from .NET, Node.js, Python, and Java apps."
+    }
+  ],
+  "uncertain": [
+    "key_findings"
+  ]
+}

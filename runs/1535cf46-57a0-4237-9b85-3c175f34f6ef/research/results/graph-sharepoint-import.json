@@ -1,0 +1,56 @@
+{
+  "summary": "Microsoft Graph's driveItem API supports listing (children/delta endpoints) and downloading (content endpoint or @microsoft.graph.downloadUrl) files from OneDrive/SharePoint drives, and can fully replace the Google Drive import. Auth should use azure-identity's ClientSecretCredential (app-only client credentials flow) with the Files.Read.All or Sites.Read.All application permission, reusing the same azure-identity dependency likely already needed for Key Vault secrets. The critical gap: Graph's hashes facet explicitly does NOT support sha256Hash ('isn't supported, don't use') -- only quickXorHash (guaranteed) and sha1Hash (if available) are returned, so sha256 dedupe must be computed locally by hashing the downloaded bytes, not read from Graph metadata. Delta query (driveItem: delta) is the recommended replacement for Drive's changes.list to do incremental sync efficiently.",
+  "key_findings": [
+    "GET /drives/{drive-id}/items/{item-id}/children lists folder contents; paginates via @odata.nextLink with a default page size of 200 items (learn.microsoft.com, updated 2025-11-25).",
+    "GET /drives/{drive-id}/items/{item-id}/content (or /root:/{path}:/content) returns HTTP 302 redirecting to a preauthenticated download URL; this is identical to the @microsoft.graph.downloadUrl property; URLs can expire within minutes and need no Authorization header (learn.microsoft.com, doc dated 2024-06-12, page updated 2025-08-27).",
+    "Range header (RFC 2616) is supported for partial/chunked downloads against the downloadUrl, returning 206 Partial Content -- useful for large PDFs.",
+    "The hashes resource (v1.0) explicitly states sha256Hash 'isn't supported. Don't use.' Only quickXorHash is guaranteed across OneDrive personal and business/SharePoint; sha1Hash is available 'if available' (learn.microsoft.com/graph/api/resources/hashes, updated 2025-04-09).",
+    "driveItem: delta function (GET /drives/{drive-id}/root/delta) is the Graph equivalent of a change feed: first call returns items plus either @odata.nextLink (more pages) or @odata.deltaLink (save for next sync); subsequent calls against the saved deltaLink return only changed/deleted items (learn.microsoft.com/graph/delta-query-overview, updated 2025-01-15, page last touched 2026-05-14).",
+    "Least-privileged application permission for both listing and downloading is Files.Read.All (OneDrive) or Sites.Read.All (SharePoint site drives); these require admin consent in Entra ID and work via client-credentials flow (learn.microsoft.com/graph/api/driveitem-get-content and driveitem-list-children, both v1.0, same permissions table).",
+    "Official Python app-only tutorial (updated 2025-06-03) uses `azure-identity` (ClientSecretCredential) for the token plus the `msgraph-sdk` (Python, preview) package, scope `https://graph.microsoft.com/.default`, not a raw MSAL call -- matching an Azure-adapter style already needed for Key Vault.",
+    "Deleted items in a delta response appear as `{id, \"@removed\": {\"reason\": \"deleted\"|\"changed\"}}`, so the import job can detect removals without a full re-scan.",
+    "Delta tokens for driveItem are not listed under the fixed 7-day expiry group (that applies to directory/education objects); OneDrive/SharePoint delta links instead can return 410 Gone with an empty-token Location header when a full resync is forced by the service -- the importer must handle this by restarting from a full scan."
+  ],
+  "recommendations": [
+    "Download file bytes via @microsoft.graph.downloadUrl (or follow the /content 302), then compute sha256 locally in the import adapter for dedupe -- do not attempt to read a sha256 hash from Graph metadata; it is unsupported.",
+    "Optionally also store quickXorHash (always available) as a cheap 'did-content-change' pre-check before doing a full download+sha256, to cut bandwidth on re-scans.",
+    "Use azure-identity ClientSecretCredential for app-only auth with Files.Read.All (OneDrive) or Sites.Read.All (SharePoint), matching the Key Vault adapter's existing Azure SDK auth pattern -- this keeps the credential surface consistent across adapters.",
+    "Implement listing with driveItem: delta instead of a plain children walk so repeat imports are incremental; persist the @odata.deltaLink per source folder and handle 410 Gone by falling back to a full children walk.",
+    "Treat download URLs as single-use/short-lived: fetch @microsoft.graph.downloadUrl immediately before use, don't cache it across retry loops, and use the Range header for chunked downloads of large scanned-paper PDFs/images.",
+    "Keep the existing sha256-based dedupe table/index unchanged in the DB layer; only the upstream source of the hash changes (computed from Graph-downloaded bytes instead of Drive's provided hash, if Drive previously supplied one)."
+  ],
+  "as_of": "v1.0 Graph API docs as current 2025-08-27 (content endpoint) / 2025-11-25 (children endpoint) / 2025-04-09 (hashes resource) / 2025-01-15 (delta query overview, page touched 2026-05-14); Python app-only tutorial dated 2025-06-03.",
+  "sources": [
+    {
+      "title": "Download driveItem content - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/driveitem-get-content?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "Returns a 302 Found response redirecting to a preauthenticated download URL for the file... Preauthenticated download URLs are valid for a limited time... might expire within minutes."
+    },
+    {
+      "title": "List the contents of a folder - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/driveitem-list-children?view=graph-rest-1.0",
+      "type": "official-docs",
+      "quote": "If a collection exceeds the default page size (200 items), the @odata.nextLink property is returned in the response to indicate more items are available."
+    },
+    {
+      "title": "hashes resource type - Microsoft Graph v1.0",
+      "url": "https://learn.microsoft.com/en-us/graph/api/resources/hashes",
+      "type": "official-docs",
+      "quote": "sha256Hash | String | This property isn't supported. Don't use. ... quickXorHash is the only value that is guaranteed to be available for both OneDrive for work or school and OneDrive for home."
+    },
+    {
+      "title": "Use delta query to track changes in Microsoft Graph data",
+      "url": "https://learn.microsoft.com/en-us/graph/delta-query-overview",
+      "type": "official-docs",
+      "quote": "Delta query can return a response code of 410 Gone ... This status usually happens to prevent data inconsistency... and is an indication that the application must restart with a full synchronization."
+    },
+    {
+      "title": "Build Python apps with Microsoft Graph and app-only authentication",
+      "url": "https://learn.microsoft.com/en-us/graph/tutorials/python-app-only",
+      "type": "official-docs",
+      "quote": "Azure Identity client library for Python to authenticate the user and acquire access tokens. Microsoft Graph SDK for Python (preview) to make calls to the Microsoft Graph."
+    }
+  ],
+  "uncertain": []
+}

@@ -1,0 +1,62 @@
+{
+  "summary": "For this build, chat/vision structured JSON output ('response_format'/'text.format' with strict JSON Schema) is officially supported on gpt-5.1, gpt-5.1-chat, gpt-5.1-codex, gpt-5-pro, gpt-5-codex, gpt-5/mini/nano, gpt-4.1 family, gpt-4o/mini, o3, o3-mini, o3-pro, o4-mini, and o1 (confirmed on Microsoft's structured-outputs doc, not yet listing GPT-6). A separate Microsoft Foundry doc (newer, Oct 2026) describes GPT-6 Astra/Sol/Luna and GPT-5.6/5.5/5.4 as reasoning models supporting a 'reasoning_effort' parameter (minimal/low/medium/high/xhigh/max) plus a GPT-5.6-only 'mode' (standard/pro) switch, and states these also support structured outputs, tools, and vision input. Azure OpenAI's embeddings REST API officially supports a 'dimensions' integer parameter (min 1) on text-embedding-3-small/large, which is how the build gets a 768-dim vector to match the existing pgvector column. Global Standard pricing per 1M tokens: GPT-5 $1.25/$10, GPT-6 Astra $10/$50, GPT-6 Sol $2/$10, GPT-6 Luna $0.10/$0.50, o3 $2/$8, o4-mini $1.10/$4.40, o1 $15/$60, text-embedding-3-small ~$0.022/1M, text-embedding-3-large ~$0.143/1M.",
+  "key_findings": [
+    "Official 'Supported models' list for structured outputs (learn.microsoft.com /azure/foundry/openai/how-to/structured-outputs, ms.date 2026-08-24) includes gpt-5.1 (2025-11-13), gpt-5.1-chat, gpt-5.1-codex[-mini], gpt-5-pro (2025-10-06), gpt-5-codex, gpt-5/mini/nano (2025-08-07), o3-pro, o3-mini, o1, gpt-4o/mini, gpt-4.1/mini/nano, o4-mini, o3; GPT-6 is absent from this specific list.",
+    "Structured outputs is NOT supported with Bring-your-own-data, Assistants/Foundry Agents Service, or gpt-audio/gpt-audio-mini; schemas allow up to 100 properties and 5 nesting levels and require additionalProperties:false and all fields required.",
+    "A newer Microsoft Foundry doc (learn.microsoft.com /azure/foundry/openai/how-to/reasoning, ms.date 2026-10-23) covers GPT-6 Astra and GPT-5 reasoning models; per my fetch, reasoning_effort (none/minimal/low/medium/high/xhigh/max) applies to GPT-6, GPT-5 series, and o-series except o1-mini, and a GPT-5.6-only 'mode' (standard vs. higher-cost/latency 'pro') is independent of reasoning_effort.",
+    "Exact per-model-family allowed values for reasoning_effort/mode (e.g. whether 'max' is GPT-6/5.6-only and 'minimal' is legacy-GPT-5-only) vary between my own page fetch and a separate search-engine summary of the same page, so the fine-grained matrix is not fully reconciled.",
+    "Azure OpenAI embeddings REST reference (learn.microsoft.com /rest/api/microsoft-foundry/azureopenai/embeddings, ms.date 2026-05-27) documents a 'dimensions' integer request parameter, min 1, 'Only supported in text-embedding-3 and later models' -- this is the mechanism for producing a 768-dim vector.",
+    "Embedding limits (learn.microsoft.com /azure/foundry/openai/how-to/embeddings, ms.date 2026-07-22): 8,192 max input tokens per item, max 2,048 items per array, 300,000-token aggregate cap per request.",
+    "Azure's official pricing page (azure.microsoft.com/.../openai-service), fetched directly, rendered blank '$-' placeholders (likely JS-rendered table); the same page fetched via a text-rendering proxy returned concrete Global/Standard figures matching independent third-party trackers (cloudzero.com, finout.io, tech-insider.org): GPT-5 $1.25/$10 per 1M in/out, GPT-6 Astra $10/$50 (short context) and $20/$75 (long), GPT-6 Sol $2/$10 (short)/$4/$15 (long), GPT-6 Luna $0.10/$0.50 (short)/$0.20/$0.75 (long), o3 $2/$8, o4-mini $1.10/$4.40, o1 $15/$60, text-embedding-3-small $0.000022/1K, text-embedding-3-large $0.000143/1K."
+  ],
+  "recommendations": [
+    "Use a GPT-5/5.x or gpt-4.1/4o-family chat model (confirmed on the official structured-outputs model list) for the JSON-structured answer path rather than GPT-6, until Microsoft's structured-outputs doc explicitly lists GPT-6 as supported.",
+    "For reasoning/thinking-budget control, use the 'reasoning_effort' parameter (values minimal/low/medium/high) on a GPT-5-series or o-series deployment; avoid depending on 'xhigh'/'max'/'mode' until the exact per-model support matrix is reconfirmed against a second primary source.",
+    "For the embedding model, deploy text-embedding-3-small or text-embedding-3-large and pass 'dimensions: 768' in the embeddings request body to match the existing pgvector Vector(768) column and HNSW index unchanged.",
+    "Treat the Global/Standard price list as indicative only (pricing is account/region/negotiated-discount dependent and the official page didn't render static values for me); confirm current rates in the Azure Pricing Calculator before finalizing the cost-cap breaker config.",
+    "Budget for GPT-6 Astra/Sol or o-series costing far more per output token (up to $50-$75/1M) than GPT-6 Luna or text-embedding models; keep the cost-cap breaker test using the cheapest deployed model's published rate, not an assumed one."
+  ],
+  "as_of": "Nov 2026; source docs dated 2026-10-23 (reasoning), 2026-08-24 (structured outputs), 2026-07-22 (embeddings how-to), 2026-05-27 (REST reference), pricing page accessed 2026-11-02",
+  "sources": [
+    {
+      "title": "How to use structured outputs with Azure OpenAI in Microsoft Foundry Models",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/structured-outputs",
+      "type": "official-docs",
+      "quote": "Supported models ... gpt-5.1 version: 2025-11-13 ... gpt-5-mini version 2025-08-07 ... API version 2024-08-01-preview is the first version that supports structured outputs."
+    },
+    {
+      "title": "Azure OpenAI reasoning models - GPT-6 Astra and GPT-5 - Microsoft Foundry",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/reasoning",
+      "type": "official-docs",
+      "quote": "mode ... Available exclusively for gpt-5.6 models in the Responses API ... Standard (default) ... Pro: aggregates the work it performs into a single answer"
+    },
+    {
+      "title": "Generate embeddings with Azure OpenAI - Microsoft Foundry",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/embeddings",
+      "type": "official-docs",
+      "quote": "The maximum input length for the current embedding models is 8,192 tokens ... the maximum array size is 2,048 ... 300,000-token aggregate limit"
+    },
+    {
+      "title": "Microsoft Foundry REST Reference - Azure OpenAI - Embeddings",
+      "url": "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/embeddings",
+      "type": "official-docs",
+      "quote": "dimensions | integer | The number of dimensions the resulting output embeddings should have. Only supported in text-embedding-3 and later models. Constraints: min: 1"
+    },
+    {
+      "title": "Truncate Dimensions - Azure AI Search",
+      "url": "https://learn.microsoft.com/en-us/azure/search/vector-search-how-to-truncate-dimensions",
+      "type": "official-docs",
+      "quote": "text-embedding-3 models are retrained on the Matryoshka Representation Learning (MRL) technique that produces multiple vector representations at different levels of compression."
+    },
+    {
+      "title": "Azure OpenAI Service Pricing",
+      "url": "https://azure.microsoft.com/en-us/pricing/details/cognitive-services/openai-service/",
+      "type": "official-docs",
+      "quote": "GPT-6 Astra (short context) - Input: $10 - Output: $50 ... GPT-6 Luna (short context) - Input: $0.10 - Output: $0.50"
+    }
+  ],
+  "uncertain": [
+    "key_findings",
+    "recommendations"
+  ]
+}
