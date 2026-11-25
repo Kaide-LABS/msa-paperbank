@@ -4,9 +4,9 @@ Self-hosted past-paper bot for PAU students, using a local CPU embedder, Postgre
 
 ## How students use it
 
-Students use it in **Microsoft Teams**, not WhatsApp. A Teams agent built in Microsoft Copilot Studio takes the student's request and calls this service's `POST /tool/retrieve` endpoint (bearer-token protected). The service replies with the matching paper's course, year and semester and a signed `GET /download` link that works for about 15 minutes and serves the PDF.
+Students use it in **Microsoft Teams**. A Teams agent built in Microsoft Copilot Studio takes the student's request and calls this service's `POST /tool/retrieve` endpoint (bearer-token protected). The service replies with the matching paper's course, year and semester and a signed `GET /download` link that works for about 15 minutes and serves the PDF.
 
-A sample tool definition (Swagger 2.0) and a test plan for the Copilot Studio setup are in [spike/copilot-studio/](spike/copilot-studio/). The older WhatsApp channel is no longer how students reach the bot, though its webhook code is still in the repository.
+A sample tool definition (Swagger 2.0) and a test plan for the Copilot Studio setup are in [spike/copilot-studio/](spike/copilot-studio/).
 
 ## Start
 
@@ -16,7 +16,7 @@ Expose the bot only through HTTPS and keep `.env` private. Run the restore drill
 
 ## Privacy and opt-out
 
-The bot stores only what it needs to answer past-paper queries. On the legacy WhatsApp channel, users may stop being tracked at any time by sending `STOP TRACKING`, after which their stored interaction data is cleared.
+The bot stores only what it needs to answer past-paper queries. Users may stop being tracked at any time by sending `STOP TRACKING`, after which their stored interaction data is cleared.
 
 ## Cutover
 
